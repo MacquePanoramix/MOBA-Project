@@ -15,6 +15,18 @@ Thumbs.db
 .DS_Store
 .vscode/*.log
 
+# Local Unity products for the movement lab
+/prototype/Library/
+/prototype/Temp/
+/prototype/Obj/
+/prototype/Logs/
+/prototype/UserSettings/
+/prototype/Builds/
+/prototype/MemoryCaptures/
+/prototype/[Aa]rtifacts/
+/prototype/*.csproj
+/prototype/*.slnx
+
 # Python/build scratch
 __pycache__/
 *.pyc

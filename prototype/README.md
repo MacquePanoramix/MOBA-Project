@@ -1,25 +1,32 @@
 # Movement Lab v0.01
 
-**Status:** Planned. Launch instructions are TBD until there is a runnable prototype. See [current state](../docs/CURRENT_STATE.md) and the [roadmap](../docs/04_ROADMAP.md).
+## Run the lab
 
-Build one top-down course with a controllable capsule, open ground, and static tree-like obstacles. Right-click sets a destination. Show the destination, planned route, capsule facing, and movement status in the lab. Expose movement speed, turn rate, and stopping behavior as editable prototype settings.
+1. In Unity Hub, add this `prototype/` folder and open it with Unity `6000.6.0f1`.
+2. Open `Assets/MovementLab/Scenes/MovementLab.unity` and press **Play**.
+3. Right-click the course to move. Press **R** to reset your position while keeping your slider settings. **Restore baseline** returns the sliders to the scene defaults.
+
+For a standalone build, choose **Movement Lab → Build Windows Player** in the editor. Run `Builds/Windows/MovementLab.exe` once Unity finishes.
 
 ## Playtest course
 
-Start each check from the same marked spawn with the default tuning. Use marked destinations so another person can repeat the clicks.
+Reset to **Spawn** and restore the baseline before each check. Click the ring beside the station name.
 
 | Check | What to do and observe | Result |
 | --- | --- | --- |
-| Clear route | Right-click a marker across open ground. The destination and route appear, and the capsule travels to the marker. | Unrun |
-| Tree detour | Click a reachable marker across a tree cluster. The route and capsule go around the cluster without crossing an obstacle. | Unrun |
-| Reversal and retargeting | While moving, click a marker behind the capsule. The visible target and route update, and the capsule turns toward the new route. | Unrun |
-| Settle at destination | Click a nearby marker and watch the full arrival. The capsule comes to rest and stays there. | Unrun |
-| Invalid or unreachable target | From rest, click a blocked or disconnected spot. Feedback shows the click outcome, and the capsule stays outside the obstacle. | Unrun |
+| Clear route | Right-click **Open**. The destination and route appear, and the capsule travels to the marker. | Passed in Windows player |
+| Tree detour | Right-click **Detour** across the grove. The route and capsule go around the trees. | Passed in Windows player |
+| Reversal and retargeting | Right-click **Detour**. While moving, right-click **Return** and watch how the capsule turns and changes speed. | Passed in Windows player |
+| Settle at destination | Right-click **Near** and watch the full arrival. The capsule comes to rest and stays there. | Passed in Windows player |
+| Invalid destination | Right-click **Blocked** in the grove. Look for blocked-click feedback. A blocked click during a move keeps the previous route. | Feedback observed in Windows player. Route retention passed in editor checks. |
 
 ## Compare tuning
 
 Run the same course with the default settings, then rerun it with one setting changed. Record both settings and compare how quickly the capsule responds to a new click, how much commitment a turn feels like, and how the capsule settles. Repeat for each setting you want to compare. Treat tuning values as provisional.
 
-**Engineering evidence:** Record the build, settings, check result, and a capture or log if available. Flag any checks left unrun.
+**Engineering evidence**
+
+- Unity `6000.6.0f1` compiled the project, passed the isolated checks, and built the Windows x64 player. Re-run the checks with **Movement Lab → Run Movement Checks** in the editor.
+- In the Windows player, right-clicks exercised the marked course with the baseline of 5 units/s, 8 units/s² acceleration, 12 units/s² braking, 300°/s turn rate, and an 85° turn slowdown angle. Changing the turn-rate slider to 119°/s and restoring the 300°/s baseline updated the HUD. The **R** key and **Reset course** button returned the capsule to spawn.
 
 **Designer playtest:** Luís judges whether the movement feels weighted and still responsive, and decides which tuning to keep or revisit. Feedback pending.

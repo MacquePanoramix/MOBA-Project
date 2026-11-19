@@ -2,9 +2,9 @@
 
 ## Start here
 
-**2026-11-19.** The movement lab is the first playable milestone. The design handoff is in place, and [the lab guide](../prototype/README.md) defines the test course. No runtime project has been created and the course is unrun.
+**2026-11-19.** Luís approved trying Unity for the first movement lab. The first Windows player built and passed the mouse-driven course checks. Open `prototype/` with Unity `6000.6.0f1` or run the Windows player, then follow [the lab guide](../prototype/README.md) to compare tuning and record Luís's feedback.
 
-Choose a trial runtime before adding engine files. Unity `6000.6.0f1` is the lowest-setup candidate found locally and matches the editor version recorded in The Wanderer. The executable is present. Editor launch, build, and play mode are still unverified for the MOBA. No Unreal or Godot editor turned up in the local checks, and Unreal's C++ toolchain was not verified. The trial should show how quickly we can tune turning and stopping, inspect a route, and repeat the same course. The long-term engine choice remains open.
+The trial uses a flat course, static circular obstacles and a custom motor. The baseline uses placeholder values so we can compare turning and braking on repeatable routes. The long-term engine choice remains open. A future small networked test can check whether movement and a topology change stay responsive and consistent under latency.
 
 The lab scope is right-click movement around static trees, adjustable movement and turning, and enough on-screen feedback to debug a route. Record technical results in the lab guide. Luís decides whether walking, turning, and stopping feel right. The [hero concepts](02_HERO_DESIGNS.md) and [open questions](05_OPEN_QUESTIONS.md) still govern later design work.
 

@@ -2,21 +2,22 @@
 
 ## Milestone 0 — Validate the toolchain and project skeleton
 
-- [ ] Confirm preferred engine and version (Unreal was suggested, not irrevocably chosen).
-- [ ] Inspect Windows environment, hardware constraints and installed development tools.
-- [ ] Create a clean engine project within this folder or in a child `game/` directory.
-- [ ] Initialize Git and a sensible ignore file; confirm project launches.
-- [ ] Document one-command or short editor steps to run.
+- [x] Confirm Unity `6000.6.0f1` for the movement lab trial. The full-game engine decision remains open.
+- [x] Inspect the installed tools and verify the build on Windows.
+- [x] Create the Unity project inside `prototype/`.
+- [x] Initialize Git, ignore generated files, and verify the Windows player launch.
+- [x] Document the editor and Windows player launch steps in the [lab guide](../prototype/README.md).
 
 **Done when:** local project opens reliably and source is versioned.
 
 ## Milestone 1 — Movement Lab v0.01
 
-- [ ] Fixed or adjustable isometric/top-down camera.
-- [ ] Right-click click-to-move with pathfinding around static tree-like obstacles.
-- [ ] Data-configurable movement speed, turning rate and stop behavior.
-- [ ] Obvious visual or logged debugging feedback for movement/pathing.
-- [ ] Simple reproducible test course for movement-feel comparisons.
+- [x] Fixed top-down camera.
+- [x] Right-click movement with pathfinding around static tree-like obstacles.
+- [x] Editable movement speed, turning rate, and stop behavior.
+- [x] Visible path, destination, facing, and status feedback.
+- [x] Repeatable test course with a restorable tuning baseline.
+- [ ] Designer playtest and movement feel feedback.
 
 **Done when:** human can run a tiny sandbox and report whether movement feels weighted enough.
 

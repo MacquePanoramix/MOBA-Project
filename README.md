@@ -2,13 +2,13 @@
 
 A standalone, slower-paced, hero-based MOBA concept inspired by early Dota 2 movement/trees and League of Legends' skillshot-heavy combat and more passive-focused itemization.
 
-The first milestone is a small playable lab for right-click pathing around trees and tuning weighted movement. The engine choice is open.
+The first milestone is a small playable lab for right-click pathing around trees and tuning weighted movement. The lab uses Unity `6000.6.0f1` as a trial for the standalone game.
 
 ## Start here
 
 1. Read the [working agreement](AGENTS.md) and [current state](docs/CURRENT_STATE.md).
 2. Before planning implementation, read the [game vision](docs/00_GAME_VISION.md), [core systems](docs/01_CORE_SYSTEMS.md), and [hero concepts](docs/02_HERO_DESIGNS.md).
-3. Use the [movement lab guide](prototype/README.md) for the first milestone's acceptance checks and playtest steps.
+3. Open [`prototype`](prototype/) in Unity Hub and use the [movement lab guide](prototype/README.md) to run the course and compare tuning.
 
 ## Project records
 

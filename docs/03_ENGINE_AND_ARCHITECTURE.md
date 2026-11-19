@@ -1,8 +1,10 @@
 # Engine and Architecture — Proposed, Not Yet Implemented
 
-The engine is open. See [Current state](CURRENT_STATE.md) for the latest local tooling check and the movement lab's next step.
+The movement lab uses Unity as a trial. The engine decision for the standalone game is open. See [Current state](CURRENT_STATE.md) for the active milestone.
 
 ## Engine direction
+
+A Unity `6000.6.0f1` project lives in `prototype/`. In the lab, the scene passes right-click destinations to a route planner for static obstacles and a motor that controls facing, travel speed, and braking. The HUD exposes provisional tuning and movement feedback while the course runs.
 
 A previous discussion recommended **Unreal Engine 5**, using C++ for common systems and Blueprints/Data Assets for per-hero settings and content. Unreal's Gameplay Ability System (GAS) is a strong candidate for skills, attributes, effects and networking. However, the recommendation has **not yet been validated against the developer's computer, installed UE version, editor/toolchain, or iteration speed**. Reconfirm before implementation. Avoid assuming any exact engine version has already been installed.
 

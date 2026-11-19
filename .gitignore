@@ -1,0 +1,23 @@
+# Generated Unreal Engine content (if an Unreal project is created in this repository)
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+*.VC.db
+*.VC.opendb
+*.suo
+*.sln
+*.xcworkspace
+
+# Windows / IDE temp
+Thumbs.db
+.DS_Store
+.vscode/*.log
+
+# Python/build scratch
+__pycache__/
+*.pyc
+*.tmp
+
+# Note: Unreal *.uasset/*.umap / source project config are NOT ignored.

@@ -5,7 +5,7 @@
 - Is 6v6 the intended main mode, an optional mode, or future expansion of a 5v5 core?
 - For 6v6, is the sixth slot unassigned/flex or formally a top support/second jungler?
 - Should bushes exist separately from trees? If yes, what distinct vision rule applies?
-- What exact degree of deliberate old-Dota movement sluggishness remains fun?
+- How wide should the range of movement feel be across units and heroes? Which differences should come from turning, speed, acceleration, or braking?
 - How destructive and persistent is the forest system (tree regrowth, path opening)?
 - What match length and map travel times are intended?
 - How should gold/XP be distributed to supports and secondary junglers?

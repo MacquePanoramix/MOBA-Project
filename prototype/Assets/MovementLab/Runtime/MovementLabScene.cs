@@ -3,6 +3,12 @@ using UnityEngine;
 
 namespace Moba.MovementLab
 {
+    public enum MovementProfile
+    {
+        QuickTurn,
+        DeliberateTurn
+    }
+
     public sealed class MovementLabScene : MonoBehaviour
     {
         public static readonly Vector2 Spawn = new Vector2(-8f, -3f);
@@ -25,7 +31,10 @@ namespace Moba.MovementLab
 
         [SerializeField] private Shader surfaceShader;
         [SerializeField] private Shader lineShader;
+        [Header("Quick turn")]
         [SerializeField] private MovementTuning baseline = new MovementTuning();
+        [Header("Deliberate turn")]
+        [SerializeField] private MovementTuning deliberateTurnBaseline = new MovementTuning { TurnRate = 150f };
 
         private readonly List<Material> materials = new List<Material>();
         private readonly Plane groundPlane = new Plane(Vector3.up, Vector3.zero);
@@ -37,6 +46,8 @@ namespace Moba.MovementLab
         private Transform rejectedMarker;
         private Material lineMaterial;
         private MovementLabHud hud;
+        private MovementTuning quickTurnTuning;
+        private MovementTuning deliberateTurnTuning;
         private bool hasDestination;
         private bool rejectedClick;
         private int viewWidth;
@@ -44,7 +55,8 @@ namespace Moba.MovementLab
 
         public MovementCourse Course { get; private set; }
         public MovementMotor Motor { get; private set; }
-        public MovementTuning Tuning { get; private set; }
+        public MovementProfile ActiveProfile { get; private set; } = MovementProfile.QuickTurn;
+        public MovementTuning Tuning => ActiveProfile == MovementProfile.QuickTurn ? quickTurnTuning : deliberateTurnTuning;
 
         private void Awake()
         {
@@ -70,7 +82,8 @@ namespace Moba.MovementLab
             routeLine = CreateLine("Planned route", RouteColor, 0.095f, false);
             destinationMarker = CreateRing("Destination", Vector2.zero, 0.4f, 0.06f, RouteColor).transform;
             rejectedMarker = CreateRing("Rejected click", Vector2.zero, 0.52f, 0.07f, RejectedColor).transform;
-            RestoreBaseline();
+            quickTurnTuning = CopyTuning(baseline);
+            deliberateTurnTuning = CopyTuning(deliberateTurnBaseline);
             ResetCourse();
         }
 
@@ -135,15 +148,34 @@ namespace Moba.MovementLab
             DrawMovement();
         }
 
-        internal void RestoreBaseline()
+        public void SelectProfile(MovementProfile profile)
         {
-            Tuning = new MovementTuning
+            if (profile != MovementProfile.QuickTurn && profile != MovementProfile.DeliberateTurn)
+                throw new System.ArgumentOutOfRangeException(nameof(profile));
+            if (profile == ActiveProfile)
+                return;
+
+            ActiveProfile = profile;
+            ResetCourse();
+        }
+
+        public void RestoreBaseline()
+        {
+            if (ActiveProfile == MovementProfile.QuickTurn)
+                quickTurnTuning = CopyTuning(baseline);
+            else
+                deliberateTurnTuning = CopyTuning(deliberateTurnBaseline);
+        }
+
+        private static MovementTuning CopyTuning(MovementTuning source)
+        {
+            return new MovementTuning
             {
-                MaxSpeed = baseline.MaxSpeed,
-                Acceleration = baseline.Acceleration,
-                Deceleration = baseline.Deceleration,
-                TurnRate = baseline.TurnRate,
-                TurnSlowdownAngle = baseline.TurnSlowdownAngle
+                MaxSpeed = source.MaxSpeed,
+                Acceleration = source.Acceleration,
+                Deceleration = source.Deceleration,
+                TurnRate = source.TurnRate,
+                TurnSlowdownAngle = source.TurnSlowdownAngle
             };
         }
 

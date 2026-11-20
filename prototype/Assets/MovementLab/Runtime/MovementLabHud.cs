@@ -17,6 +17,7 @@ namespace Moba.MovementLab
         private GUIStyle value;
         private GUIStyle station;
         private GUIStyle button;
+        private Vector2 tuningScroll;
 
         public static float PanelWidth(int screenWidth)
         {
@@ -44,6 +45,10 @@ namespace Moba.MovementLab
             Fill(new Rect(x, 0f, 1f, Screen.height), Divider);
             var content = new Rect(x + 16f, 14f, width - 32f, Screen.height - 28f);
             GUILayout.BeginArea(content);
+            DrawProfiles(scene, content.width);
+
+            GUILayout.Space(8f);
+            tuningScroll = GUILayout.BeginScrollView(tuningScroll);
             DrawStatus(scene.Motor, hasDestination, rejectedClick);
 
             GUILayout.Space(8f);
@@ -61,7 +66,33 @@ namespace Moba.MovementLab
                 scene.RestoreBaseline();
             if (GUILayout.Button("Reset course", button, GUILayout.Height(30f)))
                 scene.ResetCourse();
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        private void DrawProfiles(MovementLabScene scene, float width)
+        {
+            GUILayout.Label("Unit profile", heading);
+            bool sideBySide = width >= 174f;
+            if (sideBySide)
+                GUILayout.BeginHorizontal();
+
+            DrawProfile(scene, MovementProfile.QuickTurn, "Quick turn");
+            DrawProfile(scene, MovementProfile.DeliberateTurn, "Deliberate turn");
+
+            if (sideBySide)
+                GUILayout.EndHorizontal();
+        }
+
+        private void DrawProfile(MovementLabScene scene, MovementProfile profile, string label)
+        {
+            bool selected = scene.ActiveProfile == profile;
+            Color priorColor = GUI.backgroundColor;
+            if (selected)
+                GUI.backgroundColor = Accent;
+            if (GUILayout.Toggle(selected, label, button, GUILayout.Height(28f)) && !selected)
+                scene.SelectProfile(profile);
+            GUI.backgroundColor = priorColor;
         }
 
         private void DrawStatus(MovementMotor motor, bool hasDestination, bool rejectedClick)

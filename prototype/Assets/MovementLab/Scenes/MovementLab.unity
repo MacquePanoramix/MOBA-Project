@@ -156,6 +156,12 @@ MonoBehaviour:
     Deceleration: 12
     TurnRate: 300
     TurnSlowdownAngle: 85
+  deliberateTurnBaseline:
+    MaxSpeed: 5
+    Acceleration: 8
+    Deceleration: 12
+    TurnRate: 150
+    TurnSlowdownAngle: 85
 --- !u!4 &2067881036
 Transform:
   m_ObjectHideFlags: 0

@@ -50,7 +50,22 @@ namespace Moba.MovementLab
                 "Reversal did not respect the configurable turn rate");
             ReachAndSettle(retarget, course, tuning, returnTarget);
 
-            Debug.Log("Movement Lab checks passed: direct route, tree clearance, arrival, retarget/reversal, and invalid commands.");
+            var quickTurn = new MovementMotor(spawn, 90f);
+            var deliberateTurn = new MovementMotor(spawn, 90f);
+            var quickTuning = new MovementTuning { TurnRate = 300f };
+            var deliberateTuning = new MovementTuning { TurnRate = 150f };
+            Check(quickTurn.TrySetDestination(course, returnTarget) && deliberateTurn.TrySetDestination(course, returnTarget),
+                "Both units must be able to reverse toward the same destination");
+            quickTurn.Tick(Step, quickTuning);
+            deliberateTurn.Tick(Step, deliberateTuning);
+            float quickAngle = Mathf.Abs(Mathf.DeltaAngle(90f, quickTurn.HeadingDegrees));
+            float deliberateAngle = Mathf.Abs(Mathf.DeltaAngle(90f, deliberateTurn.HeadingDegrees));
+            Check(Mathf.Abs(quickAngle - 6f) <= Tolerance && Mathf.Abs(deliberateAngle - 3f) <= Tolerance,
+                "The two rates must produce different turns from the same heading and time step");
+            ReachAndSettle(quickTurn, course, quickTuning, returnTarget);
+            ReachAndSettle(deliberateTurn, course, deliberateTuning, returnTarget);
+
+            Debug.Log("Movement Lab checks passed: direct route, tree clearance, arrival, retarget/reversal, invalid commands, and independent turn rates.");
         }
 
         private static void ReachAndSettle(MovementMotor motor, MovementCourse course, MovementTuning tuning, Vector2 target)

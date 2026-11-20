@@ -17,7 +17,7 @@
 - [x] Editable movement speed, turning rate, and stop behavior.
 - [x] Visible path, destination, facing, and status feedback.
 - [x] Repeatable test course with a restorable tuning baseline.
-- [ ] Designer playtest and movement feel feedback.
+- [x] Designer playtest and movement feel feedback. Both tested turn rates fit the intended range.
 
 **Done when:** human can run a tiny sandbox and report whether movement feels weighted enough.
 

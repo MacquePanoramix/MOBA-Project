@@ -4,6 +4,8 @@
 
 **User intent:** slower and weightier, reminiscent of early Dota 2, with janky-feeling movement and trees. This should be tuned empirically in the first prototype.
 
+Luís wants substantial variation in movement feel across units and heroes. In the first lab playtest, both the quicker and slower turn rates felt suitable. Specific values and unit assignments are still open.
+
 **Proposed parameters to expose for tuning (not approved values):** move speed, acceleration/deceleration, turn rate, stopping distance, attack wind-up/backswing, body/collision radius, pathfinding responsiveness, targeting rules, obstruction avoidance.
 
 **Trees:** important to map character and physicality. Tortuga can eat one. Details of felling, destruction, regrowth, damage interactions, and whether trees obstruct attacks/vision all need experiments.

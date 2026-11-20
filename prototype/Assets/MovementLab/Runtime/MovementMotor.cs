@@ -52,6 +52,21 @@ namespace Moba.MovementLab
             return true;
         }
 
+        internal void Stop()
+        {
+            route.Clear();
+            NextWaypointIndex = 0;
+            remainingRouteDistance = 0f;
+            Destination = Position;
+            Speed = 0f;
+        }
+
+        internal bool TurnToward(Vector2 target, MovementTuning tuning, float deltaTime)
+        {
+            Vector2 offset = target - Position;
+            return offset.sqrMagnitude == 0f || TurnTowardOffset(offset, tuning, deltaTime) <= 0.001f;
+        }
+
         public void Tick(float deltaTime, MovementTuning tuning)
         {
             if (!IsMoving || deltaTime <= 0f)
@@ -66,12 +81,7 @@ namespace Moba.MovementLab
                 return;
             }
 
-            float desiredHeading = Mathf.Atan2(offset.x, offset.y) * Mathf.Rad2Deg;
-            float turnSpeed = Mathf.Max(1f, tuning.TurnRate);
-            float nextHeading = Mathf.MoveTowardsAngle(HeadingDegrees, desiredHeading, turnSpeed * deltaTime);
-            HeadingDegrees = Mathf.Repeat(nextHeading, 360f);
-
-            float turnAngle = Mathf.Abs(Mathf.DeltaAngle(HeadingDegrees, desiredHeading));
+            float turnAngle = TurnTowardOffset(offset, tuning, deltaTime);
             float slowdownAngle = Mathf.Clamp(tuning.TurnSlowdownAngle, 1f, 90f);
             float alignment = 1f - Mathf.Clamp01(turnAngle / slowdownAngle);
             float turnSpeedLimit = Mathf.Max(0.1f, tuning.MaxSpeed) * alignment;
@@ -94,6 +104,15 @@ namespace Moba.MovementLab
                 Position += offset * (step / distance);
                 Speed = step / deltaTime;
             }
+        }
+
+        private float TurnTowardOffset(Vector2 offset, MovementTuning tuning, float deltaTime)
+        {
+            float desiredHeading = Mathf.Atan2(offset.x, offset.y) * Mathf.Rad2Deg;
+            float turnSpeed = Mathf.Max(1f, tuning.TurnRate);
+            float nextHeading = Mathf.MoveTowardsAngle(HeadingDegrees, desiredHeading, turnSpeed * deltaTime);
+            HeadingDegrees = Mathf.Repeat(nextHeading, 360f);
+            return Mathf.Abs(Mathf.DeltaAngle(HeadingDegrees, desiredHeading));
         }
 
         private void AdvanceWaypoint()

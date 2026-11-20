@@ -6,6 +6,7 @@
 - For 6v6, is the sixth slot unassigned/flex or formally a top support/second jungler?
 - Should bushes exist separately from trees? If yes, what distinct vision rule applies?
 - How wide should the range of movement feel be across units and heroes? Which differences should come from turning, speed, acceleration, or braking?
+- How much commitment should a basic attack require before and after contact? Which timing and interruption rules should vary across units?
 - How destructive and persistent is the forest system (tree regrowth, path opening)?
 - What match length and map travel times are intended?
 - How should gold/XP be distributed to supports and secondary junglers?

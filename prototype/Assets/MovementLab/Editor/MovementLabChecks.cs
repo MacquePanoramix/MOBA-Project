@@ -65,6 +65,7 @@ namespace Moba.MovementLab
             ReachAndSettle(quickTurn, course, quickTuning, returnTarget);
             ReachAndSettle(deliberateTurn, course, deliberateTuning, returnTarget);
 
+            BasicAttackChecks.Run();
             Debug.Log("Movement Lab checks passed: direct route, tree clearance, arrival, retarget/reversal, invalid commands, and independent turn rates.");
         }
 

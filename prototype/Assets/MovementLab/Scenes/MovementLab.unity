@@ -162,6 +162,10 @@ MonoBehaviour:
     Deceleration: 12
     TurnRate: 150
     TurnSlowdownAngle: 85
+  attackTuning:
+    Range: 2.25
+    WindUpSeconds: 0.5
+    RecoverySeconds: 0.35
 --- !u!4 &2067881036
 Transform:
   m_ObjectHideFlags: 0

@@ -17,17 +17,22 @@ namespace Moba.MovementLab
         public static readonly Vector2 Return = new Vector2(-10f, -4f);
         public static readonly Vector2 Near = new Vector2(-6f, -3f);
         public static readonly Vector2 Blocked = new Vector2(0f, -3f);
+        public static readonly Vector2 TrainingDummy = new Vector2(7f, 2.5f);
 
         private const float HalfWidth = 12.5f;
         private const float HalfDepth = 7.5f;
-        private const float TreeRadius = 0.9f;
+        private const float ObstacleRadius = 0.9f;
         private const float UnitRadius = 0.46f;
         private const float SpawnHeading = 90f;
+        private const float HitFlashSeconds = 0.27f;
 
         private static readonly Color Background = new Color32(17, 26, 30, 255);
         private static readonly Color RouteColor = new Color32(109, 240, 202, 255);
         private static readonly Color RejectedColor = new Color32(255, 144, 121, 255);
         private static readonly Color StationColor = new Color32(171, 200, 207, 255);
+        private static readonly Color DummyColor = new Color32(198, 129, 72, 255);
+        private static readonly Color WindUpColor = new Color32(255, 210, 120, 255);
+        private static readonly Color HitColor = new Color32(255, 249, 215, 255);
 
         [SerializeField] private Shader surfaceShader;
         [SerializeField] private Shader lineShader;
@@ -35,6 +40,8 @@ namespace Moba.MovementLab
         [SerializeField] private MovementTuning baseline = new MovementTuning();
         [Header("Deliberate turn")]
         [SerializeField] private MovementTuning deliberateTurnBaseline = new MovementTuning { TurnRate = 150f };
+        [Header("Basic attack")]
+        [SerializeField] private BasicAttackTuning attackTuning = new BasicAttackTuning();
 
         private readonly List<Material> materials = new List<Material>();
         private readonly Plane groundPlane = new Plane(Vector3.up, Vector3.zero);
@@ -42,19 +49,26 @@ namespace Moba.MovementLab
         private Camera view;
         private Transform capsule;
         private LineRenderer routeLine;
+        private LineRenderer dummyRing;
+        private LineRenderer windUpRing;
         private Transform destinationMarker;
         private Transform rejectedMarker;
         private Material lineMaterial;
+        private Material dummyFace;
         private MovementLabHud hud;
         private MovementTuning quickTurnTuning;
         private MovementTuning deliberateTurnTuning;
         private bool hasDestination;
         private bool rejectedClick;
+        private int displayedHits;
+        private float hitFlashRemaining;
         private int viewWidth;
         private int viewHeight;
 
         public MovementCourse Course { get; private set; }
         public MovementMotor Motor { get; private set; }
+        public BasicAttackSequence Attack { get; private set; }
+        public BasicAttackTuning AttackTuning => attackTuning;
         public MovementProfile ActiveProfile { get; private set; } = MovementProfile.QuickTurn;
         public MovementTuning Tuning => ActiveProfile == MovementProfile.QuickTurn ? quickTurnTuning : deliberateTurnTuning;
 
@@ -67,7 +81,10 @@ namespace Moba.MovementLab
                 new Vector2(2.1f, 1.7f), new Vector2(-0.92f, 3.45f),
                 new Vector2(1.05f, 3.55f)
             };
-            Course = new MovementCourse(HalfWidth, HalfDepth, trees, TreeRadius, UnitRadius);
+            var obstacles = new Vector2[trees.Length + 1];
+            trees.CopyTo(obstacles, 0);
+            obstacles[trees.Length] = TrainingDummy;
+            Course = new MovementCourse(HalfWidth, HalfDepth, obstacles, ObstacleRadius, UnitRadius);
             surfaceShader = surfaceShader != null ? surfaceShader : Shader.Find("Standard");
             lineShader = lineShader != null ? lineShader : Shader.Find("Sprites/Default");
             lineMaterial = CreateMaterial(lineShader, Color.white);
@@ -78,6 +95,8 @@ namespace Moba.MovementLab
             CreateTrees(trees);
             CreateCapsule();
             CreateStations();
+            CreateTrainingDummy();
+            windUpRing = CreateRing("Attack wind-up", Vector2.zero, UnitRadius + 0.18f, 0.08f, WindUpColor);
 
             routeLine = CreateLine("Planned route", RouteColor, 0.095f, false);
             destinationMarker = CreateRing("Destination", Vector2.zero, 0.4f, 0.06f, RouteColor).transform;
@@ -104,8 +123,9 @@ namespace Moba.MovementLab
                 }
             }
 
-            Motor.Tick(Time.deltaTime, Tuning);
+            Attack.Tick(Motor, Tuning, Time.deltaTime);
             DrawMovement();
+            DrawAttackFeedback(Time.deltaTime);
         }
 
         private void OnGUI()
@@ -121,7 +141,15 @@ namespace Moba.MovementLab
 
         public bool CommandDestination(Vector2 target)
         {
-            bool accepted = Motor.TrySetDestination(Course, target);
+            if ((target - TrainingDummy).sqrMagnitude <= ObstacleRadius * ObstacleRadius)
+            {
+                bool attackAccepted = Attack.TryAttack(Motor, Course);
+                if (attackAccepted)
+                    ClearDestinationMarkers();
+                return attackAccepted;
+            }
+
+            bool accepted = Attack.TryMove(Motor, Course, target);
             rejectedClick = !accepted;
             bool finiteTarget = Mathf.Abs(target.x) <= float.MaxValue && Mathf.Abs(target.y) <= float.MaxValue;
             rejectedMarker.gameObject.SetActive(rejectedClick && finiteTarget);
@@ -141,11 +169,20 @@ namespace Moba.MovementLab
         public void ResetCourse()
         {
             Motor = new MovementMotor(Spawn, SpawnHeading);
+            Attack = new BasicAttackSequence(TrainingDummy, attackTuning);
+            displayedHits = 0;
+            hitFlashRemaining = 0f;
+            ClearDestinationMarkers();
+            DrawMovement();
+            DrawAttackFeedback(0f);
+        }
+
+        private void ClearDestinationMarkers()
+        {
             hasDestination = false;
             rejectedClick = false;
             destinationMarker.gameObject.SetActive(false);
             rejectedMarker.gameObject.SetActive(false);
-            DrawMovement();
         }
 
         public void SelectProfile(MovementProfile profile)
@@ -195,6 +232,31 @@ namespace Moba.MovementLab
             routeLine.SetPosition(0, AtGround(Motor.Position, routeHeight));
             for (int i = nextWaypoint; i < route.Count; i++)
                 routeLine.SetPosition(i - nextWaypoint + 1, AtGround(route[i], routeHeight));
+        }
+
+        private void DrawAttackFeedback(float deltaTime)
+        {
+            hitFlashRemaining = Mathf.Max(0f, hitFlashRemaining - deltaTime);
+            if (Attack.HitCount > displayedHits)
+            {
+                displayedHits = Attack.HitCount;
+                hitFlashRemaining = HitFlashSeconds;
+            }
+
+            bool windingUp = Attack.Phase == BasicAttackPhase.WindUp;
+            if (windUpRing.gameObject.activeSelf != windingUp)
+                windUpRing.gameObject.SetActive(windingUp);
+            if (windingUp)
+            {
+                windUpRing.transform.position = AtGround(Motor.Position, 0.16f);
+                windUpRing.widthMultiplier = Mathf.Lerp(0.06f, 0.17f, Attack.PhaseProgress);
+            }
+
+            float flash = hitFlashRemaining / HitFlashSeconds;
+            Color ringColor = Attack.Phase == BasicAttackPhase.Ready ? DummyColor : WindUpColor;
+            dummyRing.startColor = dummyRing.endColor = Color.Lerp(ringColor, HitColor, flash);
+            dummyRing.widthMultiplier = Mathf.Lerp(0.054f, 0.18f, flash);
+            dummyFace.color = Color.Lerp(DummyColor, HitColor, flash);
         }
 
         private void CreateView()
@@ -253,7 +315,7 @@ namespace Moba.MovementLab
             {
                 Transform tree = CreateChild($"Tree {i + 1}", grove);
                 tree.localPosition = AtGround(trees[i]);
-                float diameter = TreeRadius * 2f;
+                float diameter = ObstacleRadius * 2f;
                 CreatePrimitive(PrimitiveType.Cylinder, "Tree footprint", new Vector3(0f, 0.035f, 0f),
                     new Vector3(diameter, 0.035f, diameter), baseMaterial, tree);
                 CreatePrimitive(PrimitiveType.Sphere, "Tree canopy", new Vector3(0f, 0.72f, 0f),
@@ -288,6 +350,28 @@ namespace Moba.MovementLab
             CreateRing("Near station", Near, 0.28f, 0.045f, StationColor);
             LineRenderer blocked = CreateRing("Blocked station", Blocked, 0.27f, 0.045f, RejectedColor);
             blocked.transform.localPosition = AtGround(Blocked, 1.85f);
+        }
+
+        private void CreateTrainingDummy()
+        {
+            Material pedestal = CreateMaterial(surfaceShader, new Color32(88, 59, 50, 255));
+            Material bullseye = CreateMaterial(surfaceShader, new Color32(236, 216, 166, 255));
+            dummyFace = CreateMaterial(surfaceShader, DummyColor);
+            Transform dummy = CreateChild("Training dummy", transform);
+            dummy.localPosition = AtGround(TrainingDummy);
+
+            float diameter = ObstacleRadius * 2f;
+            CreatePrimitive(PrimitiveType.Cylinder, "Dummy footprint", new Vector3(0f, 0.11f, 0f),
+                new Vector3(diameter, 0.11f, diameter), pedestal, dummy);
+            CreatePrimitive(PrimitiveType.Cylinder, "Target face", new Vector3(0f, 0.81f, 0f),
+                new Vector3(diameter * 0.85f, 0.06f, diameter * 0.85f), dummyFace, dummy);
+            CreatePrimitive(PrimitiveType.Cylinder, "Bullseye outer", new Vector3(0f, 0.88f, 0f),
+                new Vector3(diameter * 0.51f, 0.02f, diameter * 0.51f), pedestal, dummy);
+            CreatePrimitive(PrimitiveType.Cylinder, "Bullseye center", new Vector3(0f, 0.91f, 0f),
+                new Vector3(diameter * 0.26f, 0.02f, diameter * 0.26f), bullseye, dummy);
+
+            dummyRing = CreateRing("Dummy outline", TrainingDummy, ObstacleRadius + 0.07f, 0.054f, DummyColor);
+            CreateRing("Attack range guide", TrainingDummy, attackTuning.Range, 0.043f, new Color32(202, 200, 164, 153));
         }
 
         private LineRenderer CreateRing(string objectName, Vector2 position, float radius, float width, Color color)

@@ -23,6 +23,7 @@
 
 ## Milestone 2 — Basic combat laboratory
 
+- [x] First slice with one stationary dummy, visible attack phases, and a shared basic attack for both movement profiles.
 - [ ] Two targetable graybox heroes, teams, HP and respawn.
 - [ ] Basic attacks, attack wind-up and backswing.
 - [ ] One projectile skillshot, simple collision, short stun/root, damage and healing.
@@ -56,4 +57,4 @@
 - [ ] Expand map/jungle, test sixth-player strategies if 6v6 chosen.
 - [ ] Implement remaining roster iteratively and test for meaningful counterplay.
 
-**Do not skip ahead:** Milestone 1 movement feel is the immediate priority.
+**Current priority:** Compare the movement profiles with the basic attack before adding a full combat kit.

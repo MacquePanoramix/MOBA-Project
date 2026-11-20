@@ -36,6 +36,6 @@ You are collaborating on a long-term standalone MOBA with a human game designer.
 
 The engine choice is open. Unreal Engine 5 with C++/Blueprints and GAS was proposed in the original handoff. Check the exact version, installed tools, and designer preference before creating engine-specific files. A trial can inform the long-term engine decision.
 
-## Current focus: movement laboratory
+## Current focus
 
-The first deliverable is the [Movement Lab](prototype/README.md), a small top-down playable prototype with right-click movement, navigable obstacles/trees, configurable turning and movement feel, and visible debugging feedback. Keep heroes, the item shop, minions, networking, art polish, and a full map outside this milestone. Ask only essential setup questions when truly blocked. Use a marked placeholder for reversible test details.
+The [lab](prototype/README.md) is a small top-down course with right-click movement around trees, configurable movement profiles, and visible debugging feedback. The current combat trial adds one stationary dummy and a single basic attack. Keep hero kits, the item shop, minions, networking, art polish, and a full map outside the trial. Ask only essential setup questions when truly blocked. Use a marked placeholder for reversible test details.

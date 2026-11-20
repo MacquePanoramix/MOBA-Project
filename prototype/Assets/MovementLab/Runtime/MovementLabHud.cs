@@ -10,6 +10,7 @@ namespace Moba.MovementLab
         private static readonly Color Secondary = new Color32(181, 205, 210, 255);
         private static readonly Color Accent = new Color32(109, 240, 202, 255);
         private static readonly Color Warning = new Color32(255, 144, 121, 255);
+        private static readonly Color WindUp = new Color32(255, 210, 120, 255);
 
         private GUIStyle title;
         private GUIStyle heading;
@@ -35,9 +36,11 @@ namespace Moba.MovementLab
             DrawStation(view, MovementLabScene.Return, "Return", 54f, 9f);
             DrawStation(view, MovementLabScene.Near, "Near", 46f, 9f);
             DrawStation(view, MovementLabScene.Blocked, "Blocked", 66f, 13f);
+            DrawStation(view, MovementLabScene.TrainingDummy, "Training dummy", 112f, -49f);
 
             GUI.Label(new Rect(20f, 14f, 250f, 32f), "Movement Lab", title);
-            GUI.Label(new Rect(20f, 47f, 265f, 22f), "Right-click to move   /   R to restart", body);
+            GUI.Label(new Rect(20f, 47f, 265f, 22f), "Right-click ground to move", body);
+            GUI.Label(new Rect(20f, 65f, 305f, 22f), "Right-click dummy to attack   /   R to reset", body);
 
             float width = PanelWidth(screenWidth);
             float x = screenWidth - width;
@@ -46,6 +49,9 @@ namespace Moba.MovementLab
             var content = new Rect(x + 16f, 14f, width - 32f, Screen.height - 28f);
             GUILayout.BeginArea(content);
             DrawProfiles(scene, content.width);
+
+            GUILayout.Space(8f);
+            DrawAttackStatus(scene.Attack, scene.AttackTuning);
 
             GUILayout.Space(8f);
             tuningScroll = GUILayout.BeginScrollView(tuningScroll);
@@ -111,6 +117,50 @@ namespace Moba.MovementLab
 
             GUILayout.Label($"{motor.Speed:0.00} u/s    {Mathf.Repeat(motor.HeadingDegrees, 360f):0}° facing", body);
             GUILayout.Label(rejectedClick && motor.IsMoving ? "Following the previous route" : " ", body);
+        }
+
+        private void DrawAttackStatus(BasicAttackSequence attack, BasicAttackTuning tuning)
+        {
+            string phase = attack.Phase switch
+            {
+                BasicAttackPhase.Approaching => "Approaching dummy",
+                BasicAttackPhase.Turning => "Turning to face",
+                BasicAttackPhase.WindUp => "Wind-up",
+                BasicAttackPhase.Recovery => "Recovery",
+                _ => "Ready"
+            };
+            bool windingUp = attack.Phase == BasicAttackPhase.WindUp;
+            float duration = attack.Phase switch
+            {
+                BasicAttackPhase.WindUp => tuning.WindUpSeconds,
+                BasicAttackPhase.Recovery => tuning.RecoverySeconds,
+                _ => 0f
+            };
+            Color phaseColor = windingUp ? WindUp : Accent;
+            float progress = Mathf.Clamp01(attack.PhaseProgress);
+
+            GUILayout.Label("Basic attack", heading);
+            GUILayout.BeginHorizontal();
+            Color priorColor = GUI.color;
+            GUI.color = phaseColor;
+            GUILayout.Label(phase, heading);
+            GUI.color = priorColor;
+            GUILayout.FlexibleSpace();
+            GUILayout.Label(duration > 0f ? $"{progress * duration:0.00} / {duration:0.00}s" : string.Empty, value);
+            GUILayout.EndHorizontal();
+
+            Rect track = GUILayoutUtility.GetRect(0f, 5f, GUILayout.ExpandWidth(true));
+            Fill(track, Divider);
+            track.width *= progress;
+            Fill(track, phaseColor);
+
+            string lastOutcome = attack.Outcome switch
+            {
+                BasicAttackOutcome.Interrupted => "Interrupted",
+                BasicAttackOutcome.Hit => "Hit",
+                _ => "—"
+            };
+            GUILayout.Label($"Hits {attack.HitCount}   /   Last {lastOutcome}", body);
         }
 
         private float Slider(string label, float input, float minimum, float maximum, string displayValue)

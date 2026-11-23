@@ -2,6 +2,7 @@
 
 ## Design
 
+- Which two heroes should take the first duel, and will its first player test be solo practice with a sparring opponent or two people with independent controls? The [matchup comparison](04_ROADMAP.md#first-playable-match-proposal) recommends Ogre versus Hero Luís.
 - Is 6v6 the intended main mode, an optional mode, or future expansion of a 5v5 core?
 - For 6v6, is the sixth slot unassigned/flex or formally a top support/second jungler?
 - Should bushes exist separately from trees? If yes, what distinct vision rule applies?
@@ -20,6 +21,13 @@
 - Four-Form: 0-shot behavior, multicast self-knockback, ally dash consent, order selection rules.
 - All-Passive: whether standing still while attacking qualifies for E and what constitutes a W damage-second.
 - Luís: orb exact spawn logic, curse stacking, E protection of illusions, interrupt rules on R.
+- Ogre: where does animation-based CC immunity end relative to recovery? How long can the R sequence be, and how do queued inputs and executed strikes interact with effects triggered by casting?
+- Airplane Fighter: how tightly can it turn, where does parking trigger, and which heroes' attacks or ground areas can hit it in flight? The continued straight flight during a stun or root is established.
+- Old Man Swordsman: if the first strike lands and the opponent pushes him out of reach before the second, does the second strike still connect? This rule determines whether Ogre can deny the E stacks after the swordsman earns the W heal. The remaining kit questions are in the [hero design](02_HERO_DESIGNS.md#8-old-man-swordsman).
+- Bomb Planter: multi-bomb stacking/timers; whether planter death defuses planted bombs immediately or only blocks explosion; hard-taunt vs. reveal-channel semantics for E; W wall-vs-tree rules; enemy R skill-check presentation.
+- Automatron Bot 3000: engineer map presence and XP linkage; individual Automatron auto-buy vs. engineer purchasing; death/bounty rules; region/objective controls and tiered passive pools.
+- Chain Laser Shooter: chain bounce range, damage falloff, and stack caps/duration; Q aim lock vs. cursor tracking; W stack consumption; R aim lock vs. tracking and beam proc cadence.
+- Multiple Phases Raid Boss Hero: fountain/death reset with no healing or regen; burst-damage clamping at 20% phase thresholds; exact Q/W/E multi-part combo shapes; R arena wall vs. blinks and whether 1% true damage/sec also affects the Raid Boss.
 
 ## Practical
 

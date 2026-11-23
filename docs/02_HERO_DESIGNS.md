@@ -1,6 +1,6 @@
-# Five Hero Concepts — User-Authored Mechanics
+# Twelve Hero Concepts — User-Authored Mechanics
 
-These are **faithful working transcriptions** of the designer's ideas, cleaned for readability but with numbers, edge cases and balances left undefined. Where commentary adds a possible interpretation, it is explicitly labeled. No change here should be treated as an approved redesign.
+These are **working transcriptions of Luís's hero designs**. Each kit records the mechanics he described and flags tentative numbers and open questions. Design feedback appears at the end.
 
 ---
 
@@ -174,6 +174,204 @@ These are **faithful working transcriptions** of the designer's ideas, cleaned f
 
 ---
 
+## 6. Ogre
+
+Luís's animation reference is the Dota jungle ogre, particularly the weight and anticipation of its ground slams.
+
+### Passive
+
+- Ogre cannot perform basic attacks.
+- Ogre is immune to crowd control while performing an ability animation, including its cast and active portions.
+
+### Q
+
+- After a long wind-up, slam the club into the ground ahead. The slam reaches a substantial distance in front of Ogre and stuns targets hit.
+
+### W
+
+- Sweep the club horizontally along the ground in front of Ogre. The sweep has less reach than Q and pushes targets hit backward.
+
+### E
+
+- Wind up and pound the ground, stunning targets directly beneath Ogre and in the surrounding area.
+
+### R
+
+- Channel for a few seconds. Ogre visibly grows a little larger and angrier and gains very high damage reduction during the channel.
+- While channeling, the player enters a combination. For each input, choose Q or W and aim it individually.
+- When the channel ends, Ogre performs the attacks in the order entered. Each strike uses the direction chosen for that input, and Ogre moves a short distance with each strike.
+- These Q and W attacks animate and recover faster than their regular versions, following each other almost immediately. The final strike has an extra delay and deals a very large critical hit.
+
+**Open details.** How long does CC immunity extend into recovery? How many inputs does R accept, and what happens if the player enters an incomplete sequence?
+
+---
+
+## 7. Airplane Fighter
+
+### Passive — parked and airborne
+
+- Start parked and immobile on the ground at base. The player can shop. The only ability available is a temporary takeoff command, potentially on Q.
+- Once airborne, the fighter moves forward continuously, steering toward the cursor and ignoring terrain.
+- A stun or root disables steering for its duration. The fighter continues forward on its current heading even if the player moves the cursor.
+- Returning to base parks the fighter again.
+
+### Q (airborne)
+
+- Fire downward at the cursor's location at cast time, dealing damage in a small area without slowing targets. Luís cites Urgot's Q for the targeting feel.
+- The cooldown should be very short. Luís suggested 0.5 or 0.75 seconds as examples.
+
+### W
+
+- Launch a forward missile aimed at the cursor's location at cast time. It can travel a substantial distance and explodes on first contact with an enemy unit, dealing area damage.
+
+### E
+
+- For a short duration, the fighter lays a carpet of bombs along its actual flight path. Each bomb stays on the ground for a time and damages enemies that walk over it. Luís cites Ziggs's E for the lingering hazard.
+
+### R
+
+- Fire a missile upward. It strikes the cursor's location recorded at cast time after a delay, dealing area damage. Enemies get a clear warning of where it will land. Luís cites Kog'Maw's R for the delayed strike.
+- R has a relatively short cooldown and stores many charges. Around ten charges, possibly fewer, is Luís's tentative example.
+
+**Open details.** The turning radius, parking boundary, airborne targetability and basic attack behavior are unspecified. The design describes how a stun or root affects steering. Casting during those effects and interactions with forced displacement remain open.
+
+---
+
+## 8. Old Man Swordsman
+
+### Passive
+
+- The swordsman has reduced movement speed. Each basic attack consists of two weaker strikes in quick succession.
+
+### Q
+
+- Slash in a forward arc with a decent reach. Enemies caught in the arc take damage and are slowed.
+
+### W
+
+- The first strike of the pair deals percentage-health damage and heals the swordsman for a percentage of that damage.
+
+### E
+
+- When the second strike hits, the swordsman gains stacks that increase his resistances and the opponent gains stacks that reduce theirs. Both effects can build to a large number of stacks and linger a long time before fading.
+
+### R
+
+- Dash by the last enemy the swordsman basic-attacked recently, slashing them for substantial damage and ending in front of them. Luís suggested roughly 10–15 seconds as the lookback window.
+- If that enemy is below a health threshold, execute them and refresh R's cooldown.
+
+**Open details.** Can displacement, lost range or a move command prevent the second strike? Are W and E always applied to their respective strikes once learned, or do they require activation? The health basis for W, the resistances E affects and how its stacks fade are open. R's cast range and whether it checks the execute threshold before or after slash damage are also open.
+
+---
+
+## 9. Bomb Planter
+
+### Passive
+- Basic attacks deal no direct damage to enemy heroes; instead, they plant a bomb on hit.
+- Each planted bomb has a very long timer (Luís suggested roughly 30 seconds as a tentative example). When the timer expires, if the Bomb Planter did not die during that window, the bomb explodes and deals area damage around the hero carrying it.
+- Last-hitting minions or monsters causes them to explode, dealing area damage.
+
+### Q
+- Push off an adjacent enemy, dealing very small damage while knocking the enemy away and knocking the Bomb Planter away in the opposite direction.
+
+### W (passive)
+- Periodically, the Bomb Planter can jump over a wall (Luís compares to Talon in LoL), but after crossing can only run alongside that wall for a short time before automatically jumping back to the side it came from.
+
+### E
+- Channel a taunt over a very large area around the hero.
+- While channeling, perform a taunting animation and give enemies a clear indication of the Bomb Planter's location (note: original voice transcription read "unification"; recorded as clear reveal/location indicator).
+- Throughout the channel, continuously increase the damage of planted bombs on affected enemies.
+
+### R
+- Can only be activated while running; the Bomb Planter continues running in the locked initial direction during the cast.
+- Over a short window, the player performs successive fast, difficult skill checks (Luís compares to *Dead by Daylight*).
+- Each succeeded skill check leaves a large horizontal obstacle (such as a tree log) along the run direction.
+- Enemies attempting to pass one of those obstacles must pass the same skill check; if they fail, the obstacle blocks them like a wall for its duration. Each consecutive placed obstacle lasts longer than the previous one.
+
+**Open details.** Do multiple planted bombs on the same hero stack damage or run independent timers? Does the Bomb Planter's death defuse planted bombs immediately, or only prevent detonation if dead at expiry? Is E a hard forced-movement taunt or a loud provocation/reveal channel that amplifies bombs while inviting enemies to collapse? How does W distinguish terrain walls from trees, and what breaks the wall-run early? How do R's skill checks present on screen for allies vs. enemies without pulling attention fatally off cursor movement?
+
+---
+
+## 10. Automatron Bot 3000
+
+### Passive
+- You play as an outside observer engineer who does not control the Automatron directly. Instead, each Automatron runs on simple AI and accepts general region-movement or objective directives.
+- You start the game with the 1st-edition Automatron and choose a starting passive for it from a list of passives.
+- Each Automatron has its own individual level and gold to spend, while the engineer has a separate experience/level track related to the Automatrons.
+- Whenever the engineer reaches an ultimate level threshold (up to 4 total Automatrons), you gain an additional Automatron of the next tier. Each new Automatron starts at level 1 with zero gold, inherits the 1st-edition passive, and lets you select an additional passive from a higher tier.
+- Starts with Q, W, and E available; R requires owning more than one Automatron.
+
+### Q
+- Toggle between minimap view and a camera following the currently selected Automatron.
+
+### W
+- Toggle the currently selected Automatron's combat posture between **Brave** (fight enemy heroes) and **Coward** (automatically flee from enemy heroes).
+
+### E
+- Toggle whether the currently selected Automatron automatically farms.
+
+### R
+- Switch active control/selection to the next tier of Automatron, cycling back to the first tier after the highest tier.
+
+**Open details.** Where does the engineer exist (off-map/untargetable vs. vulnerable avatar), and how is engineer XP derived from Automatron activity? How do Automatrons spend their individual gold (auto-build priorities vs. remote engineer purchasing), and what are death timers/bounties per Automatron? How do cursor clicks issue region/objective orders when in minimap vs. follow-camera mode? What are the exact tiered passive pools?
+
+---
+
+## 11. Chain Laser Shooter
+
+### Passive
+- Basic attacks fire a laser gun whose beam chains to additional targets in order with no cap on chain count, never repeating an already-hit target.
+- Each subsequent bounce deals less damage, and every damaged target gains a **Laser Damage** stack.
+- Each Laser Damage stack increases subsequent laser damage taken by that target from the hero's laser sources.
+
+### Q
+- Fire a continuous laser in a target direction for a duration, starting at very short range and steadily extending until it reaches maximum range, at which point it ends.
+- Each target struck by the beam takes a single instance of laser damage.
+- Killing multiple targets with Q grants escalating bonus gold for every kill after the first.
+
+### W
+- Every target within range that carries Laser Damage stacks emits a laser area shock, dealing small damage and slowing both itself and nearby targets.
+- Both the slow strength and slow duration from overlapping shocks stack.
+
+### E
+- Step patiently backward by one pace, leaving behind a stationary laser decoy for a brief duration that blocks enemy hero movement and projectiles.
+- Creeps do not target the decoy. If an enemy damages it, they take small laser damage and a brief stun; if damaged by a hero, the decoy disappears.
+
+### R
+- After a brief pause, fire a continuous laser in the target direction while remaining able to move.
+- Every enemy hero, minion, and monster inside the beam continuously receives individual laser basic-attack procs as though the hero were basic-attacking each of them directly.
+
+**Open details.** What is the bounce search radius and minimum damage floor per chain hop? Do Laser Damage stacks have a cap or independent refresh duration? Can Q's aim rotate during extension or is it locked at cast? Does W consume stacks or keep them? Does R lock beam direction while moving or track cursor, and at what tick interval does it proc passive chains without blowing up waves/performance?
+
+---
+
+## 12. Multiple Phases Raid Boss Hero (Schwan-inspired)
+
+### Passive
+- Has **five phases**, unlocking the next phase each time he loses 20% of his maximum health.
+- Cannot be healed by any source and has zero health regeneration.
+- Each phase transition plays a brief animation that cleanses all active effects and grants invulnerability for its duration.
+- Starts Phase 1 with **no abilities unlocked** (basic attacks and movement only). Each new phase unlocks one ability in order—**Q** in Phase 2, **W** in Phase 3, **E** in Phase 4, **R** in Phase 5—provided the player has leveled that ability slot.
+- Each phase transition also grants stat buffs, strengthens previously unlocked phase abilities, and shifts his appearance and oversized sword progressively further toward a demonic raid-boss form.
+
+### Q (Phase 2+)
+- Multi-part sword combo with a distinct pattern (pattern still open; Luís cites Aatrox/Riven as rough structural inspiration).
+
+### W (Phase 3+)
+- Multi-part combo of ground-erupting volcanic abilities.
+
+### E (Phase 4+)
+- Multi-part combo built around dashes.
+
+### R (Phase 5)
+- Summon a decently large circular arena that isolates everyone inside from the outside world.
+- Units inside take roughly 1% max-HP (or current-HP, open) true damage per second while inside.
+- Persists until either no enemy heroes remain inside the arena or the Raid Boss hero is no longer alive inside it.
+
+**Open details.** How does recovery between fights work without healing or regen—only on death/respawn, or does fountain override the rule? Does burst damage stop/clamp at each 20% phase boundary so transitions cannot be skipped in one hit? Can shields or damage mitigation substitute for healing, and can ability points be invested before a phase unlocks its slot? Exact shapes/patterns of Q, W, and E combos, whether blinks/teleports can cross R's arena wall, and whether the 1% true damage/sec also ticks on the Raid Boss himself.
+
+---
+
 ## Design feedback (non-canonical)
 
 - Luís: orb denial, W/E interaction and escalating R are standouts; avoid overwhelming raw amplification.
@@ -181,3 +379,7 @@ These are **faithful working transcriptions** of the designer's ideas, cleaned f
 - Chibi: distinguish current souls vs lifetime souls; balance ally revival carefully.
 - Four-Form: shared cooldowns and predefined sequence are fundamental; clarify complex interactions and form readability.
 - Tortuga: shell protection vs aggressive liberation is the core; keeping shell-less form glassier helps meaningful tradeoffs.
+- Ogre & Old Man Swordsman: telegraphed club commitments and paired strike timing fit early 1v1 spacing tests directly.
+- Airplane Fighter: strong spatial identity; warrants an isolated flight/steering lab before 1v1 tuning.
+- Bomb Planter & Chain Laser Shooter: high-personality lane kits whose wave interactions (minion explosions, chain hops, Q multi-kill gold) come alive once lane creeps and walls exist.
+- Automatron Bot 3000 & Multi-Phase Raid Boss: bold structural experiments (RTS-style macro delegation and boss-bar life economy) best deferred until core MOBA lane/map systems exist.

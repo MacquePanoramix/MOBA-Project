@@ -13,6 +13,7 @@ namespace Moba.LaneSlice
                 team = team,
                 heroId = heroId,
                 motor = new MovementMotor(pos, headingDeg),
+                prevMotorPos = pos,
                 goldExact = tuning.startingGold,
                 aimDir = team == LaneTeam.Blue ? Vector2.right : Vector2.left,
             };
@@ -136,12 +137,15 @@ namespace Moba.LaneSlice
                 h.cowardShieldBonus = tuning.cowardShieldResistFormula.Evaluate(1, h.agility) * h.cowardShieldFactor;
             }
 
-            float swordBonus = h.swordStacks * (6f + 2f * Mathf.Max(1, h.rankE));
-            float swordShred = h.swordDebuffStacks * 8f;
+            // New W (Stance Temper): stacks & rank scaling read h.rankW
+            float swordBonus = h.swordStacks * (tuning.swordsmanWStackGain + 2f * Mathf.Max(0, h.rankW - 1));
+            float swordShred = h.swordDebuffStacks * tuning.swordsmanWStackShred;
 
             h.maxHp = baseHp + hpPerLvl * lvlOffset + itemHp;
             h.attackDamage = baseAd + adPerLvl * lvlOffset + itemAd;
-            h.attackSpeed = Mathf.Max(0.4f, 1.0f + itemAs);
+            h.bonusAttackSpeed = Mathf.Max(0f, itemAs);
+            // v0.2.8 Global unbounded diminishing Attack Speed: EffectiveAS = sqrt(1 + k * BonusAS)
+            h.attackSpeed = LaneTuning.EffectiveAttackSpeed(h.bonusAttackSpeed, tuning.attackSpeedCurveK);
             h.abilityHaste = Mathf.Max(0f, itemAh);
             h.cooldownReduction = h.abilityHaste / (100f + h.abilityHaste);
             h.armor = baseArmor + itemArmor + swordBonus - swordShred + h.cowardShieldBonus;
@@ -151,9 +155,28 @@ namespace Moba.LaneSlice
             h.itemAlliedAuraRegen = itemAuraRegen;
             h.moveSpeed = baseSpeed + itemSpeed + h.momentumBonus;
             h.turnRate = turnRate;
-            h.ogreAnimSpeed = h.heroId == LaneHeroId.Ogre
-                ? Mathf.Max(0.4f, tuning.ogreAnimSpeedFormula.Evaluate(1, h.agility) + (h.attackSpeed - 1f) * tuning.ogreAttackSpeedAnimRatio)
-                : 1f;
+
+            if (h.heroId == LaneHeroId.Ogre)
+            {
+                h.ogreWindupSpeed = tuning.ogreWindupSpeedFormula.Evaluate(1, h.agility);
+                h.ogreRecoverSpeed = h.attackSpeed;
+                h.ogreAnimSpeed = h.ogreWindupSpeed;
+                if (h.phase == LanePhase.Channeling || h.phase == LanePhase.ComboSeq)
+                {
+                    h.scale = tuning.ogreRScaleFormula.Evaluate(Mathf.Max(1, h.rankR), h.strength);
+                }
+                else
+                {
+                    h.scale = 1f;
+                }
+            }
+            else
+            {
+                h.ogreWindupSpeed = 1f;
+                h.ogreRecoverSpeed = 1f;
+                h.ogreAnimSpeed = 1f;
+                h.scale = 1f;
+            }
 
             if (preserveHpRatio)
             {
@@ -165,7 +188,20 @@ namespace Moba.LaneSlice
         {
             for (int i = 0; i < heroes.Length; i++)
             {
-                TickSingleHero(heroes[i], dt);
+                HeroState h = heroes[i];
+                TickSingleHero(h, dt);
+                if (h.phase != LanePhase.Dead)
+                {
+                    if (h.hasCowardsShield)
+                    {
+                        UpdateCowardsShield(h, dt);
+                    }
+                    h.prevMotorPos = h.motor.Position;
+                }
+                else
+                {
+                    h.prevMotorPos = h.motor.Position;
+                }
             }
         }
 
@@ -184,6 +220,7 @@ namespace Moba.LaneSlice
                 {
                     Vector2 spawn = map.SpawnPos(h.team);
                     h.motor = new MovementMotor(spawn, h.team == LaneTeam.Blue ? 90f : 270f);
+                    h.prevMotorPos = spawn;
                     RecalcHeroStats(h, preserveHpRatio: false);
                     h.hp = h.maxHp;
                     h.phase = LanePhase.Idle;
@@ -192,6 +229,13 @@ namespace Moba.LaneSlice
                     h.damageReduction = 0f;
                     h.damageTakenMult = 1f;
                     h.healReceivedMult = 1f;
+                    h.cowardRetreatStreak = 0f;
+                    h.cowardGraceTimer = 0f;
+                    h.cowardShieldState = 0;
+                    h.laserSlowOverlapCount = 0;
+                    h.laserSlowElapsed = 0f;
+                    h.laserEStepPending = false;
+                    h.swordsmanLastStrikeHeavy = false;
                 }
                 return;
             }
@@ -200,12 +244,8 @@ namespace Moba.LaneSlice
             h.healReceivedMult = 1f;
             ReapplyActiveZonesOnHero(h);
 
-            // The Coward's Shield, Momentum Greaves, Shield, Spellweaver, and Grievous Wounds timers
+            // Timers: damage age, Momentum Greaves, Shield, Spellweaver, and Grievous Wounds
             h.lastHeroDamageAge += dt;
-            if (h.hasCowardsShield)
-            {
-                UpdateCowardsShield(h, dt);
-            }
             if (h.colossusCd > 0f) h.colossusCd = Mathf.Max(0f, h.colossusCd - dt);
             if (h.shieldTimer > 0f)
             {
@@ -241,8 +281,19 @@ namespace Moba.LaneSlice
             if (h.stunTimer > 0f) h.stunTimer = Mathf.Max(0f, h.stunTimer - dt);
             if (h.slowTimer > 0f)
             {
+                h.laserSlowElapsed += dt;
                 h.slowTimer = Mathf.Max(0f, h.slowTimer - dt);
-                if (h.slowTimer <= 0f) h.slowAmount = 0f;
+                if (h.slowTimer <= 0f)
+                {
+                    h.slowAmount = 0f;
+                    h.laserSlowOverlapCount = 0;
+                    h.laserSlowElapsed = 0f;
+                }
+            }
+            else if (h.laserSlowOverlapCount > 0)
+            {
+                h.laserSlowOverlapCount = 0;
+                h.laserSlowElapsed = 0f;
             }
             if (h.swordMarkTimer > 0f) h.swordMarkTimer = Mathf.Max(0f, h.swordMarkTimer - dt);
             if (h.laserStackTimer > 0f)
@@ -298,23 +349,34 @@ namespace Moba.LaneSlice
                 if (h.curseTimer <= 0f) h.curseStacks = 0;
             }
 
-            // Passive health regen + Miravel aura + Woodland Salve + Grievous Wounds + Fountain heal
+            // Passive health regen + Miravel aura (INT radius, HealPower allied & drain, can push negative!) + universal Kindred Charm aura + Salve
             float allyAura = 0f;
             float enemyPenalty = 0f;
+            HeroState drainSource = null;
             for (int j = 0; j < heroes.Length; j++)
             {
                 HeroState other = heroes[j];
-                if (other.heroId != LaneHeroId.Miravel || other.phase == LanePhase.Dead) continue;
+                if (other.phase == LanePhase.Dead) continue;
                 float d = Vector2.Distance(h.motor.Position, other.motor.Position);
-                if (d > tuning.luisAuraRadius) continue;
+
+                // Kindred Charm allied regen aura works for ANY hero purchasing the item
+                if (other.team == h.team && other.itemAlliedAuraRegen > 0f && d <= tuning.kindredAuraRadius)
+                {
+                    allyAura += other.itemAlliedAuraRegen * other.healPower;
+                }
+
+                if (other.heroId != LaneHeroId.Miravel) continue;
+                float mirRadius = tuning.luisAuraRadiusFormula.Evaluate(1, other.intelligence);
+                if (d > mirRadius) continue;
 
                 if (other.team == h.team)
                 {
-                    allyAura += (tuning.luisAllyAuraRegenBase + 0.35f * other.level + other.itemAlliedAuraRegen) * other.healPower;
+                    allyAura += (tuning.luisAllyAuraRegenBase + 0.35f * (other.level - 1)) * other.healPower;
                 }
                 else
                 {
-                    enemyPenalty += tuning.luisEnemyAuraRegenPenaltyBase + 0.35f * other.level;
+                    enemyPenalty += (tuning.luisEnemyAuraRegenPenaltyBase + 0.35f * (other.level - 1)) * other.healPower;
+                    drainSource = other;
                 }
             }
 
@@ -323,24 +385,44 @@ namespace Moba.LaneSlice
 
             float salveRegen = (h.hasSalve && h.lastHeroDamageAge >= tuning.woodlandSalveOutOfCombat) ? tuning.woodlandSalveRegen : 0f;
             float grievousMult = h.grievousTimer > 0f ? (1f - tuning.grievousHealReduction) : 1f;
-            float effectiveNaturalRegen = Mathf.Max(0f, h.regenRate + allyAura + salveRegen - enemyPenalty) * grievousMult;
-            if (effectiveNaturalRegen > 0f)
+            float netRegen = h.regenRate + allyAura + salveRegen - enemyPenalty;
+            if (netRegen > 0f)
             {
-                h.hp = Mathf.Min(h.maxHp, h.hp + effectiveNaturalRegen * dt);
+                float effectivePositive = netRegen * h.healReceivedMult * grievousMult;
+                h.netRegenRate = effectivePositive;
+                h.hp = Mathf.Min(h.maxHp, h.hp + effectivePositive * dt);
+            }
+            else if (netRegen < 0f)
+            {
+                // Provisional rule (05_OPEN_QUESTIONS): negative natural regeneration applies raw HP decay
+                // bypassing Grievous Wounds, resistances, shields, and E Ward; grants Miravel kill credit if lethal.
+                h.netRegenRate = netRegen;
+                h.hp = Mathf.Max(0f, h.hp + netRegen * dt);
+                if (h.hp <= 0f)
+                {
+                    int srcId = drainSource != null ? drainSource.id : 0;
+                    LaneTeam srcTeam = drainSource != null ? drainSource.team : (h.team == LaneTeam.Blue ? LaneTeam.Red : LaneTeam.Blue);
+                    OnHeroKilled(h, srcId, srcTeam);
+                    return;
+                }
+            }
+            else
+            {
+                h.netRegenRate = 0f;
             }
             if (map.IsInFountain(h.team, h.motor.Position))
             {
                 HealHero(h, tuning.fountainHealPerSec * dt);
             }
 
-            // Miravel Q Passive Orb Spawner
+            // Miravel Q Passive Orb Spawner — inverse Ability Haste cooldown scaling without artificial 4.0s floor
             if (h.heroId == LaneHeroId.Miravel && h.rankQ >= 1)
             {
                 h.orbCooldown -= dt;
                 if (h.orbCooldown <= 0f)
                 {
                     SpawnLuisOrb(h);
-                    h.orbCooldown = Mathf.Max(4.0f, tuning.luisOrbInterval - 0.8f * (h.rankQ - 1));
+                    h.orbCooldown = ApplyCdr(h, tuning.luisOrbInterval - 0.6f * (h.rankQ - 1));
                 }
             }
 
@@ -403,43 +485,83 @@ namespace Moba.LaneSlice
         private void UpdateCowardsShield(HeroState h, float dt)
         {
             float oldBonus = h.cowardShieldBonus;
+            Vector2 moveDelta = h.motor.Position - h.prevMotorPos;
+            float actualSpeed = dt > 0.0001f ? moveDelta.magnitude / dt : 0f;
+            float minRetreatSpeed = Mathf.Max(0.45f, h.moveSpeed * tuning.cowardShieldMinSpeedRatio);
+            bool movingMeaningfully = actualSpeed >= minRetreatSpeed;
+
+            bool hasEligibleAttacker = false;
+            Vector2 awayFromAttacker = Vector2.zero;
             if (h.lastHeroDamageAge <= tuning.cowardShieldMemorySeconds && h.lastHeroAttackerId > 0)
             {
                 HeroState attacker = h.lastHeroAttackerId == heroes[0].id ? heroes[0] : heroes[1];
                 if (attacker.id == h.lastHeroAttackerId && attacker.phase != LanePhase.Dead)
                 {
-                    Vector2 toAttacker = attacker.motor.Position - h.motor.Position;
-                    if (toAttacker.sqrMagnitude > 0.01f)
+                    Vector2 delta = h.motor.Position - attacker.motor.Position;
+                    if (delta.sqrMagnitude > 0.0025f)
                     {
-                        float rad = h.motor.HeadingDegrees * Mathf.Deg2Rad;
-                        Vector2 facing = new Vector2(Mathf.Sin(rad), Mathf.Cos(rad));
-                        float dot = Vector2.Dot(facing, toAttacker.normalized);
-                        if (dot < -0.20f)
-                        {
-                            h.cowardShieldFactor = Mathf.Min(1f, h.cowardShieldFactor + 4.0f * dt);
-                        }
-                        else if (dot > 0.20f)
-                        {
-                            h.cowardShieldFactor = Mathf.Max(0f, h.cowardShieldFactor - 2.2f * dt);
-                        }
-                        else
-                        {
-                            h.cowardShieldFactor = Mathf.Max(0f, h.cowardShieldFactor - 0.9f * dt);
-                        }
+                        hasEligibleAttacker = true;
+                        awayFromAttacker = delta.normalized;
                     }
+                }
+            }
+
+            if (hasEligibleAttacker)
+            {
+                float moveDot = movingMeaningfully ? Vector2.Dot(moveDelta.normalized, awayFromAttacker) : 0f;
+                bool isRetreating = movingMeaningfully && moveDot >= tuning.cowardShieldRetreatDot;
+                bool isPursuing = movingMeaningfully && moveDot <= tuning.cowardShieldPursuitDot;
+
+                if (isRetreating)
+                {
+                    h.cowardRetreatStreak += dt;
+                    if (h.cowardRetreatStreak >= tuning.cowardShieldCommitDelay)
+                    {
+                        h.cowardShieldFactor = Mathf.Min(1f, h.cowardShieldFactor + dt / Mathf.Max(0.05f, tuning.cowardShieldBuildupSeconds));
+                    }
+                    // Grace period is earned only after sustained retreating (blocks rapid left-right exploit)
+                    if (h.cowardRetreatStreak >= tuning.cowardShieldMinGraceStreak && h.cowardShieldFactor >= 0.15f)
+                    {
+                        h.cowardGraceTimer = tuning.cowardShieldGraceSeconds;
+                    }
+                    h.cowardShieldState = h.cowardShieldFactor >= 0.99f
+                        ? (byte)2
+                        : (h.cowardShieldFactor > 0.001f ? (byte)1 : (byte)0);
+                }
+                else if (isPursuing)
+                {
+                    // Actively moving toward attacker breaks grace immediately and decays faster than standing still
+                    h.cowardRetreatStreak = 0f;
+                    h.cowardGraceTimer = 0f;
+                    h.cowardShieldFactor = Mathf.Max(0f, h.cowardShieldFactor - dt / Mathf.Max(0.05f, tuning.cowardShieldPursuitDecaySeconds));
+                    h.cowardShieldState = h.cowardShieldFactor > 0.001f ? (byte)4 : (byte)0;
                 }
                 else
                 {
-                    h.cowardShieldFactor = Mathf.Max(0f, h.cowardShieldFactor - 1.5f * dt);
+                    // Brief stops, stuns, obstacles, or perpendicular drift hold existing stacks during grace without adding more
+                    h.cowardRetreatStreak = 0f;
+                    if (h.cowardGraceTimer > 0f && h.cowardShieldFactor > 0.001f)
+                    {
+                        h.cowardGraceTimer = Mathf.Max(0f, h.cowardGraceTimer - dt);
+                        h.cowardShieldState = 3;
+                    }
+                    else
+                    {
+                        h.cowardShieldFactor = Mathf.Max(0f, h.cowardShieldFactor - dt / Mathf.Max(0.05f, tuning.cowardShieldStopDecaySeconds));
+                        h.cowardShieldState = h.cowardShieldFactor > 0.001f ? (byte)4 : (byte)0;
+                    }
                 }
             }
             else
             {
-                h.cowardShieldFactor = Mathf.Max(0f, h.cowardShieldFactor - 1.5f * dt);
+                h.cowardRetreatStreak = 0f;
+                h.cowardGraceTimer = 0f;
+                h.cowardShieldFactor = Mathf.Max(0f, h.cowardShieldFactor - dt / Mathf.Max(0.05f, tuning.cowardShieldStopDecaySeconds));
+                h.cowardShieldState = h.cowardShieldFactor > 0.001f ? (byte)4 : (byte)0;
             }
 
             float nextBonus = tuning.cowardShieldResistFormula.Evaluate(1, h.agility) * h.cowardShieldFactor;
-            if (Mathf.Abs(nextBonus - oldBonus) > 0.05f)
+            if (Mathf.Abs(nextBonus - oldBonus) > 0.05f || (h.cowardShieldFactor <= 0.001f && oldBonus > 0f))
             {
                 RecalcHeroStats(h, preserveHpRatio: true);
             }
@@ -532,6 +654,7 @@ namespace Moba.LaneSlice
             h.phase = LanePhase.Windup;
             h.activeSlot = LaneAbilitySlot.None;
             h.twinSecondPending = false;
+            h.swordsmanLastStrikeHeavy = false;
             float rawWindup = h.heroId == LaneHeroId.Miravel ? tuning.luisBasicWindup
                 : (h.heroId == LaneHeroId.LaserShooter ? tuning.laserBasicWindup : tuning.swordsmanHit1Windup);
             h.phaseDuration = rawWindup / asMult;
@@ -600,10 +723,11 @@ namespace Moba.LaneSlice
                 return;
             }
 
-            // Swordsman Twin Blade (Strike 1 -> Hit 2 delay -> Recovery)
+            // Swordsman Twin-Blade: 1st light strike -> AGI-improved transition -> 2nd heavy strike -> Recovery (all scaled inversely by Attack Speed)
             if (!h.twinSecondPending)
             {
                 h.basicSwingAlt = (h.basicSwingAlt + 2) & ~1;
+                h.swordsmanLastStrikeHeavy = false;
                 ExecuteSwordsmanStrike(h, isFirstStrike: true, h.attackTargetKind, h.attackTargetId, tPos);
                 if (h.attackTargetKind == LaneTargetKind.None || !IsValidHostileTarget(h.team, h.attackTargetKind, h.attackTargetId, out _, out _))
                 {
@@ -616,13 +740,15 @@ namespace Moba.LaneSlice
                 h.twinSecondPending = true;
                 h.twinTargetKind = (int)h.attackTargetKind;
                 h.twinTargetId = h.attackTargetId;
-                h.phaseDuration = tuning.swordsmanHit2Delay / asMult;
+                float transitionDelay = tuning.swordsmanHit2DelayFormula.Evaluate(1, h.agility);
+                h.phaseDuration = transitionDelay / asMult;
                 h.phaseTimer = h.phaseDuration;
             }
             else
             {
                 h.basicSwingAlt = (h.basicSwingAlt + 1) | 1;
                 h.twinSecondPending = false;
+                h.swordsmanLastStrikeHeavy = true;
                 ExecuteSwordsmanStrike(h, isFirstStrike: false, (LaneTargetKind)h.twinTargetKind, h.twinTargetId, tPos);
                 h.phase = LanePhase.Recover;
                 h.phaseDuration = tuning.swordsmanBasicRecover / asMult;
@@ -632,36 +758,28 @@ namespace Moba.LaneSlice
 
         private void ExecuteSwordsmanStrike(HeroState h, bool isFirstStrike, LaneTargetKind kind, int targetId, Vector2 targetPos)
         {
-            float baseStrike = h.attackDamage * tuning.swordsmanStrikeAdRatio;
+            float adRatio = isFirstStrike ? tuning.swordsmanHit1AdRatio : tuning.swordsmanHit2AdRatio;
+            float baseStrike = h.attackDamage * adRatio;
 
             if (kind == LaneTargetKind.Hero || kind == LaneTargetKind.Minion)
             {
                 h.swordLastTargetKind = (int)kind;
                 h.swordLastTargetId = targetId;
-                h.swordMarkTimer = tuning.swordsmanRLookbackSeconds;
+                h.swordMarkTimer = tuning.swordsmanRLookbackFormula.Evaluate(Mathf.Max(1, h.rankR), h.intelligence);
             }
 
             ApplyBasicStrikeToTarget(h, kind, targetId, baseStrike);
-            PushEvent(LaneEventKind.SwordsmanSlash, h.team, targetPos, h.aimDir, 0.95f, baseStrike, string.Empty);
+            PushEvent(LaneEventKind.SwordsmanSlash, h.team, targetPos, h.aimDir,
+                isFirstStrike ? 0.85f : 1.45f, baseStrike, isFirstStrike ? "LIGHT" : "HEAVY");
 
+            // Swapped W & E (v0.2.8): 1st light strike activates W (Stance Temper), 2nd heavy strike activates E (Vital Draw)
             if (isFirstStrike && h.rankW >= 1 && (kind == LaneTargetKind.Hero || kind == LaneTargetKind.Minion))
             {
-                float targetMaxHp = GetTargetMaxHp(kind, targetId);
-                if (targetMaxHp > 0f)
-                {
-                    float pct = tuning.swordsmanWPercentHpFormula.Evaluate(h.rankW, h.strength);
-                    float bonusDmg = targetMaxHp * pct;
-                    if (kind == LaneTargetKind.Minion) bonusDmg = Mathf.Min(bonusDmg, 140f);
-                    ApplyMagicOrPhysicalToTarget(h, kind, targetId, bonusDmg, isMagic: true);
-                    float heal = bonusDmg * tuning.swordsmanWHealShare * h.healPower;
-                    HealHero(h, heal);
-                    PushEvent(LaneEventKind.SwordsmanWHeal, h.team, h.motor.Position, Vector2.up, 1.1f, heal, $"+{Mathf.RoundToInt(heal)}");
-                }
-            }
-            else if (!isFirstStrike && h.rankE >= 1 && (kind == LaneTargetKind.Hero || kind == LaneTargetKind.Minion))
-            {
-                h.swordStacks = Mathf.Min(tuning.swordsmanEMaxStacks, h.swordStacks + 1);
-                h.swordStackTimer = tuning.swordsmanEStackDuration;
+                float selfDur = tuning.swordsmanWBuffDurationFormula.Evaluate(h.rankW, h.intelligence);
+                float debuffDur = tuning.swordsmanWDebuffDurationFormula.Evaluate(h.rankW, h.intelligence);
+
+                h.swordStacks = Mathf.Min(tuning.swordsmanWMaxStacks, h.swordStacks + 1);
+                h.swordStackTimer = selfDur;
                 RecalcHeroStats(h, preserveHpRatio: true);
 
                 if (kind == LaneTargetKind.Hero)
@@ -669,8 +787,8 @@ namespace Moba.LaneSlice
                     HeroState enemy = GetEnemyHero(h.team);
                     if (enemy.id == targetId && enemy.phase != LanePhase.Dead)
                     {
-                        enemy.swordDebuffStacks = Mathf.Min(tuning.swordsmanEMaxStacks, enemy.swordDebuffStacks + 1);
-                        enemy.swordDebuffTimer = tuning.swordsmanEStackDuration;
+                        enemy.swordDebuffStacks = Mathf.Min(tuning.swordsmanWMaxStacks, enemy.swordDebuffStacks + 1);
+                        enemy.swordDebuffTimer = debuffDur;
                         RecalcHeroStats(enemy, preserveHpRatio: true);
                     }
                 }
@@ -680,13 +798,27 @@ namespace Moba.LaneSlice
                     {
                         if (minions[m].id == targetId && minions[m].hp > 0f)
                         {
-                            minions[m].swordShredStacks = Mathf.Min(tuning.swordsmanEMaxStacks, minions[m].swordShredStacks + 1);
-                            minions[m].swordShredTimer = tuning.swordsmanEStackDuration;
+                            minions[m].swordShredStacks = Mathf.Min(tuning.swordsmanWMaxStacks, minions[m].swordShredStacks + 1);
+                            minions[m].swordShredTimer = debuffDur;
                             break;
                         }
                     }
                 }
-                PushEvent(LaneEventKind.SwordsmanEProc, h.team, targetPos, Vector2.up, 0.85f, h.swordStacks, $"E:{h.swordStacks}");
+                PushEvent(LaneEventKind.SwordsmanEProc, h.team, targetPos, Vector2.up, 0.85f, h.swordStacks, $"W:{h.swordStacks}");
+            }
+            else if (!isFirstStrike && h.rankE >= 1 && (kind == LaneTargetKind.Hero || kind == LaneTargetKind.Minion))
+            {
+                float targetMaxHp = GetTargetMaxHp(kind, targetId);
+                if (targetMaxHp > 0f)
+                {
+                    float pct = tuning.swordsmanEPercentHpFormula.Evaluate(h.rankE, h.strength);
+                    float bonusDmg = targetMaxHp * pct;
+                    if (kind == LaneTargetKind.Minion) bonusDmg = Mathf.Min(bonusDmg, 140f);
+                    ApplyMagicOrPhysicalToTarget(h, kind, targetId, bonusDmg, isMagic: true);
+                    float heal = bonusDmg * tuning.swordsmanEHealShare * h.healPower;
+                    HealHero(h, heal);
+                    PushEvent(LaneEventKind.SwordsmanWHeal, h.team, h.motor.Position, Vector2.up, 1.1f, heal, $"+{Mathf.RoundToInt(heal)}");
+                }
             }
         }
 
@@ -801,7 +933,7 @@ namespace Moba.LaneSlice
                     h.motor = new MovementMotor(h.motor.Position, AngleDegrees(dir));
                     h.phase = LanePhase.Casting;
                     h.activeSlot = LaneAbilitySlot.Q;
-                    h.phaseDuration = tuning.swordsmanQWindup;
+                    h.phaseDuration = tuning.swordsmanQWindupFormula.Evaluate(h.rankQ, h.agility);
                     h.phaseTimer = h.phaseDuration;
                     h.cdQ = ApplyCdr(h, tuning.swordsmanQCooldown - 0.5f * (h.rankQ - 1));
                     h.maxCdQ = h.cdQ;
@@ -847,7 +979,7 @@ namespace Moba.LaneSlice
                 h.aimDir = dir;
                 h.motor = new MovementMotor(h.motor.Position, AngleDegrees(dir));
 
-                float animMult = Mathf.Max(0.4f, h.ogreAnimSpeed);
+                float windupMult = Mathf.Max(0.4f, h.ogreWindupSpeed);
 
                 if (slot == LaneAbilitySlot.R)
                 {
@@ -856,7 +988,7 @@ namespace Moba.LaneSlice
                     h.phaseDuration = tuning.ogreRChannelDuration;
                     h.phaseTimer = h.phaseDuration;
                     h.damageReduction = tuning.ogreRDamageReduction;
-                    h.scale = tuning.ogreRScaleBonus;
+                    h.scale = tuning.ogreRScaleFormula.Evaluate(Mathf.Max(1, h.rankR), h.strength);
                     h.rQueue.Clear();
                     h.rStrikeIndex = 0;
                     h.rStrikeInFollowthrough = false;
@@ -870,19 +1002,19 @@ namespace Moba.LaneSlice
                 h.activeSlot = slot;
                 if (slot == LaneAbilitySlot.Q)
                 {
-                    h.phaseDuration = tuning.ogreQWindup / animMult;
+                    h.phaseDuration = tuning.ogreQWindup / windupMult;
                     h.cdQ = ApplyCdr(h, tuning.ogreQCooldown - 0.6f * (h.rankQ - 1));
                     h.maxCdQ = h.cdQ;
                 }
                 else if (slot == LaneAbilitySlot.W)
                 {
-                    h.phaseDuration = tuning.ogreWWindup / animMult;
+                    h.phaseDuration = tuning.ogreWWindup / windupMult;
                     h.cdW = ApplyCdr(h, tuning.ogreWCooldown - 0.6f * (h.rankW - 1));
                     h.maxCdW = h.cdW;
                 }
                 else
                 {
-                    h.phaseDuration = tuning.ogreEWindup / animMult;
+                    h.phaseDuration = tuning.ogreEWindup / windupMult;
                     h.cdE = ApplyCdr(h, tuning.ogreECooldown - 0.8f * (h.rankE - 1));
                     h.maxCdE = h.cdE;
                 }
@@ -979,7 +1111,7 @@ namespace Moba.LaneSlice
                 ownerHeroId = h.id,
                 team = h.team,
                 pos = center,
-                radius = tuning.luisRRadius,
+                radius = tuning.luisRRadiusFormula.Evaluate(h.rankR, h.intelligence),
                 duration = tuning.luisRChannelDuration,
                 rankR = h.rankR,
             });
@@ -1019,10 +1151,12 @@ namespace Moba.LaneSlice
                 }
                 float interval = tuning.laserRProcInterval / Mathf.Max(0.4f, h.attackSpeed);
                 h.laserRProcAccum += dt;
-                if (h.laserRProcAccum >= interval)
+                int procGuard = 0;
+                while (h.laserRProcAccum >= interval && procGuard < 16)
                 {
                     h.laserRProcAccum -= interval;
                     FireLaserRBeamProc(h);
+                    procGuard++;
                 }
 
                 h.phaseTimer -= dt;
@@ -1068,7 +1202,7 @@ namespace Moba.LaneSlice
                 h.damageReduction = 0f;
                 h.rQueue.Clear();
                 h.phase = LanePhase.Recover;
-                h.phaseDuration = 0.25f / Mathf.Max(0.4f, h.ogreAnimSpeed);
+                h.phaseDuration = tuning.ogreRPostComboRecover / Mathf.Max(0.4f, h.ogreRecoverSpeed);
                 h.phaseTimer = h.phaseDuration;
                 return;
             }
@@ -1082,7 +1216,7 @@ namespace Moba.LaneSlice
 
             bool isFinal = h.rStrikeIndex == h.rQueue.Count - 1;
             float baseW = isFinal ? tuning.ogreRFinalWindup : tuning.ogreRFastWindup;
-            h.phaseDuration = baseW / Mathf.Max(0.4f, h.ogreAnimSpeed);
+            h.phaseDuration = baseW / Mathf.Max(0.4f, h.ogreWindupSpeed);
             h.phaseTimer = h.phaseDuration;
         }
 
@@ -1113,7 +1247,7 @@ namespace Moba.LaneSlice
             if (h.rStrikeIndex < h.rQueue.Count)
             {
                 h.rStrikeInFollowthrough = true;
-                h.phaseDuration = Mathf.Max(0.06f, tuning.ogreRStrikeFollowthrough);
+                h.phaseDuration = Mathf.Max(0.005f, tuning.ogreRStrikeFollowthrough / Mathf.Max(0.4f, h.ogreRecoverSpeed));
                 h.phaseTimer = h.phaseDuration;
                 return;
             }
@@ -1130,13 +1264,26 @@ namespace Moba.LaneSlice
             }
 
             h.phaseTimer -= dt;
+
+            if (h.heroId == LaneHeroId.LaserShooter && h.activeSlot == LaneAbilitySlot.E && h.laserEStepPending)
+            {
+                float progress = 1f - Mathf.Clamp01(h.phaseTimer / Mathf.Max(0.01f, h.phaseDuration));
+                Vector2 nextStep = Vector2.Lerp(h.laserEStepStartPos, h.laserEStepEndPos, progress);
+                h.motor = new MovementMotor(nextStep, AngleDegrees(h.aimDir));
+                if (h.phaseTimer <= 0f)
+                {
+                    CompleteLaserEStep(h);
+                }
+                return;
+            }
+
             if (h.phaseTimer > 0f) return;
 
             if (h.heroId == LaneHeroId.LaserShooter && h.activeSlot == LaneAbilitySlot.R)
             {
                 h.phase = LanePhase.Channeling;
                 h.activeSlot = LaneAbilitySlot.R;
-                h.phaseDuration = tuning.laserRDuration;
+                h.phaseDuration = tuning.laserRDurationFormula.Evaluate(Mathf.Max(1, h.rankR), h.intelligence);
                 h.phaseTimer = h.phaseDuration;
                 h.laserRProcAccum = 0f;
                 h.laserQCurRange = tuning.laserRRange;
@@ -1144,7 +1291,7 @@ namespace Moba.LaneSlice
                 return;
             }
 
-            float animMult = Mathf.Max(0.4f, h.ogreAnimSpeed);
+            float recoverMult = Mathf.Max(0.4f, h.ogreRecoverSpeed);
 
             if (h.heroId == LaneHeroId.Ogre)
             {
@@ -1152,19 +1299,19 @@ namespace Moba.LaneSlice
                 {
                     ExecuteOgreQ(h, 1f, false);
                     h.phase = LanePhase.Recover;
-                    h.phaseDuration = tuning.ogreQRecover / animMult;
+                    h.phaseDuration = tuning.ogreQRecover / recoverMult;
                 }
                 else if (h.activeSlot == LaneAbilitySlot.W)
                 {
                     ExecuteOgreW(h, 1f, false);
                     h.phase = LanePhase.Recover;
-                    h.phaseDuration = tuning.ogreWRecover / animMult;
+                    h.phaseDuration = tuning.ogreWRecover / recoverMult;
                 }
                 else
                 {
                     ExecuteOgreE(h);
                     h.phase = LanePhase.Recover;
-                    h.phaseDuration = tuning.ogreERecover / animMult;
+                    h.phaseDuration = tuning.ogreERecover / recoverMult;
                 }
                 h.phaseTimer = h.phaseDuration;
                 return;
@@ -1174,55 +1321,104 @@ namespace Moba.LaneSlice
             {
                 ExecuteSwordsmanQ(h);
                 h.phase = LanePhase.Recover;
-                h.phaseDuration = tuning.swordsmanQRecover;
+                h.phaseDuration = tuning.swordsmanQRecover; // Fixed: AGI only accelerates Q wind-up
                 h.phaseTimer = h.phaseDuration;
             }
+        }
+
+        private static int ClassifyOgreQZone(
+            Vector2 point,
+            Vector2 origin,
+            Vector2 fwd,
+            float centralRange,
+            float centralHalfW,
+            float outerRange,
+            float totalHalfW)
+        {
+            Vector2 delta = point - origin;
+            float along = Vector2.Dot(delta, fwd);
+            if (along < -0.25f) return 0;
+            float perp = Mathf.Abs(delta.x * fwd.y - delta.y * fwd.x);
+            if (along <= centralRange && perp <= centralHalfW) return 1;
+            if (along <= outerRange && perp <= totalHalfW) return 2;
+            return 0;
         }
 
         private void ExecuteOgreQ(HeroState h, float damageMult, bool isCritBanner)
         {
             int rankQ = Mathf.Max(1, h.rankQ);
-            float dmg = tuning.ogreQDamageFormula.Evaluate(rankQ, h.attackDamage) * damageMult;
+            float scale = h.scale;
+            float centralDmg = tuning.ogreQDamageFormula.Evaluate(rankQ, h.attackDamage) * damageMult;
+            float outerDmg = centralDmg * tuning.ogreQOuterDamageRatio;
             float stun = tuning.ogreQStunFormula.Evaluate(rankQ, h.strength);
+
+            float centralRange = tuning.ogreQRange * scale;
+            float centralHalfW = tuning.ogreQWidth * scale;
+            float outerExtraW = tuning.ogreQOuterWidthFormula.Evaluate(rankQ, h.strength);
+            float totalHalfW = centralHalfW + outerExtraW;
+            float outerRange = centralRange + outerExtraW * 0.45f;
+
             Vector2 fwd = h.aimDir.normalized;
             Vector2 origin = h.motor.Position;
 
             HeroState enemy = GetEnemyHero(h.team);
-            if (enemy.phase != LanePhase.Dead && IsInBeam(enemy.motor.Position, origin, fwd, tuning.ogreQRange, tuning.ogreQWidth + 0.45f))
+            if (enemy.phase != LanePhase.Dead)
             {
-                DealDamageToHero(enemy, dmg, false, false, h.id, h.team);
-                ApplyStunToHero(enemy, stun, h.id);
+                int zone = ClassifyOgreQZone(enemy.motor.Position, origin, fwd, centralRange, centralHalfW, outerRange, totalHalfW);
+                if (zone == 1)
+                {
+                    DealDamageToHero(enemy, centralDmg, false, false, h.id, h.team);
+                    ApplyStunToHero(enemy, stun, h.id);
+                }
+                else if (zone == 2)
+                {
+                    DealDamageToHero(enemy, outerDmg, false, false, h.id, h.team);
+                }
             }
             for (int i = 0; i < illusions.Count; i++)
             {
-                if (illusions[i].team != h.team && IsInBeam(illusions[i].motor.Position, origin, fwd, tuning.ogreQRange, tuning.ogreQWidth + 0.45f))
+                if (illusions[i].team == h.team) continue;
+                int zone = ClassifyOgreQZone(illusions[i].motor.Position, origin, fwd, centralRange, centralHalfW, outerRange, totalHalfW);
+                if (zone == 1)
                 {
-                    DealDamageToIllusion(illusions[i], dmg, false, h.id, h.team);
+                    DealDamageToIllusion(illusions[i], centralDmg, false, h.id, h.team);
+                }
+                else if (zone == 2)
+                {
+                    DealDamageToIllusion(illusions[i], outerDmg, false, h.id, h.team);
                 }
             }
             for (int i = 0; i < minions.Count; i++)
             {
-                if (minions[i].team != h.team && IsInBeam(minions[i].motor.Position, origin, fwd, tuning.ogreQRange, tuning.ogreQWidth + 0.35f))
+                if (minions[i].team == h.team) continue;
+                int zone = ClassifyOgreQZone(minions[i].motor.Position, origin, fwd, centralRange, centralHalfW, outerRange, totalHalfW);
+                if (zone == 1)
                 {
-                    DealDamageToMinion(minions[i], dmg, false, h.id, h.team);
+                    DealDamageToMinion(minions[i], centralDmg, false, h.id, h.team);
                     minions[i].stunTimer = Mathf.Max(minions[i].stunTimer, stun);
+                }
+                else if (zone == 2)
+                {
+                    DealDamageToMinion(minions[i], outerDmg, false, h.id, h.team);
                 }
             }
 
-            PushEvent(isCritBanner ? LaneEventKind.OgreStrike : LaneEventKind.OgreSlam, h.team, origin, fwd, tuning.ogreQRange, dmg,
-                isCritBanner ? $"CRIT {Mathf.RoundToInt(dmg)}!" : string.Empty);
+            PushEvent(isCritBanner ? LaneEventKind.OgreStrike : LaneEventKind.OgreSlam, h.team, origin, fwd, centralRange, centralDmg,
+                isCritBanner ? $"CRIT {Mathf.RoundToInt(centralDmg)}!" : "CENTRAL");
+            PushEvent(LaneEventKind.OgreQShockwave, h.team, origin, fwd, totalHalfW, outerRange, "SHOCKWAVE");
         }
 
         private void ExecuteOgreW(HeroState h, float damageMult, bool isCritBanner)
         {
             int rankW = Mathf.Max(1, h.rankW);
+            float wRange = tuning.ogreWRange * h.scale;
             float dmg = tuning.ogreWDamageFormula.Evaluate(rankW, h.attackDamage) * damageMult;
             float knockback = tuning.ogreWKnockbackFormula.Evaluate(rankW, h.strength);
             Vector2 fwd = h.aimDir.normalized;
             Vector2 origin = h.motor.Position;
 
             HeroState enemy = GetEnemyHero(h.team);
-            if (enemy.phase != LanePhase.Dead && IsInCone(enemy.motor.Position, origin, fwd, tuning.ogreWRange + 0.45f, tuning.ogreWArcCos))
+            if (enemy.phase != LanePhase.Dead && IsInCone(enemy.motor.Position, origin, fwd, wRange + 0.40f, tuning.ogreWArcCos))
             {
                 DealDamageToHero(enemy, dmg, false, false, h.id, h.team);
                 Vector2 pushDir = DirectionTo(origin, enemy.motor.Position, fwd);
@@ -1230,14 +1426,14 @@ namespace Moba.LaneSlice
             }
             for (int i = 0; i < illusions.Count; i++)
             {
-                if (illusions[i].team != h.team && IsInCone(illusions[i].motor.Position, origin, fwd, tuning.ogreWRange + 0.45f, tuning.ogreWArcCos))
+                if (illusions[i].team != h.team && IsInCone(illusions[i].motor.Position, origin, fwd, wRange + 0.40f, tuning.ogreWArcCos))
                 {
                     DealDamageToIllusion(illusions[i], dmg, false, h.id, h.team);
                 }
             }
             for (int i = 0; i < minions.Count; i++)
             {
-                if (minions[i].team != h.team && IsInCone(minions[i].motor.Position, origin, fwd, tuning.ogreWRange + 0.35f, tuning.ogreWArcCos))
+                if (minions[i].team != h.team && IsInCone(minions[i].motor.Position, origin, fwd, wRange + 0.30f, tuning.ogreWArcCos))
                 {
                     DealDamageToMinion(minions[i], dmg, false, h.id, h.team);
                     Vector2 pushDir = DirectionTo(origin, minions[i].motor.Position, fwd);
@@ -1246,40 +1442,41 @@ namespace Moba.LaneSlice
                 }
             }
 
-            PushEvent(isCritBanner ? LaneEventKind.OgreStrike : LaneEventKind.OgreSweep, h.team, origin, fwd, tuning.ogreWRange, dmg,
+            PushEvent(isCritBanner ? LaneEventKind.OgreStrike : LaneEventKind.OgreSweep, h.team, origin, fwd, wRange, dmg,
                 isCritBanner ? $"CRIT {Mathf.RoundToInt(dmg)}!" : string.Empty);
         }
 
         private void ExecuteOgreE(HeroState h)
         {
             int rankE = Mathf.Max(1, h.rankE);
+            float eRadius = tuning.ogreERadiusFormula.Evaluate(rankE, h.strength) * h.scale;
             float dmg = tuning.ogreEDamageFormula.Evaluate(rankE, h.attackDamage);
             float stun = tuning.ogreEStunFormula.Evaluate(rankE, h.strength);
             Vector2 origin = h.motor.Position;
 
             HeroState enemy = GetEnemyHero(h.team);
-            if (enemy.phase != LanePhase.Dead && Vector2.Distance(enemy.motor.Position, origin) <= tuning.ogreERadius + 0.45f)
+            if (enemy.phase != LanePhase.Dead && Vector2.Distance(enemy.motor.Position, origin) <= eRadius + 0.38f)
             {
                 DealDamageToHero(enemy, dmg, false, false, h.id, h.team);
                 ApplyStunToHero(enemy, stun, h.id);
             }
             for (int i = 0; i < illusions.Count; i++)
             {
-                if (illusions[i].team != h.team && Vector2.Distance(illusions[i].motor.Position, origin) <= tuning.ogreERadius + 0.45f)
+                if (illusions[i].team != h.team && Vector2.Distance(illusions[i].motor.Position, origin) <= eRadius + 0.38f)
                 {
                     DealDamageToIllusion(illusions[i], dmg, false, h.id, h.team);
                 }
             }
             for (int i = 0; i < minions.Count; i++)
             {
-                if (minions[i].team != h.team && Vector2.Distance(minions[i].motor.Position, origin) <= tuning.ogreERadius + 0.35f)
+                if (minions[i].team != h.team && Vector2.Distance(minions[i].motor.Position, origin) <= eRadius + 0.30f)
                 {
                     DealDamageToMinion(minions[i], dmg, false, h.id, h.team);
                     minions[i].stunTimer = Mathf.Max(minions[i].stunTimer, stun);
                 }
             }
 
-            PushEvent(LaneEventKind.OgreStomp, h.team, origin, h.aimDir, tuning.ogreERadius, dmg, string.Empty);
+            PushEvent(LaneEventKind.OgreStomp, h.team, origin, h.aimDir, eRadius, dmg, string.Empty);
         }
 
         private void ExecuteSwordsmanQ(HeroState h)
@@ -1346,7 +1543,7 @@ namespace Moba.LaneSlice
             {
                 h.swordLastTargetKind = (int)markedKind;
                 h.swordLastTargetId = markedId;
-                h.swordMarkTimer = tuning.swordsmanRLookbackSeconds;
+                h.swordMarkTimer = tuning.swordsmanRLookbackFormula.Evaluate(Mathf.Max(1, h.rankR), h.intelligence);
             }
 
             PushEvent(LaneEventKind.SwordsmanQSlash, h.team, origin, fwd, tuning.swordsmanQRange, dmg, string.Empty);
@@ -1380,9 +1577,11 @@ namespace Moba.LaneSlice
         {
             Vector2 toEnd = h.dashEndPos - h.motor.Position;
             float dist = toEnd.magnitude;
-            float step = tuning.swordsmanRDashSpeed * dt;
+            float dashSpeed = tuning.swordsmanRDashSpeedFormula.Evaluate(Mathf.Max(1, h.rankR), h.agility);
+            float step = dashSpeed * dt;
             Vector2 next = dist <= step ? h.dashEndPos : h.motor.Position + toEnd.normalized * step;
             h.motor = new MovementMotor(next, AngleDegrees(h.aimDir));
+            h.prevMotorPos = next;
 
             if (!h.dashHitApplied && (dist <= step || dist <= 1.25f))
             {
@@ -1403,7 +1602,7 @@ namespace Moba.LaneSlice
             LaneTargetKind kind = (LaneTargetKind)h.dashTargetKind;
             int targetId = h.dashTargetId;
             float dmg = tuning.swordsmanRDamageFormula.Evaluate(h.rankR, h.attackDamage);
-            float execThresh = tuning.swordsmanRExecuteThreshold + 0.04f * Mathf.Max(0, h.rankR - 1);
+            float execThresh = Mathf.Min(0.95f, tuning.swordsmanRExecuteFormula.Evaluate(h.rankR, h.strength));
 
             bool resetCooldown = false;
             Vector2 hitPos = h.motor.Position;

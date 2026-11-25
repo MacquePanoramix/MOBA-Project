@@ -10,8 +10,8 @@ namespace Moba.LaneSlice
     /// </summary>
     public sealed class LaneBot
     {
-        private static readonly int[] OgreBuild = { 15, 1, 2, 8, 18, 20 };       // Brawler's Buckler, Iron Greatsword, Quickstep Dagger, Titan's Knuckle, Colossus Pauldron, Executioner's Grudge
-        private static readonly int[] MiravelBuild = { 14, 10, 11, 19, 12, 17 }; // Woodland Salve, Arcane Lens, Kindred Charm, Spellweaver's Hourglass, Coward's Shield, Momentum Greaves
+        private static readonly int[] OgreBuild = { 15, 1, 2, 9, 8, 18 };         // Buckler, Iron Greatsword, Quickstep Dagger, Zephyr Feather (AGI windup), Titan's Knuckle (STR), Colossus Pauldron
+        private static readonly int[] MiravelBuild = { 14, 11, 10, 19, 12, 17 }; // Woodland Salve, Kindred Charm (HealPower), Arcane Lens (INT), Spellweaver's Hourglass, Coward's Shield, Momentum Greaves
         private static readonly int[] SwordsmanBuild = { 13, 1, 2, 16, 18, 20 }; // Miner's Hatchet, Iron Greatsword, Quickstep Dagger, Blighted Thorn, Colossus Pauldron, Executioner's Grudge
         private static readonly int[] LaserBuild = { 13, 1, 2, 10, 17, 20 };     // Miner's Hatchet, Iron Greatsword, Quickstep Dagger, Arcane Lens, Momentum Greaves, Executioner's Grudge
 
@@ -219,7 +219,8 @@ namespace Moba.LaneSlice
                 SendNonMoveOrder(match, new LaneOrder { team = team, kind = LaneOrderKind.CastR, point = enemyPos });
                 return;
             }
-            if (enemyVisible && !enemyUnderUnsafeTower && enemyDist <= Mathf.Max(1.8f, match.Tuning.ogreERadius - 0.15f) && self.rankE >= 1 && self.cdE <= 0f)
+            float eCastRange = self.ogreERadius > 0.5f ? self.ogreERadius - 0.15f : 2.15f;
+            if (enemyVisible && !enemyUnderUnsafeTower && enemyDist <= Mathf.Max(1.8f, eCastRange) && self.rankE >= 1 && self.cdE <= 0f)
             {
                 SendNonMoveOrder(match, new LaneOrder { team = team, kind = LaneOrderKind.CastE, point = enemyPos });
                 return;
@@ -447,8 +448,9 @@ namespace Moba.LaneSlice
 
             if (self.rankW >= 1 && self.cdW <= 0f)
             {
-                bool heroStacked = enemyVisible && enemy.laserStacks >= 1 && enemyDist <= match.Tuning.laserWCastRange - 0.3f;
-                if (heroStacked || CountStackedEnemyMinions(snap, selfPos, match.Tuning.laserWCastRange - 0.3f) >= 2)
+                float shockRange = match.Tuning.laserWCastRange - 0.3f;
+                bool heroStacked = enemyVisible && enemy.laserStacks >= 1 && enemyDist <= shockRange;
+                if (heroStacked || CountStackedEnemyMinions(snap, selfPos, shockRange) >= 2)
                 {
                     SendNonMoveOrder(match, new LaneOrder { team = team, kind = LaneOrderKind.CastW, point = enemyVisible ? enemyPos : selfPos });
                     return;

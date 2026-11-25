@@ -36,6 +36,12 @@ namespace Moba.LaneSlice
         private readonly GameObject hoverRing;
         private readonly GameObject swordMarkRing;
 
+        private readonly AudioSource sfxSource;
+        private readonly AudioClip sfxSwordLight;
+        private readonly AudioClip sfxSwordHeavy;
+        private readonly AudioClip sfxOgreCentral;
+        private readonly AudioClip sfxOgreShockwave;
+
         private bool cameraLocked = true;
         private Vector3 camFocus = Vector3.zero;
         private Vector3 lastMouseDragPos;
@@ -48,11 +54,13 @@ namespace Moba.LaneSlice
         private sealed class HeroTelegraph
         {
             public GameObject beam;
+            public GameObject beamOuter;
             public GameObject laserBeam;
             public GameObject ogreW;
             public GameObject swordQ;
             public GameObject ring;
             public GameObject cowardHalo;
+            public Material cowardHaloMat;
             public GameObject auraRing;
             public GameObject drainRing;
             public GameObject wardRing;
@@ -82,6 +90,7 @@ namespace Moba.LaneSlice
             public int rStrikeIndex;
             public bool rStrikeIsFinal;
             public bool isTwinSecondStrike;
+            public float laserStepProgress;
             public int lastBasicAlt;
             public float basicPunchTimer;
             public float walkCycle;
@@ -149,6 +158,39 @@ namespace Moba.LaneSlice
 
             swordMarkRing = CreateUnlitMesh("SwordMarkRing", ringMesh, new Color(0.95f, 0.22f, 0.25f, 0.90f));
             swordMarkRing.SetActive(false);
+
+            if (!Application.isBatchMode)
+            {
+                sfxSource = root.gameObject.AddComponent<AudioSource>();
+                sfxSource.spatialBlend = 0f;
+                sfxSource.volume = 0.28f;
+                sfxSwordLight = BuildToneClip("SwordLightSfx", 680f, 1180f, 0.12f, isImpactNoise: false);
+                sfxSwordHeavy = BuildToneClip("SwordHeavySfx", 210f, 95f, 0.24f, isImpactNoise: true);
+                sfxOgreCentral = BuildToneClip("OgreCentralSfx", 115f, 44f, 0.30f, isImpactNoise: true);
+                sfxOgreShockwave = BuildToneClip("OgreShockwaveSfx", 260f, 120f, 0.22f, isImpactNoise: false);
+            }
+        }
+
+        private static AudioClip BuildToneClip(string name, float freqStart, float freqEnd, float seconds, bool isImpactNoise)
+        {
+            const int sr = 22050;
+            int samples = Mathf.Max(256, Mathf.RoundToInt(sr * seconds));
+            var data = new float[samples];
+            float phase = 0f;
+            uint rng = (uint)Mathf.Abs(name.GetHashCode()) + 17u;
+            for (int i = 0; i < samples; i++)
+            {
+                float t = i / (float)samples;
+                float freq = Mathf.Lerp(freqStart, freqEnd, t);
+                phase += (2f * Mathf.PI * freq) / sr;
+                float env = Mathf.Pow(1f - t, isImpactNoise ? 1.8f : 2.4f);
+                rng = rng * 1664525u + 1013904223u;
+                float noise = ((rng & 0xFFFFu) / 32768f - 1f) * (isImpactNoise ? 0.38f : 0.14f);
+                data[i] = Mathf.Clamp((Mathf.Sin(phase) * 0.72f + noise) * env, -1f, 1f);
+            }
+            AudioClip clip = AudioClip.Create(name, samples, 1, sr, false);
+            clip.SetData(data, 0);
+            return clip;
         }
 
         public void ResetVisuals()
@@ -157,6 +199,7 @@ namespace Moba.LaneSlice
             foreach (var kv in heroTelegraphs)
             {
                 if (kv.Value.beam) Object.Destroy(kv.Value.beam);
+                if (kv.Value.beamOuter) Object.Destroy(kv.Value.beamOuter);
                 if (kv.Value.laserBeam) Object.Destroy(kv.Value.laserBeam);
                 if (kv.Value.ogreW) Object.Destroy(kv.Value.ogreW);
                 if (kv.Value.swordQ) Object.Destroy(kv.Value.swordQ);
@@ -243,6 +286,7 @@ namespace Moba.LaneSlice
                 vis.rStrikeIndex = h.rStrikeIndex;
                 vis.rStrikeIsFinal = h.rStrikeIsFinal;
                 vis.isTwinSecondStrike = h.isTwinSecondStrike;
+                vis.laserStepProgress = h.laserStepProgress;
                 if (h.basicSwingAlt != vis.lastBasicAlt)
                 {
                     vis.lastBasicAlt = h.basicSwingAlt;
@@ -633,14 +677,17 @@ namespace Moba.LaneSlice
         {
             if (!heroTelegraphs.TryGetValue(h.id, out HeroTelegraph tel))
             {
+                GameObject chObj = CreateUnlitMesh($"CowardHalo_{h.id}", ringMesh, new Color(0.36f, 0.90f, 1f, 0.82f));
                 tel = new HeroTelegraph
                 {
-                    beam = CreateUnlitMesh($"TelBeam_{h.id}", quadMesh, new Color(1f, 0.68f, 0.20f, 0.45f)),
+                    beam = CreateUnlitMesh($"TelBeam_{h.id}", quadMesh, new Color(1f, 0.32f, 0.16f, 0.52f)),
+                    beamOuter = CreateUnlitMesh($"TelBeamOuter_{h.id}", quadMesh, new Color(1f, 0.82f, 0.30f, 0.30f)),
                     laserBeam = CreateUnlitMesh($"TelLaserBeam_{h.id}", quadMesh, new Color(0.24f, 0.92f, 1f, 0.52f)),
                     ogreW = CreateUnlitMesh($"TelOgreW_{h.id}", ogreWConeMesh, new Color(1f, 0.78f, 0.22f, 0.44f)),
                     swordQ = CreateUnlitMesh($"TelSwordQ_{h.id}", swordQConeMesh, new Color(1f, 0.88f, 0.36f, 0.44f)),
                     ring = CreateUnlitMesh($"TelRing_{h.id}", ringMesh, new Color(1f, 0.48f, 0.18f, 0.72f)),
-                    cowardHalo = CreateUnlitMesh($"CowardHalo_{h.id}", ringMesh, new Color(0.36f, 0.90f, 1f, 0.82f)),
+                    cowardHalo = chObj,
+                    cowardHaloMat = chObj.GetComponent<MeshRenderer>().sharedMaterial,
                     auraRing = CreateUnlitMesh($"AuraRing_{h.id}", ringMesh, new Color(0.32f, 0.95f, 0.65f, 0.24f)),
                     drainRing = CreateUnlitMesh($"DrainRing_{h.id}", ringMesh, new Color(0.76f, 0.30f, 1f, 0.62f)),
                     wardRing = CreateUnlitMesh($"WardRing_{h.id}", ringMesh, new Color(0.28f, 0.96f, 0.88f, 0.76f)),
@@ -650,7 +697,7 @@ namespace Moba.LaneSlice
                 heroTelegraphs[h.id] = tel;
             }
 
-            bool showBeam = false, showLaserBeam = false, showOgreW = false, showSwordQ = false, showRing = false;
+            bool showBeam = false, showBeamOuter = false, showLaserBeam = false, showOgreW = false, showSwordQ = false, showRing = false;
             bool showAura = false, showDrain = false, showWard = false, showCurse = false, showShield = false, showCoward = false;
 
             if (visibleToLocal && tuning != null)
@@ -658,36 +705,50 @@ namespace Moba.LaneSlice
                 Vector3 pos = new Vector3(h.x, 0.05f, h.y);
                 float aimDeg = Mathf.Atan2(h.aimDirX, h.aimDirY) * Mathf.Rad2Deg;
                 Quaternion aimRot = Quaternion.Euler(0f, aimDeg, 0f);
+                float hScale = Mathf.Max(0.85f, h.scale);
 
                 bool isCastWindup = h.phase == LanePhase.Casting || h.phase == LanePhase.ComboSeq;
                 if (isCastWindup && h.heroId == LaneHeroId.Ogre)
                 {
                     if (h.activeSlot == LaneAbilitySlot.Q)
                     {
+                        float qRange = tuning.ogreQRange * hScale;
+                        float cHalfW = h.ogreQCentralHalfWidth > 0.1f ? h.ogreQCentralHalfWidth : tuning.ogreQWidth * hScale;
+                        float oExtra = h.ogreQOuterHalfWidth > 0.05f ? h.ogreQOuterHalfWidth : tuning.ogreQOuterWidthFormula.Evaluate(Mathf.Max(1, h.rankQ), h.strength);
+                        float tHalfW = cHalfW + oExtra;
+                        float oRange = qRange + oExtra * 0.45f;
+
                         showBeam = true;
-                        tel.beam.transform.position = pos;
+                        tel.beam.transform.position = pos + new Vector3(0f, 0.01f, 0f);
                         tel.beam.transform.rotation = aimRot;
-                        tel.beam.transform.localScale = new Vector3(tuning.ogreQWidth * 2f, 1f, tuning.ogreQRange);
+                        tel.beam.transform.localScale = new Vector3(cHalfW * 2f, 1f, qRange);
+
+                        showBeamOuter = true;
+                        tel.beamOuter.transform.position = pos;
+                        tel.beamOuter.transform.rotation = aimRot;
+                        tel.beamOuter.transform.localScale = new Vector3(tHalfW * 2f, 1f, oRange);
                     }
                     else if (h.activeSlot == LaneAbilitySlot.W)
                     {
+                        float wRange = h.ogreWRange > 0.2f ? h.ogreWRange : tuning.ogreWRange * hScale;
                         showOgreW = true;
                         tel.ogreW.transform.position = pos;
                         tel.ogreW.transform.rotation = aimRot;
-                        tel.ogreW.transform.localScale = new Vector3(tuning.ogreWRange, 1f, tuning.ogreWRange);
+                        tel.ogreW.transform.localScale = new Vector3(wRange, 1f, wRange);
                     }
                     else if (h.activeSlot == LaneAbilitySlot.E)
                     {
+                        float eRad = h.ogreERadius > 0.2f ? h.ogreERadius : tuning.ogreERadiusFormula.Evaluate(Mathf.Max(1, h.rankE), h.strength) * hScale;
                         showRing = true;
                         tel.ring.transform.position = pos;
-                        tel.ring.transform.localScale = new Vector3(tuning.ogreERadius, 1f, tuning.ogreERadius);
+                        tel.ring.transform.localScale = new Vector3(eRad, 1f, eRad);
                     }
                 }
                 else if (h.heroId == LaneHeroId.Ogre && h.phase == LanePhase.Channeling && h.activeSlot == LaneAbilitySlot.R)
                 {
                     showRing = true;
                     tel.ring.transform.position = pos;
-                    tel.ring.transform.localScale = Vector3.one * (1.45f + Mathf.Sin(Time.time * 8f) * 0.12f);
+                    tel.ring.transform.localScale = Vector3.one * (1.30f * hScale + Mathf.Sin(Time.time * 8f) * 0.12f);
                 }
                 else if (h.heroId == LaneHeroId.Swordsman && h.phase == LanePhase.Casting && h.activeSlot == LaneAbilitySlot.Q)
                 {
@@ -712,18 +773,30 @@ namespace Moba.LaneSlice
                     tel.laserBeam.transform.localScale = new Vector3(tuning.laserRHalfWidth * 2f * widthPulse, 1f, tuning.laserRRange);
                 }
 
-                showCoward = h.cowardShieldBonus > 1.0f;
+                showCoward = h.cowardShieldBonus > 0.5f || h.cowardShieldState > 0;
                 if (showCoward)
                 {
                     tel.cowardHalo.transform.position = new Vector3(h.x, 0.09f, h.y);
-                    tel.cowardHalo.transform.localScale = Vector3.one * 0.96f;
+                    float f = Mathf.Clamp01(h.cowardShieldFactor);
+                    float haloScale = h.cowardShieldState == 1 ? 0.76f + 0.24f * f
+                        : (h.cowardShieldState == 2 ? 1.00f + 0.05f * Mathf.Sin(Time.time * 6f) : 0.78f + 0.18f * f);
+                    tel.cowardHalo.transform.localScale = Vector3.one * haloScale;
+                    if (tel.cowardHaloMat != null)
+                    {
+                        Color haloCol = h.cowardShieldState == 2 ? new Color(0.32f, 0.96f, 1f, 0.92f)
+                            : (h.cowardShieldState == 1 ? new Color(1f, 0.85f, 0.34f, 0.45f + 0.40f * f)
+                            : (h.cowardShieldState == 3 ? new Color(0.75f, 0.90f, 1f, 0.70f)
+                            : new Color(0.95f, 0.52f, 0.28f, 0.25f + 0.55f * f)));
+                        tel.cowardHaloMat.color = haloCol;
+                    }
                 }
 
                 showAura = h.heroId == LaneHeroId.Miravel;
                 if (showAura)
                 {
+                    float aRad = h.miravelAuraRadius > 1f ? h.miravelAuraRadius : tuning.luisAuraRadiusFormula.Evaluate(1, h.intelligence);
                     tel.auraRing.transform.position = new Vector3(h.x, 0.03f, h.y);
-                    tel.auraRing.transform.localScale = new Vector3(tuning.luisAuraRadius, 1f, tuning.luisAuraRadius);
+                    tel.auraRing.transform.localScale = new Vector3(aRad, 1f, aRad);
                 }
 
                 showDrain = h.miravelDrainAura > 0.05f;
@@ -758,6 +831,7 @@ namespace Moba.LaneSlice
             }
 
             tel.beam.SetActive(showBeam);
+            tel.beamOuter.SetActive(showBeamOuter);
             tel.laserBeam.SetActive(showLaserBeam);
             tel.ogreW.SetActive(showOgreW);
             tel.swordQ.SetActive(showSwordQ);
@@ -900,11 +974,11 @@ namespace Moba.LaneSlice
                     else
                     {
                         leftArmEuler = new Vector3(-24f * p, -64f * p, 16f * p);
-                        bodyEuler = new Vector3(4f, -20f * p, 0f);
+                        bodyEuler = new Vector3(8f * p, -28f * p, -6f * p);
                         if (v.basicPunchTimer > 0f)
                         {
                             float s = 1f - v.basicPunchTimer / 0.24f;
-                            rightArmEuler = new Vector3(44f * (1f - s), Mathf.Lerp(58f, -76f, s), 0f);
+                            rightArmEuler = new Vector3(32f * (1f - s), Mathf.Lerp(58f, -72f, s), 0f);
                         }
                     }
                 }
@@ -913,13 +987,15 @@ namespace Moba.LaneSlice
                     float s = 1f - v.basicPunchTimer / 0.24f;
                     if ((v.lastBasicAlt & 1) == 0)
                     {
-                        rightArmEuler = new Vector3(44f * (1f - s), Mathf.Lerp(58f, -76f, s), 0f);
-                        bodyEuler = new Vector3(10f, Mathf.Lerp(18f, -24f, s), 0f);
+                        // Light 1st right-hand sabre flick
+                        rightArmEuler = new Vector3(28f * (1f - s), Mathf.Lerp(54f, -74f, s), 0f);
+                        bodyEuler = new Vector3(8f, Mathf.Lerp(16f, -22f, s), 0f);
                     }
                     else
                     {
-                        leftArmEuler = new Vector3(44f * (1f - s), Mathf.Lerp(-58f, 76f, s), 0f);
-                        bodyEuler = new Vector3(10f, Mathf.Lerp(-18f, 24f, s), 0f);
+                        // Heavy 2nd left-hand greatsword cleave
+                        leftArmEuler = new Vector3(62f * (1f - s), Mathf.Lerp(-70f, 88f, s), -18f * (1f - s));
+                        bodyEuler = new Vector3(16f, Mathf.Lerp(-26f, 32f, s), 0f);
                     }
                 }
             }
@@ -955,6 +1031,17 @@ namespace Moba.LaneSlice
                 {
                     rightArmEuler = new Vector3(-18f * p, -10f, 0f);
                     leftArmEuler = new Vector3(-12f * p, 24f, 0f);
+                }
+                else if (v.heroId == LaneHeroId.LaserShooter && v.phase == LanePhase.Casting && v.activeSlot == LaneAbilitySlot.E)
+                {
+                    // Comical calm upright single step-back while keeping gun aimed forward
+                    float stride = Mathf.Sin(v.laserStepProgress * Mathf.PI);
+                    bodyPos.y += stride * 0.05f;
+                    bodyEuler = new Vector3(-3f, 0f, 0f);
+                    leftLegEuler = new Vector3(-28f * stride, 0f, 0f);
+                    rightLegEuler = new Vector3(24f * stride, 0f, 0f);
+                    rightArmEuler = new Vector3(0f, 0f, 0f);
+                    leftArmEuler = new Vector3(6f, 20f, 0f);
                 }
                 else if (v.phase == LanePhase.Casting && v.activeSlot == LaneAbilitySlot.Q)
                 {
@@ -1100,15 +1187,22 @@ namespace Moba.LaneSlice
                     startS = 0.8f; endS = 0.15f; duration = 0.35f;
                     break;
                 case LaneEventKind.OgreSlam:
-                    c = new Color(1f, 0.62f, 0.22f, 0.90f);
-                    startS = 0.9f; endS = ev.radius > 1f ? ev.radius * 0.45f : 2.1f; duration = 0.50f;
-                    TriggerShake(0.20f, 0.18f);
+                    c = new Color(1f, 0.36f, 0.14f, 0.94f);
+                    startS = 0.85f; endS = ev.radius > 1f ? ev.radius * 0.55f : 2.3f; duration = 0.52f;
+                    TriggerShake(0.24f, 0.20f);
+                    if (sfxSource && sfxOgreCentral) sfxSource.PlayOneShot(sfxOgreCentral, 0.90f);
+                    break;
+                case LaneEventKind.OgreQShockwave:
+                    c = new Color(0.96f, 0.84f, 0.44f, 0.62f);
+                    startS = Mathf.Max(0.9f, ev.radius * 0.6f); endS = Mathf.Max(1.6f, ev.radius * 1.15f); duration = 0.44f;
+                    if (sfxSource && sfxOgreShockwave) sfxSource.PlayOneShot(sfxOgreShockwave, 0.60f);
                     break;
                 case LaneEventKind.OgreStrike:
                     c = new Color(1f, 0.62f, 0.22f, 0.90f);
                     startS = 0.9f; endS = ev.radius > 1f ? ev.radius * 0.45f : 2.1f; duration = 0.50f;
                     bool isCrit = !string.IsNullOrEmpty(ev.label) && ev.label.Contains("CRIT");
                     TriggerShake(isCrit ? 0.32f : 0.18f, isCrit ? 0.24f : 0.16f);
+                    if (sfxSource && sfxOgreCentral) sfxSource.PlayOneShot(sfxOgreCentral, isCrit ? 1.0f : 0.8f);
                     break;
                 case LaneEventKind.OgreSweep:
                     c = new Color(0.95f, 0.80f, 0.30f, 0.85f);
@@ -1130,6 +1224,20 @@ namespace Moba.LaneSlice
                     startS = 0.5f; endS = 1.25f; rise = 0.8f;
                     break;
                 case LaneEventKind.SwordsmanSlash:
+                {
+                    bool isHeavy = ev.label == "HEAVY";
+                    c = isHeavy ? new Color(1f, 0.48f, 0.22f, 0.94f) : new Color(0.68f, 0.92f, 1f, 0.88f);
+                    startS = isHeavy ? 0.85f : 0.55f;
+                    endS = isHeavy ? 1.85f : 1.15f;
+                    duration = isHeavy ? 0.38f : 0.24f;
+                    if (isHeavy) TriggerShake(0.10f, 0.10f);
+                    if (sfxSource)
+                    {
+                        AudioClip clip = isHeavy ? sfxSwordHeavy : sfxSwordLight;
+                        if (clip) sfxSource.PlayOneShot(clip, isHeavy ? 0.85f : 0.65f);
+                    }
+                    break;
+                }
                 case LaneEventKind.SwordsmanQSlash:
                     c = new Color(1f, 0.88f, 0.52f, 0.90f);
                     startS = 0.65f; endS = Mathf.Max(1.3f, ev.radius * 0.65f); duration = 0.34f;

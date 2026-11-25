@@ -119,7 +119,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &766359387
+--- !u!1 &220267311
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -127,8 +127,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 766359389}
-  - component: {fileID: 766359388}
+  - component: {fileID: 220267313}
+  - component: {fileID: 220267312}
   m_Layer: 0
   m_Name: Directional Light
   m_TagString: Untagged
@@ -136,13 +136,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!108 &766359388
+--- !u!108 &220267312
 Light:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 766359387}
+  m_GameObject: {fileID: 220267311}
   m_Enabled: 1
   serializedVersion: 13
   m_Type: 1
@@ -201,13 +201,13 @@ Light:
   m_LightUnit: 1
   m_LuxAtDistance: 1
   m_EnableSpotReflector: 1
---- !u!4 &766359389
+--- !u!4 &220267313
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 766359387}
+  m_GameObject: {fileID: 220267311}
   serializedVersion: 2
   m_LocalRotation: {x: 0.4213894, y: -0.24774122, z: 0.12083147, w: 0.8639763}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -216,7 +216,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1146505003
+--- !u!1 &548069516
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -224,8 +224,91 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1146505005}
-  - component: {fileID: 1146505004}
+  - component: {fileID: 548069518}
+  - component: {fileID: 548069517}
+  m_Layer: 0
+  m_Name: Main Camera
+  m_TagString: MainCamera
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!20 &548069517
+Camera:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 548069516}
+  m_Enabled: 1
+  serializedVersion: 2
+  m_ClearFlags: 1
+  m_BackGroundColor: {r: 0.11, g: 0.14, b: 0.12, a: 1}
+  m_projectionMatrixMode: 1
+  m_GateFitMode: 2
+  m_FOVAxisMode: 0
+  m_Iso: 200
+  m_ShutterSpeed: 0.005
+  m_Aperture: 16
+  m_FocusDistance: 10
+  m_FocalLength: 50
+  m_BladeCount: 5
+  m_Curvature: {x: 2, y: 11}
+  m_BarrelClipping: 0.25
+  m_Anamorphism: 0
+  m_SensorSize: {x: 36, y: 24}
+  m_LensShift: {x: 0, y: 0}
+  m_NormalizedViewPortRect:
+    serializedVersion: 2
+    x: 0
+    y: 0
+    width: 1
+    height: 1
+  near clip plane: 0.3
+  far clip plane: 1000
+  field of view: 45
+  orthographic: 0
+  orthographic size: 5
+  m_Depth: 0
+  m_CullingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_RenderingPath: -1
+  m_TargetTexture: {fileID: 0}
+  m_TargetDisplay: 0
+  m_TargetEye: 3
+  m_HDR: 1
+  m_AllowMSAA: 1
+  m_AllowDynamicResolution: 0
+  m_ForceIntoRT: 0
+  m_OcclusionCulling: 1
+  m_StereoConvergence: 10
+  m_StereoSeparation: 0.022
+--- !u!4 &548069518
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 548069516}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0.4461978, y: 0, z: 0, w: 0.89493436}
+  m_LocalPosition: {x: 0, y: 17.5, z: -13.2}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1187766902
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1187766904}
+  - component: {fileID: 1187766903}
   m_Layer: 0
   m_Name: LaneController
   m_TagString: Untagged
@@ -233,13 +316,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1146505004
+--- !u!114 &1187766903
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1146505003}
+  m_GameObject: {fileID: 1187766902}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: efa4c4f76e3da3e4691312752fe3ed96, type: 3}
@@ -296,39 +379,41 @@ MonoBehaviour:
     luisTurnRate: 540
     swordsmanSpeed: 3.45
     swordsmanTurnRate: 480
-    ogreQWindup: 0.9
-    ogreQRecover: 0.34
+    attackSpeedCurveK: 2.4
+    ogreQWindup: 0.88
+    ogreQRecover: 0.36
     ogreQRange: 4.7
-    ogreQWidth: 1.15
+    ogreQWidth: 0.95
+    ogreQOuterDamageRatio: 0.55
     ogreQCooldown: 6.8
     ogreWWindup: 0.72
-    ogreWRecover: 0.28
+    ogreWRecover: 0.3
     ogreWRange: 3
     ogreWArcCos: 0.15
     ogreWCooldown: 6.2
     ogreEWindup: 0.62
-    ogreERecover: 0.3
-    ogreERadius: 2.45
+    ogreERecover: 0.32
+    ogreERadius: 2.35
     ogreECooldown: 8.5
     ogreRChannelDuration: 2
     ogreRDamageReduction: 0.65
-    ogreRScaleBonus: 1.28
+    ogreRScaleBonus: 1.22
     ogreRMaxStrikes: 4
     ogreRLungeDistance: 1.35
     ogreRFastWindup: 0.36
     ogreRFinalWindup: 0.62
-    ogreRStrikeFollowthrough: 0.09
+    ogreRStrikeFollowthrough: 0.1
+    ogreRPostComboRecover: 0.28
     ogreRFinalCritMultiplier: 1.85
     ogreRCooldown: 28
-    ogreAnimSpeedFormula:
+    ogreWindupSpeedFormula:
       baseValue: 1
       perRank: 0
-      curve: 0
-      coeffOrMaxBonus: 0.008
-      halfPoint: 0
+      curve: 2
+      coeffOrMaxBonus: 1
+      halfPoint: 0.022
       minValue: 1
       maxValue: 0
-    ogreAttackSpeedAnimRatio: 0.7
     ogreQDamageFormula:
       baseValue: 55
       perRank: 18
@@ -345,6 +430,14 @@ MonoBehaviour:
       halfPoint: 50
       minValue: 0.5
       maxValue: 0
+    ogreQOuterWidthFormula:
+      baseValue: 0.65
+      perRank: 0.1
+      curve: 1
+      coeffOrMaxBonus: 1.45
+      halfPoint: 55
+      minValue: 0.2
+      maxValue: 0
     ogreWDamageFormula:
       baseValue: 40
       perRank: 15
@@ -354,11 +447,11 @@ MonoBehaviour:
       minValue: 0
       maxValue: 0
     ogreWKnockbackFormula:
-      baseValue: 2.5
+      baseValue: 2.4
       perRank: 0.25
-      curve: 1
-      coeffOrMaxBonus: 2.4
-      halfPoint: 50
+      curve: 2
+      coeffOrMaxBonus: 2.8
+      halfPoint: 0.04
       minValue: 1
       maxValue: 0
     ogreEDamageFormula:
@@ -377,6 +470,22 @@ MonoBehaviour:
       halfPoint: 50
       minValue: 0.5
       maxValue: 0
+    ogreERadiusFormula:
+      baseValue: 2.35
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 1.55
+      halfPoint: 55
+      minValue: 1.2
+      maxValue: 0
+    ogreRScaleFormula:
+      baseValue: 1.22
+      perRank: 0.06
+      curve: 1
+      coeffOrMaxBonus: 0.52
+      halfPoint: 65
+      minValue: 1
+      maxValue: 0
     ogreImmuneDuringRecovery: 1
     ogreRStacksCursePerStrike: 0
     swordsmanDisplaceCancelsSecondHit: 1
@@ -384,14 +493,30 @@ MonoBehaviour:
     luisBasicWindup: 0.26
     luisBasicRecover: 0.52
     luisBasicProjSpeed: 16.5
-    luisAuraRadius: 7.8
+    luisAuraRadius: 7.2
+    luisAuraRadiusFormula:
+      baseValue: 7.2
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 4.2
+      halfPoint: 60
+      minValue: 3
+      maxValue: 0
     luisAllyAuraRegenBase: 2.2
-    luisEnemyAuraRegenPenaltyBase: 2.4
+    luisEnemyAuraRegenPenaltyBase: 2.6
     luisTakedownHealPowerGain: 0.1
-    luisOrbInterval: 7.5
+    luisOrbInterval: 8
     luisOrbDuration: 11
     luisOrbPickupRadius: 1.55
-    luisOrbPulseRadius: 4.1
+    luisOrbPulseRadius: 3.8
+    luisOrbPulseRadiusFormula:
+      baseValue: 3.8
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 2.4
+      halfPoint: 60
+      minValue: 2
+      maxValue: 0
     luisWDuration: 3.2
     luisWIllusionDuration: 4.5
     luisWCooldown: 10.5
@@ -401,23 +526,30 @@ MonoBehaviour:
     luisECooldown: 8.5
     luisRRange: 5
     luisRChannelDuration: 4.2
-    luisRRadius: 4.4
+    luisRRadius: 4.2
+    luisRRadiusFormula:
+      baseValue: 4.2
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 2.6
+      halfPoint: 60
+      minValue: 2.5
+      maxValue: 0
     luisRMaxSlow: 0.52
-    luisRMaxHealAmp: 0.45
     luisRCooldown: 26
     luisOrbHealFormula:
       baseValue: 68
       perRank: 20
       curve: 0
-      coeffOrMaxBonus: 1.5
+      coeffOrMaxBonus: 0
       halfPoint: 0
       minValue: 0
       maxValue: 0
     luisOrbDamageFormula:
-      baseValue: 64
+      baseValue: 62
       perRank: 18
       curve: 0
-      coeffOrMaxBonus: 1.4
+      coeffOrMaxBonus: 0
       halfPoint: 0
       minValue: 0
       maxValue: 0
@@ -429,35 +561,102 @@ MonoBehaviour:
       halfPoint: 0
       minValue: 0
       maxValue: 0
+    luisRHealAmpFormula:
+      baseValue: 0.25
+      perRank: 0.05
+      curve: 1
+      coeffOrMaxBonus: 0.45
+      halfPoint: 0.8
+      minValue: 0
+      maxValue: 0
     luisRVulnFormula:
-      baseValue: 0.36
+      baseValue: 0.28
       perRank: 0.06
       curve: 1
-      coeffOrMaxBonus: 0.3
-      halfPoint: 60
+      coeffOrMaxBonus: 0.42
+      halfPoint: 0.8
       minValue: 0
       maxValue: 0
     swordsmanBasicRange: 2.35
-    swordsmanHit1Windup: 0.24
-    swordsmanHit2Delay: 0.22
-    swordsmanBasicRecover: 0.5
-    swordsmanStrikeAdRatio: 0.6
-    swordsmanQWindup: 0.28
+    swordsmanHit1Windup: 0.2
+    swordsmanHit2DelayFormula:
+      baseValue: 0.4
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: -0.14
+      halfPoint: 45
+      minValue: 0.24
+      maxValue: 0
+    swordsmanBasicRecover: 0.46
+    swordsmanHit1AdRatio: 0.48
+    swordsmanHit2AdRatio: 0.76
+    swordsmanQWindupFormula:
+      baseValue: 0.3
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: -0.15
+      halfPoint: 45
+      minValue: 0.14
+      maxValue: 0
     swordsmanQRecover: 0.24
     swordsmanQRange: 3.5
     swordsmanQArcCos: 0.35
     swordsmanQSlow: 0.4
     swordsmanQSlowDuration: 2.1
     swordsmanQCooldown: 5.5
-    swordsmanWHealShare: 0.55
-    swordsmanEStackGain: 8
-    swordsmanEStackShred: 8
-    swordsmanEMaxStacks: 6
-    swordsmanEStackDuration: 9
-    swordsmanRLookbackSeconds: 12
+    swordsmanWStackGain: 8
+    swordsmanWStackShred: 8
+    swordsmanWMaxStacks: 6
+    swordsmanWBuffDurationFormula:
+      baseValue: 6.5
+      perRank: 0
+      curve: 0
+      coeffOrMaxBonus: 0.08
+      halfPoint: 0
+      minValue: 2
+      maxValue: 0
+    swordsmanWDebuffDurationFormula:
+      baseValue: 6.5
+      perRank: 0
+      curve: 0
+      coeffOrMaxBonus: 0.08
+      halfPoint: 0
+      minValue: 2
+      maxValue: 0
+    swordsmanEHealShare: 0.55
+    swordsmanEPercentHpFormula:
+      baseValue: 0.045
+      perRank: 0.014
+      curve: 1
+      coeffOrMaxBonus: 0.065
+      halfPoint: 60
+      minValue: 0
+      maxValue: 0
+    swordsmanRLookbackFormula:
+      baseValue: 10
+      perRank: 0
+      curve: 0
+      coeffOrMaxBonus: 0.16
+      halfPoint: 0
+      minValue: 3
+      maxValue: 0
     swordsmanRRange: 7.5
-    swordsmanRDashSpeed: 18
-    swordsmanRExecuteThreshold: 0.22
+    swordsmanRDashSpeedFormula:
+      baseValue: 16
+      perRank: 0
+      curve: 0
+      coeffOrMaxBonus: 0.16
+      halfPoint: 0
+      minValue: 6
+      maxValue: 0
+    swordsmanRExecuteFormula:
+      baseValue: 0.2
+      perRank: 0.04
+      curve: 1
+      coeffOrMaxBonus: 0.25
+      halfPoint: 70
+      minValue: 0.1
+      maxValue: 0
     swordsmanRCooldown: 22
     swordsmanQDamageFormula:
       baseValue: 45
@@ -465,14 +664,6 @@ MonoBehaviour:
       curve: 0
       coeffOrMaxBonus: 0.9
       halfPoint: 0
-      minValue: 0
-      maxValue: 0
-    swordsmanWPercentHpFormula:
-      baseValue: 0.045
-      perRank: 0.014
-      curve: 1
-      coeffOrMaxBonus: 0.06
-      halfPoint: 60
       minValue: 0
       maxValue: 0
     swordsmanRDamageFormula:
@@ -483,7 +674,17 @@ MonoBehaviour:
       halfPoint: 0
       minValue: 0
       maxValue: 0
-    cowardShieldMemorySeconds: 4.5
+    kindredAuraRadius: 7.5
+    cowardShieldMemorySeconds: 5
+    cowardShieldMinSpeedRatio: 0.45
+    cowardShieldRetreatDot: 0.45
+    cowardShieldPursuitDot: -0.25
+    cowardShieldCommitDelay: 0.15
+    cowardShieldBuildupSeconds: 1.55
+    cowardShieldGraceSeconds: 0.75
+    cowardShieldMinGraceStreak: 0.4
+    cowardShieldStopDecaySeconds: 1.9
+    cowardShieldPursuitDecaySeconds: 0.85
     cowardShieldResistFormula:
       baseValue: 20
       perRank: 0
@@ -529,7 +730,14 @@ MonoBehaviour:
     laserBasicRange: 6
     laserBasicWindup: 0.22
     laserBasicRecover: 0.66
-    laserChainRadius: 4.6
+    laserChainRadiusFormula:
+      baseValue: 4.2
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 3.2
+      halfPoint: 60
+      minValue: 2
+      maxValue: 0
     laserChainDecay: 0.7
     laserChainMinRatio: 0.25
     laserStackDuration: 6
@@ -545,7 +753,7 @@ MonoBehaviour:
     laserQStartRange: 1.2
     laserQMaxRange: 8.2
     laserQHalfWidth: 0.58
-    laserQDuration: 0.85
+    laserQDuration: 0.88
     laserQCooldown: 7.2
     laserQMultiKillBonusGold: 12
     laserQTracksCursor: 0
@@ -560,14 +768,26 @@ MonoBehaviour:
     laserQSpeedFormula:
       baseValue: 1
       perRank: 0
-      curve: 0
-      coeffOrMaxBonus: 0.01
-      halfPoint: 0
+      curve: 2
+      coeffOrMaxBonus: 1
+      halfPoint: 0.024
       minValue: 1
       maxValue: 0
     laserWCastRange: 7.8
-    laserWShockRadius: 2.65
-    laserWSlowDuration: 1.1
+    laserWShockRadiusFormula:
+      baseValue: 2.4
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 1.85
+      halfPoint: 60
+      minValue: 1
+      maxValue: 0
+    laserWSlowBase: 0.2
+    laserWSlowPerRank: 0.04
+    laserWSlowMaxCap: 0.82
+    laserWSlowOverlapHalfPoint: 3
+    laserWSlowDuration: 1.15
+    laserWSlowDurSqrtK: 1
     laserWCooldown: 7.5
     laserWConsumesStacks: 0
     laserWDamageFormula:
@@ -578,15 +798,15 @@ MonoBehaviour:
       halfPoint: 0
       minValue: 0
       maxValue: 0
-    laserWSlowFormula:
-      baseValue: 0.2
-      perRank: 0.04
-      curve: 1
-      coeffOrMaxBonus: 0.2
-      halfPoint: 60
-      minValue: 0
-      maxValue: 0
     laserEStepBack: 1.65
+    laserEStepDurationFormula:
+      baseValue: 0.38
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: -0.2
+      halfPoint: 50
+      minValue: 0.18
+      maxValue: 0
     laserEDecoyDuration: 4.5
     laserEDecoyHp: 120
     laserEDecoyRadius: 0.62
@@ -602,13 +822,20 @@ MonoBehaviour:
     laserEStunFormula:
       baseValue: 0.65
       perRank: 0.15
-      curve: 1
-      coeffOrMaxBonus: 0.45
-      halfPoint: 55
+      curve: 0
+      coeffOrMaxBonus: 0
+      halfPoint: 0
       minValue: 0.35
       maxValue: 0
     laserRWindup: 0.5
-    laserRDuration: 2.6
+    laserRDurationFormula:
+      baseValue: 2.4
+      perRank: 0.3
+      curve: 1
+      coeffOrMaxBonus: 2
+      halfPoint: 65
+      minValue: 1
+      maxValue: 0
     laserRRange: 8
     laserRHalfWidth: 0.72
     laserRProcInterval: 0.42
@@ -623,99 +850,16 @@ MonoBehaviour:
       halfPoint: 50
       minValue: 0.5
       maxValue: 0
---- !u!4 &1146505005
+--- !u!4 &1187766904
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1146505003}
+  m_GameObject: {fileID: 1187766902}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1911405767
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1911405769}
-  - component: {fileID: 1911405768}
-  m_Layer: 0
-  m_Name: Main Camera
-  m_TagString: MainCamera
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!20 &1911405768
-Camera:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1911405767}
-  m_Enabled: 1
-  serializedVersion: 2
-  m_ClearFlags: 1
-  m_BackGroundColor: {r: 0.11, g: 0.14, b: 0.12, a: 1}
-  m_projectionMatrixMode: 1
-  m_GateFitMode: 2
-  m_FOVAxisMode: 0
-  m_Iso: 200
-  m_ShutterSpeed: 0.005
-  m_Aperture: 16
-  m_FocusDistance: 10
-  m_FocalLength: 50
-  m_BladeCount: 5
-  m_Curvature: {x: 2, y: 11}
-  m_BarrelClipping: 0.25
-  m_Anamorphism: 0
-  m_SensorSize: {x: 36, y: 24}
-  m_LensShift: {x: 0, y: 0}
-  m_NormalizedViewPortRect:
-    serializedVersion: 2
-    x: 0
-    y: 0
-    width: 1
-    height: 1
-  near clip plane: 0.3
-  far clip plane: 1000
-  field of view: 45
-  orthographic: 0
-  orthographic size: 5
-  m_Depth: 0
-  m_CullingMask:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  m_RenderingPath: -1
-  m_TargetTexture: {fileID: 0}
-  m_TargetDisplay: 0
-  m_TargetEye: 3
-  m_HDR: 1
-  m_AllowMSAA: 1
-  m_AllowDynamicResolution: 0
-  m_ForceIntoRT: 0
-  m_OcclusionCulling: 1
-  m_StereoConvergence: 10
-  m_StereoSeparation: 0.022
---- !u!4 &1911405769
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1911405767}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0.4461978, y: 0, z: 0, w: 0.89493436}
-  m_LocalPosition: {x: 0, y: 17.5, z: -13.2}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -725,6 +869,6 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 766359389}
-  - {fileID: 1911405769}
-  - {fileID: 1146505005}
+  - {fileID: 220267313}
+  - {fileID: 548069518}
+  - {fileID: 1187766904}

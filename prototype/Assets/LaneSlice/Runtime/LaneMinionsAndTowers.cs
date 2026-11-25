@@ -117,9 +117,9 @@ namespace Moba.LaneSlice
         private void TriggerLuisOrbPulse(HeroState luis, OrbState orb)
         {
             int rankQ = Mathf.Max(1, luis.rankQ);
-            float rawHeal = tuning.luisOrbHealFormula.Evaluate(rankQ, luis.intelligence) * luis.healPower;
-            float dmg = tuning.luisOrbDamageFormula.Evaluate(rankQ, luis.intelligence);
-            float r = tuning.luisOrbPulseRadius;
+            float rawHeal = tuning.luisOrbHealFormula.Evaluate(rankQ, 0f) * luis.healPower;
+            float dmg = tuning.luisOrbDamageFormula.Evaluate(rankQ, 0f) * luis.healPower;
+            float r = tuning.luisOrbPulseRadiusFormula.Evaluate(rankQ, luis.intelligence);
 
             if (luis.phase != LanePhase.Dead && Vector2.Distance(luis.motor.Position, orb.pos) <= r + 0.5f)
             {
@@ -174,17 +174,18 @@ namespace Moba.LaneSlice
                 ZoneState z = zones[i];
                 if (Vector2.Distance(h.motor.Position, z.pos) > z.radius + 0.4f) continue;
 
+                HeroState owner = GetHero(z.team);
+                float bonusHealPower = Mathf.Max(0f, owner.healPower - 1.0f);
                 float intensity = Mathf.Clamp01(z.elapsed / Mathf.Max(0.25f, z.duration));
-                float rankBonus = 0.08f * Mathf.Max(0, z.rankR - 1);
                 if (h.team == z.team)
                 {
-                    h.healReceivedMult = Mathf.Max(h.healReceivedMult, 1f + (tuning.luisRMaxHealAmp + rankBonus) * intensity);
+                    float maxHealAmp = tuning.luisRHealAmpFormula.Evaluate(z.rankR, bonusHealPower);
+                    h.healReceivedMult = Mathf.Max(h.healReceivedMult, 1f + maxHealAmp * intensity);
                 }
                 else
                 {
-                    HeroState owner = GetHero(z.team);
-                    float vuln = tuning.luisRVulnFormula.Evaluate(z.rankR, owner.intelligence) * intensity;
-                    h.damageTakenMult = Mathf.Max(h.damageTakenMult, 1f + vuln);
+                    float maxVuln = tuning.luisRVulnFormula.Evaluate(z.rankR, bonusHealPower);
+                    h.damageTakenMult = Mathf.Max(h.damageTakenMult, 1f + maxVuln * intensity);
                     if (!IsCcImmune(h))
                     {
                         float slow = (tuning.luisRMaxSlow + 0.06f * Mathf.Max(0, z.rankR - 1)) * intensity;
@@ -251,8 +252,19 @@ namespace Moba.LaneSlice
                 if (m.stunTimer > 0f) m.stunTimer = Mathf.Max(0f, m.stunTimer - dt);
                 if (m.slowTimer > 0f)
                 {
+                    m.laserSlowElapsed += dt;
                     m.slowTimer = Mathf.Max(0f, m.slowTimer - dt);
-                    if (m.slowTimer <= 0f) m.slowAmount = 0f;
+                    if (m.slowTimer <= 0f)
+                    {
+                        m.slowAmount = 0f;
+                        m.laserSlowOverlapCount = 0;
+                        m.laserSlowElapsed = 0f;
+                    }
+                }
+                else if (m.laserSlowOverlapCount > 0)
+                {
+                    m.laserSlowOverlapCount = 0;
+                    m.laserSlowElapsed = 0f;
                 }
                 if (m.swordShredTimer > 0f)
                 {
@@ -271,15 +283,17 @@ namespace Moba.LaneSlice
                 {
                     if (Vector2.Distance(m.motor.Position, zones[z].pos) <= zones[z].radius + 0.3f)
                     {
+                        HeroState zOwner = GetHero(zones[z].team);
+                        float bonusHp = Mathf.Max(0f, zOwner.healPower - 1.0f);
                         float t = Mathf.Clamp01(zones[z].elapsed / Mathf.Max(0.25f, zones[z].duration));
                         if (zones[z].team == m.team)
                         {
-                            m.healReceivedMult = Mathf.Max(m.healReceivedMult, 1f + tuning.luisRMaxHealAmp * t);
+                            float maxHealAmp = tuning.luisRHealAmpFormula.Evaluate(zones[z].rankR, bonusHp);
+                            m.healReceivedMult = Mathf.Max(m.healReceivedMult, 1f + maxHealAmp * t);
                         }
                         else
                         {
-                            HeroState zOwner = GetHero(zones[z].team);
-                            float vuln = tuning.luisRVulnFormula.Evaluate(zones[z].rankR, zOwner.intelligence);
+                            float vuln = tuning.luisRVulnFormula.Evaluate(zones[z].rankR, bonusHp);
                             m.damageTakenMult = Mathf.Max(m.damageTakenMult, 1f + vuln * t);
                             m.slowAmount = Mathf.Max(m.slowAmount, tuning.luisRMaxSlow * t);
                             m.slowTimer = Mathf.Max(m.slowTimer, 0.15f);

@@ -145,7 +145,9 @@ namespace Moba.LaneSlice
             out int targetId,
             out Vector2 pos)
         {
-            float bestDistSq = tuning.laserChainRadius * tuning.laserChainRadius;
+            HeroState shooter = GetHero(selfTeam);
+            float chainRadius = tuning.laserChainRadiusFormula.Evaluate(1, shooter.intelligence);
+            float bestDistSq = chainRadius * chainRadius;
             kind = LaneTargetKind.None;
             targetId = 0;
             pos = Vector2.zero;
@@ -203,7 +205,7 @@ namespace Moba.LaneSlice
             h.aimDir = dir;
             h.motor = new MovementMotor(h.motor.Position, AngleDegrees(dir));
 
-            float speedMult = Mathf.Max(1f, tuning.laserQSpeedFormula.Evaluate(1, h.agility));
+            float speedMult = Mathf.Max(1f, tuning.laserQSpeedFormula.Evaluate(h.rankQ, h.intelligence));
             h.phase = LanePhase.Casting;
             h.activeSlot = LaneAbilitySlot.Q;
             h.phaseDuration = tuning.laserQDuration / speedMult;
@@ -325,15 +327,16 @@ namespace Moba.LaneSlice
 
             var hitCounts = new Dictionary<int, int>();
             float baseShockDmg = tuning.laserWDamageFormula.Evaluate(h.rankW, h.intelligence);
+            float shockRadius = tuning.laserWShockRadiusFormula.Evaluate(h.rankW, h.intelligence);
 
             for (int s = 0; s < scratchShockSources.Count; s++)
             {
                 (_, _, Vector2 srcPos, int srcStacks) = scratchShockSources[s];
                 float shockDmg = baseShockDmg * (1f + 0.12f * Mathf.Max(0, srcStacks - 1));
-                PushEvent(LaneEventKind.LaserShock, h.team, srcPos, Vector2.up, tuning.laserWShockRadius, srcStacks, string.Empty);
+                PushEvent(LaneEventKind.LaserShock, h.team, srcPos, Vector2.up, shockRadius, srcStacks, string.Empty);
 
                 if (enemy.phase != LanePhase.Dead &&
-                    Vector2.Distance(enemy.motor.Position, srcPos) <= tuning.laserWShockRadius + 0.45f)
+                    Vector2.Distance(enemy.motor.Position, srcPos) <= shockRadius + 0.45f)
                 {
                     float dmg = shockDmg * LaserStackMultiplier(h, enemy.laserStacks);
                     DealDamageToHero(enemy, dmg, isMagic: true, isTrueDamage: false, h.id, h.team);
@@ -344,7 +347,7 @@ namespace Moba.LaneSlice
                 {
                     MinionState m = minions[i];
                     if (m.team == h.team || m.hp <= 0f) continue;
-                    if (Vector2.Distance(m.motor.Position, srcPos) <= tuning.laserWShockRadius + 0.35f)
+                    if (Vector2.Distance(m.motor.Position, srcPos) <= shockRadius + 0.35f)
                     {
                         float dmg = shockDmg * LaserStackMultiplier(h, m.laserStacks);
                         DealDamageToMinion(m, dmg, true, h.id, h.team);
@@ -373,26 +376,13 @@ namespace Moba.LaneSlice
                 }
             }
 
-            // Stack overlapping shock slow strengths (smooth diminishing curve) AND durations additively
-            float perShockSlow = tuning.laserWSlowFormula.Evaluate(h.rankW, h.intelligence);
+            // Stack overlapping AND refreshed shock slows using bounded strength + unbounded sqrt duration
             foreach (var kv in hitCounts)
             {
                 int n = kv.Value;
-                float rawSum = perShockSlow * n;
-                float slowAmt = Mathf.Min(0.82f, rawSum / (1f + 0.35f * Mathf.Max(0f, rawSum - perShockSlow)));
-                float addDur = tuning.laserWSlowDuration * n;
-
                 if (kv.Key == enemy.id && enemy.phase != LanePhase.Dead)
                 {
-                    if (!IsCcImmune(enemy))
-                    {
-                        enemy.slowAmount = Mathf.Max(enemy.slowAmount, slowAmt);
-                        enemy.slowTimer += addDur;
-                    }
-                    else
-                    {
-                        PushEvent(LaneEventKind.CcBlocked, enemy.team, enemy.motor.Position, Vector2.up, 1.1f, 0f, "CC IMMUNE");
-                    }
+                    ApplyLaserWSlow(enemy, n, h.rankW);
                 }
                 else
                 {
@@ -400,8 +390,7 @@ namespace Moba.LaneSlice
                     {
                         if (minions[i].id == kv.Key && minions[i].hp > 0f)
                         {
-                            minions[i].slowAmount = Mathf.Max(minions[i].slowAmount, slowAmt);
-                            minions[i].slowTimer += addDur;
+                            ApplyLaserWSlow(minions[i], n, h.rankW);
                             break;
                         }
                     }
@@ -412,19 +401,40 @@ namespace Moba.LaneSlice
         private void CastLaserE(HeroState h, Vector2 cursorPoint)
         {
             Vector2 dir = DirectionTo(h.motor.Position, cursorPoint, h.aimDir);
-            Vector2 decoyPos = h.motor.Position;
-            Vector2 stepDest = map.PushOut(decoyPos, -dir * tuning.laserEStepBack, towers[0].alive, towers[1].alive);
+            Vector2 startPos = h.motor.Position;
+            Vector2 stepDest = map.PushOut(startPos, -dir * tuning.laserEStepBack, towers[0].alive, towers[1].alive);
+            float stepDuration = tuning.laserEStepDurationFormula.Evaluate(h.rankE, h.agility);
 
-            h.aimDir = dir;
-            h.motor = new MovementMotor(stepDest, AngleDegrees(dir));
             ClearAttackAndRoute(h);
+            h.aimDir = dir;
+            h.motor = new MovementMotor(startPos, AngleDegrees(dir));
 
+            h.phase = LanePhase.Casting;
+            h.activeSlot = LaneAbilitySlot.E;
+            h.phaseDuration = stepDuration;
+            h.phaseTimer = stepDuration;
+            h.laserEStepStartPos = startPos;
+            h.laserEStepEndPos = stepDest;
+            h.laserEStepPending = true;
+
+            h.cdE = ApplyCdr(h, tuning.laserECooldown - 0.9f * (h.rankE - 1));
+            h.maxCdE = h.cdE;
+            OnHeroCastAbilityForCurse(h, false);
+        }
+
+        private void CompleteLaserEStep(HeroState h)
+        {
+            h.laserEStepPending = false;
+            h.motor = new MovementMotor(h.laserEStepEndPos, AngleDegrees(h.aimDir));
+            h.prevMotorPos = h.laserEStepEndPos;
+
+            Vector2 decoyPos = map.NearestWalkable(h.laserEStepStartPos, towers[0].alive, towers[1].alive);
             illusions.Add(new IllusionState
             {
                 id = AllocId(),
                 ownerHeroId = h.id,
                 team = h.team,
-                motor = new MovementMotor(decoyPos, AngleDegrees(dir)),
+                motor = new MovementMotor(decoyPos, AngleDegrees(h.aimDir)),
                 hp = tuning.laserEDecoyHp,
                 maxHp = tuning.laserEDecoyHp,
                 timeLeft = tuning.laserEDecoyDuration,
@@ -434,11 +444,12 @@ namespace Moba.LaneSlice
                 isLaserDecoy = true,
                 decoyRadius = tuning.laserEDecoyRadius,
             });
-            PushEvent(LaneEventKind.LaserDecoy, h.team, decoyPos, dir, tuning.laserEDecoyRadius, 0f, string.Empty);
+            PushEvent(LaneEventKind.LaserDecoy, h.team, decoyPos, h.aimDir, tuning.laserEDecoyRadius, 0f, string.Empty);
 
-            h.cdE = ApplyCdr(h, tuning.laserECooldown - 0.9f * (h.rankE - 1));
-            h.maxCdE = h.cdE;
-            OnHeroCastAbilityForCurse(h, false);
+            h.phase = LanePhase.Idle;
+            h.activeSlot = LaneAbilitySlot.None;
+            h.phaseDuration = 0f;
+            h.phaseTimer = 0f;
         }
 
         private void CastLaserR(HeroState h, Vector2 cursorPoint)

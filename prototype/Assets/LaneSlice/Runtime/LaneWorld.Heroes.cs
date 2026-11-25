@@ -128,17 +128,23 @@ namespace Moba.LaneSlice
                 bodyGeo.Column(new Vector3(0f, 0.90f, 0.02f), 0.22f, new Vector2(0.46f, 0.46f), new Vector2(0.06f, 0.06f), 10, strawHat);
                 AddPart("TorsoHat", rig.bodyPivot, Vector3.zero, bodyGeo.Bake("SwordTorso"));
 
-                rig.leftArmPivot = NewPivot("LeftArmPivot", rig.bodyPivot, new Vector3(-0.32f, 0.42f, 0.06f));
+                // Heavy left greatsword / odachi (2nd strike -> E Vital Draw)
+                Color darkIron = new Color(0.28f, 0.31f, 0.38f);
+                Color heavyEdge = new Color(0.95f, 0.78f, 0.42f);
+                rig.leftArmPivot = NewPivot("LeftArmPivot", rig.bodyPivot, new Vector3(-0.34f, 0.42f, 0.06f));
                 var lGeo = new DuelGeometry();
-                lGeo.Beam(Vector3.zero, new Vector3(-0.08f, -0.02f, 0.94f), 0.048f, 0.022f, steel, 5);
-                lGeo.Column(new Vector3(-0.01f, -0.04f, 0.14f), 0.08f, new Vector2(0.07f, 0.07f), new Vector2(0.07f, 0.07f), 6, sash);
-                AddPart("LeftBlade", rig.leftArmPivot, Vector3.zero, lGeo.Bake("SwordLeftBlade"));
+                lGeo.Beam(Vector3.zero, new Vector3(-0.10f, -0.02f, 1.18f), 0.092f, 0.056f, darkIron, 6);
+                lGeo.Beam(new Vector3(-0.02f, 0.01f, 0.24f), new Vector3(-0.10f, 0.01f, 1.16f), 0.044f, 0.022f, heavyEdge, 5);
+                lGeo.Column(new Vector3(-0.02f, -0.04f, 0.16f), 0.10f, new Vector2(0.10f, 0.10f), new Vector2(0.10f, 0.10f), 6, sash);
+                AddPart("LeftBlade", rig.leftArmPivot, Vector3.zero, lGeo.Bake("SwordLeftBladeHeavy"));
 
+                // Light sleek right katana/sabre (1st strike -> W Stance Temper)
+                Color lightSteel = new Color(0.76f, 0.94f, 1.0f);
                 rig.rightArmPivot = NewPivot("RightArmPivot", rig.bodyPivot, new Vector3(0.32f, 0.44f, 0.06f));
                 var rGeo = new DuelGeometry();
-                rGeo.Beam(Vector3.zero, new Vector3(0.08f, -0.02f, 0.96f), 0.048f, 0.022f, steel, 5);
-                rGeo.Column(new Vector3(0.01f, -0.04f, 0.14f), 0.08f, new Vector2(0.07f, 0.07f), new Vector2(0.07f, 0.07f), 6, sash);
-                AddPart("RightBlade", rig.rightArmPivot, Vector3.zero, rGeo.Bake("SwordRightBlade"));
+                rGeo.Beam(Vector3.zero, new Vector3(0.06f, -0.02f, 0.84f), 0.030f, 0.014f, lightSteel, 5);
+                rGeo.Column(new Vector3(0.01f, -0.04f, 0.12f), 0.06f, new Vector2(0.055f, 0.055f), new Vector2(0.055f, 0.055f), 6, sash);
+                AddPart("RightBlade", rig.rightArmPivot, Vector3.zero, rGeo.Bake("SwordRightBladeLight"));
             }
             else // Chain Laser Shooter
             {

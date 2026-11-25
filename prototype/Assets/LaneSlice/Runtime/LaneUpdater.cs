@@ -14,7 +14,7 @@ namespace Moba.LaneSlice
     /// </summary>
     public sealed class LaneUpdater
     {
-        public const string BuildVersion = "v0.2.7";
+        public const string BuildVersion = "v0.2.8";
 
         [Serializable]
         public sealed class UpdaterConfig

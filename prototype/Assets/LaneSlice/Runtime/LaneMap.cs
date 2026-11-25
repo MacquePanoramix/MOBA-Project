@@ -90,7 +90,7 @@ namespace Moba.LaneSlice
         {
             float dist = delta.magnitude;
             if (dist < 0.0001f) return start;
-            int steps = Mathf.Clamp(Mathf.CeilToInt(dist / 0.25f), 1, 24);
+            int steps = Mathf.Clamp(Mathf.CeilToInt(dist / 0.25f), 1, 160);
             Vector2 step = delta / steps;
             Vector2 cur = start;
             MovementCourse course = CourseFor(blueTowerAlive, redTowerAlive);

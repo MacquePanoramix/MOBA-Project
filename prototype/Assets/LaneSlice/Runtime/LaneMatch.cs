@@ -39,11 +39,13 @@ namespace Moba.LaneSlice
             public float intelligence;
             public float attackDamage;
             public float attackSpeed = 1f;
+            public float bonusAttackSpeed;
             public float abilityHaste;
             public float cooldownReduction;
             public float armor;
             public float magicResist;
             public float regenRate;
+            public float netRegenRate;
             public float healPower = 1f;
             public float takedownHealBonus;
             public float itemAlliedAuraRegen;
@@ -51,9 +53,15 @@ namespace Moba.LaneSlice
             public float turnRate;
             public float damageReduction;
             public float ogreAnimSpeed = 1f;
+            public float ogreWindupSpeed = 1f;
+            public float ogreRecoverSpeed = 1f;
             public bool hasCowardsShield;
             public float cowardShieldFactor;
             public float cowardShieldBonus;
+            public float cowardRetreatStreak;
+            public float cowardGraceTimer;
+            public byte cowardShieldState;
+            public Vector2 prevMotorPos;
             public int lastHeroAttackerId;
             public float lastHeroDamageAge = 999f;
             public float scale = 1f;
@@ -121,6 +129,12 @@ namespace Moba.LaneSlice
             public int laserQKillCount;
             public readonly HashSet<int> laserQHitIds = new HashSet<int>();
             public float laserRProcAccum;
+            public int laserSlowOverlapCount;
+            public float laserSlowElapsed;
+            public Vector2 laserEStepStartPos;
+            public Vector2 laserEStepEndPos;
+            public bool laserEStepPending;
+            public bool swordsmanLastStrikeHeavy;
 
             // Aura & expanded item passives / status
             public float miravelDrainAura;
@@ -183,6 +197,8 @@ namespace Moba.LaneSlice
             public float stunTimer;
             public float slowTimer;
             public float slowAmount;
+            public int laserSlowOverlapCount;
+            public float laserSlowElapsed;
             public int swordShredStacks;
             public float swordShredTimer;
             public float damageTakenMult = 1f;
@@ -984,6 +1000,12 @@ namespace Moba.LaneSlice
                 target.phase = LanePhase.Idle;
                 target.twinSecondPending = false;
             }
+            else if (target.phase == LanePhase.Casting && target.heroId == LaneHeroId.LaserShooter && target.activeSlot == LaneAbilitySlot.E)
+            {
+                target.phase = LanePhase.Idle;
+                target.activeSlot = LaneAbilitySlot.None;
+                target.laserEStepPending = false;
+            }
 
             target.stunTimer = Mathf.Max(target.stunTimer, duration);
             target.rStrikeInFollowthrough = false;
@@ -1001,6 +1023,78 @@ namespace Moba.LaneSlice
             if (target.phase == LanePhase.Dead || IsCcImmune(target)) return;
             target.slowAmount = Mathf.Max(target.slowAmount, slowFraction);
             target.slowTimer = Mathf.Max(target.slowTimer, duration);
+        }
+
+        private void ComputeLaserWSlow(int totalShocks, int rankW, float elapsedSoFar, out float combinedSlow, out float remainingDuration)
+        {
+            float singleSlow = tuning.laserWSlowBase + tuning.laserWSlowPerRank * Mathf.Max(0, rankW - 1);
+            if (totalShocks <= 1)
+            {
+                combinedSlow = singleSlow;
+            }
+            else
+            {
+                float extra = totalShocks - 1f;
+                float hp = Mathf.Max(0.1f, tuning.laserWSlowOverlapHalfPoint);
+                combinedSlow = singleSlow + (tuning.laserWSlowMaxCap - singleSlow) * (extra / (extra + hp));
+            }
+            float totalDur = tuning.laserWSlowDuration * Mathf.Sqrt(1f + tuning.laserWSlowDurSqrtK * Mathf.Max(0, totalShocks - 1));
+            remainingDuration = Mathf.Max(0f, totalDur - Mathf.Max(0f, elapsedSoFar));
+        }
+
+        private void ApplyLaserWSlow(HeroState target, int hitsThisCast, int rankW)
+        {
+            if (target.phase == LanePhase.Dead || hitsThisCast <= 0) return;
+            if (IsCcImmune(target))
+            {
+                PushEvent(LaneEventKind.CcBlocked, target.team, target.motor.Position, Vector2.up, 1.1f, 0f, "CC IMMUNE");
+                return;
+            }
+            if (target.slowTimer <= 0f)
+            {
+                target.laserSlowOverlapCount = 0;
+                target.laserSlowElapsed = 0f;
+            }
+            target.laserSlowOverlapCount += hitsThisCast;
+            ComputeLaserWSlow(target.laserSlowOverlapCount, rankW, target.laserSlowElapsed, out float slowAmt, out float remDur);
+            target.slowAmount = Mathf.Max(target.slowAmount, slowAmt);
+            target.slowTimer = Mathf.Max(target.slowTimer, remDur);
+        }
+
+        private void ApplyLaserWSlow(MinionState target, int hitsThisCast, int rankW)
+        {
+            if (target.hp <= 0f || hitsThisCast <= 0) return;
+            if (target.slowTimer <= 0f)
+            {
+                target.laserSlowOverlapCount = 0;
+                target.laserSlowElapsed = 0f;
+            }
+            target.laserSlowOverlapCount += hitsThisCast;
+            ComputeLaserWSlow(target.laserSlowOverlapCount, rankW, target.laserSlowElapsed, out float slowAmt, out float remDur);
+            target.slowAmount = Mathf.Max(target.slowAmount, slowAmt);
+            target.slowTimer = Mathf.Max(target.slowTimer, remDur);
+        }
+
+        public void GrantXpForTest(LaneTeam team, float amount)
+        {
+            GrantHeroXp(GetHero(team), amount);
+        }
+
+        public int SpawnCustomMinion(LaneTeam team, Vector2 pos, bool ranged = false, float customMaxHp = -1f)
+        {
+            Vector2 safe = map.NearestWalkable(pos, towers[0].alive, towers[1].alive);
+            float hp = customMaxHp > 0f ? customMaxHp : (ranged ? tuning.minionMaxHpRanged : tuning.minionMaxHpMelee);
+            int id = AllocId();
+            minions.Add(new MinionState
+            {
+                id = id,
+                team = team,
+                ranged = ranged,
+                motor = new MovementMotor(safe, team == LaneTeam.Blue ? 90f : 270f),
+                hp = hp,
+                maxHp = hp,
+            });
+            return id;
         }
 
         private void ApplyDisplacementToHero(HeroState target, Vector2 dir, float distance, int attackerHeroId = 0)
@@ -1026,6 +1120,7 @@ namespace Moba.LaneSlice
             Vector2 moved = map.PushOut(target.motor.Position, dir.normalized * distance, towers[0].alive, towers[1].alive);
             float heading = target.motor.HeadingDegrees;
             target.motor = new MovementMotor(moved, heading);
+            target.prevMotorPos = moved;
 
             // Resolve open question: does displacement break Swordsman's second Twin-Blade strike if knocked out of reach?
             if (tuning.swordsmanDisplaceCancelsSecondHit &&
@@ -1169,7 +1264,7 @@ namespace Moba.LaneSlice
                     rawDamage += tuning.minerHatchetBonusDmg;
                 }
             }
-            float res = isMagic ? 0f : Mathf.Max(-48f, -m.swordShredStacks * tuning.swordsmanEStackShred);
+            float res = isMagic ? 0f : Mathf.Max(-48f, -m.swordShredStacks * tuning.swordsmanWStackShred);
             float dmg = rawDamage * ResistanceFactor(res) * m.damageTakenMult;
             m.hp = Mathf.Max(0f, m.hp - dmg);
 
@@ -1224,7 +1319,7 @@ namespace Moba.LaneSlice
             {
                 int rankE = Mathf.Max(1, owner.rankE);
                 float zapDmg = tuning.laserEDecoyDamageFormula.Evaluate(rankE, owner.intelligence);
-                float stunDur = tuning.laserEStunFormula.Evaluate(rankE, owner.strength);
+                float stunDur = tuning.laserEStunFormula.Evaluate(rankE, 0f);
 
                 if (attackerHeroId > 0)
                 {
@@ -1295,6 +1390,9 @@ namespace Moba.LaneSlice
             victim.twinSecondPending = false;
             victim.cowardShieldFactor = 0f;
             victim.cowardShieldBonus = 0f;
+            victim.cowardRetreatStreak = 0f;
+            victim.cowardGraceTimer = 0f;
+            victim.cowardShieldState = 0;
             victim.shieldHp = 0f;
             victim.shieldTimer = 0f;
             victim.grievousTimer = 0f;
@@ -1304,6 +1402,7 @@ namespace Moba.LaneSlice
             victim.rStrikeInFollowthrough = false;
             victim.miravelDrainAura = 0f;
             victim.miravelLifeAura = 0f;
+            victim.netRegenRate = 0f;
             victim.lastHeroDamageAge = 999f;
             victim.laserStacks = 0;
             victim.laserStackTimer = 0f;
@@ -1311,6 +1410,10 @@ namespace Moba.LaneSlice
             victim.laserQKillCount = 0;
             victim.laserQHitIds.Clear();
             victim.laserRProcAccum = 0f;
+            victim.laserSlowOverlapCount = 0;
+            victim.laserSlowElapsed = 0f;
+            victim.laserEStepPending = false;
+            victim.swordsmanLastStrikeHeavy = false;
             victim.rQueue.Clear();
             ClearAttackAndRoute(victim);
 
@@ -1428,16 +1531,27 @@ namespace Moba.LaneSlice
                     ccImmune = IsCcImmune(h),
                     attackDamage = h.attackDamage,
                     attackSpeed = h.attackSpeed,
+                    bonusAttackSpeed = h.bonusAttackSpeed,
                     abilityHaste = h.abilityHaste,
                     cooldownReduction = h.cooldownReduction,
                     armor = h.armor,
                     magicResist = h.magicResist,
                     regenRate = h.regenRate,
+                    netRegenRate = h.netRegenRate,
                     healPower = h.healPower,
                     moveSpeed = h.moveSpeed,
                     damageReduction = h.damageReduction,
                     cowardShieldBonus = h.cowardShieldBonus,
-                    ogreAnimSpeed = h.ogreAnimSpeed,
+                    cowardShieldFactor = h.cowardShieldFactor,
+                    cowardShieldState = h.cowardShieldState,
+                    ogreAnimSpeed = h.ogreWindupSpeed,
+                    ogreWindupSpeed = h.ogreWindupSpeed,
+                    ogreRecoverSpeed = h.ogreRecoverSpeed,
+                    ogreQCentralHalfWidth = h.heroId == LaneHeroId.Ogre ? tuning.ogreQWidth * h.scale : 0f,
+                    ogreQOuterHalfWidth = h.heroId == LaneHeroId.Ogre ? tuning.ogreQOuterWidthFormula.Evaluate(Mathf.Max(1, h.rankQ), h.strength) : 0f,
+                    ogreWRange = h.heroId == LaneHeroId.Ogre ? tuning.ogreWRange * h.scale : 0f,
+                    ogreERadius = h.heroId == LaneHeroId.Ogre ? tuning.ogreERadiusFormula.Evaluate(Mathf.Max(1, h.rankE), h.strength) * h.scale : 0f,
+                    miravelAuraRadius = h.heroId == LaneHeroId.Miravel ? tuning.luisAuraRadiusFormula.Evaluate(1, h.intelligence) : 0f,
                     strength = h.strength,
                     agility = h.agility,
                     intelligence = h.intelligence,
@@ -1471,7 +1585,7 @@ namespace Moba.LaneSlice
                     curseStacks = h.curseStacks,
                     wardTimer = h.wardTimer,
                     orbCooldown = h.orbCooldown,
-                    swordResistDelta = h.swordStacks * (6f + 2f * Mathf.Max(1, h.rankE)) - h.swordDebuffStacks * 8f,
+                    swordResistDelta = h.swordStacks * (tuning.swordsmanWStackGain + 2f * Mathf.Max(0, h.rankW - 1)) - h.swordDebuffStacks * tuning.swordsmanWStackShred,
                     swordStacks = h.swordStacks > 0 ? h.swordStacks : -h.swordDebuffStacks,
                     swordStackTimer = Mathf.Max(h.swordStackTimer, h.swordDebuffTimer),
                     swordMarkedTargetId = h.swordMarkTimer > 0f ? h.swordLastTargetId : 0,
@@ -1491,13 +1605,16 @@ namespace Moba.LaneSlice
                     rStrikeIndex = h.rStrikeIndex,
                     rStrikeIsFinal = h.phase == LanePhase.ComboSeq && h.rQueue.Count > 0 && h.rStrikeIndex == h.rQueue.Count - 1,
                     basicSwingAlt = h.basicSwingAlt,
-                    isTwinSecondStrike = h.twinSecondPending,
+                    isTwinSecondStrike = h.twinSecondPending || (h.phase == LanePhase.Recover && h.activeSlot == LaneAbilitySlot.None && h.swordsmanLastStrikeHeavy),
                     laserStacks = h.laserStacks,
                     laserStackTimer = h.laserStackTimer,
                     laserBeamRange = (h.heroId == LaneHeroId.LaserShooter &&
                         ((h.phase == LanePhase.Casting && h.activeSlot == LaneAbilitySlot.Q) ||
                          (h.phase == LanePhase.Channeling && h.activeSlot == LaneAbilitySlot.R)))
                         ? h.laserQCurRange
+                        : 0f,
+                    laserStepProgress = (h.heroId == LaneHeroId.LaserShooter && h.phase == LanePhase.Casting && h.activeSlot == LaneAbilitySlot.E && h.phaseDuration > 0.01f)
+                        ? 1f - Mathf.Clamp01(h.phaseTimer / h.phaseDuration)
                         : 0f,
                 };
                 for (int r = 0; r < h.rQueue.Count; r++)

@@ -302,9 +302,9 @@ namespace Moba.LaneSlice
 
         private static void CheckSettingsSurviveSimulatedUpdate()
         {
-            if (LaneUpdater.BuildVersion != "v0.2.7")
+            if (LaneUpdater.BuildVersion != "v0.2.8")
             {
-                throw new InvalidOperationException($"Expected BuildVersion v0.2.7, got {LaneUpdater.BuildVersion}");
+                throw new InvalidOperationException($"Expected BuildVersion v0.2.8, got {LaneUpdater.BuildVersion}");
             }
             var updaterCfg = new LaneUpdater.UpdaterConfig();
             if (updaterCfg.assetName != "WoodlandLane-Windows.zip")
@@ -328,7 +328,7 @@ namespace Moba.LaneSlice
                 store.SetExtraPref("update_check_marker", "survives_overwrite");
 
                 // Simulate old install overwritten by new update ZIP contents inside gameDir
-                File.WriteAllText(Path.Combine(gameDir, "version.txt"), "v0.2.6");
+                File.WriteAllText(Path.Combine(gameDir, "version.txt"), "v0.2.7");
                 File.WriteAllText(Path.Combine(gameDir, "WoodlandLane.exe"), "old-exe");
                 File.WriteAllText(Path.Combine(stagingExtracted, "version.txt"), LaneUpdater.BuildVersion);
                 File.WriteAllText(Path.Combine(stagingExtracted, "WoodlandLane.exe"), "new-exe");

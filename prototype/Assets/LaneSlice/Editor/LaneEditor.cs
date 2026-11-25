@@ -64,6 +64,12 @@ namespace Moba.LaneSlice
             Debug.Log("[LaneEditor] All WoodlandLane automated checks PASSED.");
         }
 
+        [MenuItem("Moba/Woodland Lane/Run Balance Experiments")]
+        public static void RunBalanceExperiments()
+        {
+            LaneBalanceHarness.RunAll();
+        }
+
         [MenuItem("Moba/Woodland Lane/Build Windows Player")]
         public static void BuildWindows()
         {
@@ -103,11 +109,17 @@ namespace Moba.LaneSlice
    - [F1]: Toggle controls overlay
    - Lane Economy: Last-hitting enemy minions awards Gold + CS; being alive within 12u of an enemy minion death awards full 100% XP even without last-hitting.
 
-2. FOUR PLAYABLE HEROES:
-   - Ogre: No basic attacks, CC-immune during casts. AD scales club damage, AGI (+0.8%/AGI) & Attack Speed (+70% of bonus AS) speed up wind-ups & recovery (smooth Base / Speed curve), STR boosts stun/knockback with diminishing returns (no hard cap). [R] channels DR+size & queues up to 4 aimed Q/W strikes ending in a CRIT!
-   - Miravel (Hero Luis): Ranged staff, regen/anti-regen aura, takedown heal power. [Q] passive healing/damage orbs (enemies can deny), [W] invisibility + cursor-walking decoy (walks to cast cursor & stops), [E] curse ward (preserves [W] stealth; triggers when you or decoy take hero damage and escalates on enemy casts), [R] ramping sanctum channel.
-   - Old Man Swordsman: Slow move, Twin-Blade 2-hit basics. [Q] slow arc (also applies [R] mark!), [W] 1st-hit %HP heal, [E] 2nd-hit stacking +Resist/-Enemy Resist, [R] dash through last basic-attacked or [Q]-hit target with execute cooldown reset.
-   - Chain Laser Shooter: Ranged chain lasers (no bounce cap, stacks amplify laser dmg). [Q] extending line beam (+escalating multi-kill gold), [W] stack-based area shocks whose slow strength & duration stack, [E] step back + stationary decoy blocking heroes & projectiles (zap+stun attackers), [R] move while firing continuous chain-proc prism beam!
+2. FOUR PLAYABLE HEROES (v0.2.8 — The Scaling Patch):
+   - Global Attack Speed: EffectiveAS = sqrt(1 + k × BonusAS) (unbounded diminishing returns, no hard cap; governs basic attacks, Swordsman 1st/2nd strikes, Ogre recovery speed, and Laser R proc frequency).
+   - Ogre: No basic attacks, CC-immune during casts. AD=damage, AGI=Wind-up speed (sqrt), Attack Speed=Recovery speed (sqrt), STR=Outer Q width / W sqrt knockback / E radius / Q&E stuns / R size multiplier (ability areas scale proportionally with R size!). Q features mutually exclusive Central slam (full dmg+stun) & Outer shockwave (reduced dmg, 0 CC).
+   - Miravel (Hero Luis): Heal Power (starts 100%, grows permanently on takedowns) scales Passive ally regen & enemy regen drain (can push enemy regen NEGATIVE for real HP loss!), Q orb heal/dmg, and R max heal/dmg amps. INT scales Aura/Orb/R radii and E curse DPS. [W] stealth + cursor decoy, [E] stealth-safe curse ward, [R] ramping sanctum.
+   - Old Man Swordsman: Asymmetric Twin-Blade: 1st Light strike (faster, lower AD) procs [W] Stance Temper (self+enemy resist stacks, INT scales durations separately); 2nd Heavy strike (slower heavy greatsword, higher AD; AGI speeds transition) procs [E] Vital Draw (STR % Max HP magic + Heal Power linear heal). [Q] AGI wind-up slow arc (fixed recovery), [R] AD dmg, STR execute, AGI dash speed, INT target memory.
+   - Chain Laser Shooter: Passive endless bounces (INT bounce radius & stack amp). [Q] AD dmg + INT sqrt beam extension speed, [W] INT shock dmg/radius + bounded/sqrt overlapping & refreshed slow, [E] animated calm single step-back deploying decoy upon completion (AGI speeds step, rank-only stun), [R] INT beam duration + AS proc rate + AGI move speed retention (<100%).
+
+3. ITEM HIGHLIGHTS:
+   - The Coward's Shield now requires sustained genuine movement away from a recent hero attacker (no stationary facing exploit; short grace period on brief stops/stuns; faster decay pursuing).
+   - Kindred Charm's allied regeneration aura now works on any hero purchasing it.
+   - Colossus Pauldron shield triggers when its owner inflicts Stun/Knockback (or drops <45% HP).
 
 3. MULTIPLAYER (UNITY RELAY OR DIRECT TCP):
    - Unity Relay (Recommended): Host clicks 'Host Relay Room' -> Copy the 6-letter Room Code -> Guest clicks Paste & 'Join Code'. Zero port-forwarding or extra tools needed!

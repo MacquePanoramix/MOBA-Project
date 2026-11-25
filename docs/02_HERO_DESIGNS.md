@@ -4,38 +4,45 @@ These are **working transcriptions of Luís's hero designs**. Each kit records t
 
 ---
 
-## 1. Hero Luís
+## 1. Hero Luís (Miravel in `WoodlandLane`)
 
 ### Basic attack
-- Ranged staff projectile attack (designer-confirmed for `WoodlandLane` prototype).
+- Ranged staff projectile attack (designer-confirmed for `WoodlandLane` prototype); wind-up and recovery scale inversely with global `EffectiveAttackSpeed = sqrt(1 + k × BonusAS)` (`k = 2.4` provisional).
 
 ### Passive
 - Increase allied health regeneration in an aura.
-- Decrease enemy health regeneration in an aura.
-- Participating in a hero takedown permanently increases healing power slightly (note: base Heal Power starts at `100%` / `1.0x`, so Level-1 auras and healing are immediately active).
+- Decrease enemy health regeneration in an aura **(can push total net enemy health regeneration negative, causing real HP decay and lethal takedowns credited to Miravel)**.
+- Participating in a hero takedown permanently increases Heal Power slightly (base Heal Power starts at `100%` / `1.0x`, active from Level 1).
+- **`v0.2.8` Approved scaling:** Aura radius scales with **Intelligence** (*Bounded diminishing*); allied healing bonus & enemy regen reduction scale **Linearly** with **Heal Power** (zero direct INT scaling on aura regen/drain values).
 
 ### Q (passive)
 - Periodically spawns an orb in the world.
-- Luís can pick it up; pickup automatically causes a Necrophos-Q-like pulse: heal nearby allies including himself slightly, and deal some damage to nearby enemies.
+- Luís can pick it up; pickup automatically causes a pulse: heal nearby allies including himself slightly, and deal damage to nearby enemies.
 - Enemies can step on the orb to deny/remove it.
 - The orb expires after some time.
+- **`v0.2.8` Approved scaling:** Heal and damage scale **Linearly** with **Heal Power** (zero direct INT damage/heal scaling); pulse radius scales with **Intelligence** (*Bounded diminishing*); spawn interval scales via **Inverse Ability Haste** (`Base × 100 / (100 + AH)`) with no `4.0s` artificial floor.
 
 ### W
 - Become invisible for a short time and leave behind a temporary illusion.
 - Designer-confirmed prototype behavior (`v0.2.6`): the illusion walks to the cursor's location at cast time (no maximum distance limit), stops walking and stops its walk animation once it reaches that point, and can absorb enemy hero hits to trigger E's curse.
+- **`v0.2.8` Approved scaling:** No attribute scaling (cooldown scales with Ability Haste only).
 
 ### E
 - For a short duration, when Luís or any of his illusions takes damage from an enemy hero, curse that attacker.
 - Designer-confirmed prototype rule (`v0.2.2`): casting E does **not** break active W invisibility.
 - The curse burns over time; each time the cursed enemy uses an ability, its damage/power and duration increase.
+- **`v0.2.8` Approved scaling:** Curse DPS scales **Linearly** with **Intelligence**; duration remains attribute-independent.
 
 ### R
 - Channel a nearby area over time.
 - Enemies inside accumulate progressively stronger slowing and increased damage taken.
 - Allies progressively gain increased healing received/effectiveness.
 - Continue until full duration or channel interrupted.
+- **`v0.2.8` Approved scaling:** Area radius scales with **Intelligence** (*Bounded diminishing*); maximum allied healing amplification and maximum enemy damage vulnerability scale via **Bounded diminishing returns** from **bonus Heal Power above `100%`** (`healPower - 1.0`); slow remains fixed by rank.
 
-**Unresolved:** orb placement, orb pickup by others, whether multiple curses stack, exact channel constraints, and all numbers.
+**Provisional `v0.2.8` numbers (`LaneTuning`):** `530 HP (+34/lvl)`, `48 AD (+3.5/lvl)`, `Arm 8`, `MR 18`, `Regen 1.4/s`, `Move 4.35`, `Turn 540°/s`, Basic `6.2u` (`0.26s` wind / `0.52s` rec); Aura `7.2 + 4.2×INT/(INT+60)u`, Ally `+(2.2+0.35×(Lvl-1))×HealPower`, Drain `-(2.6+0.35×(Lvl-1))×HealPower`, `+10%` HealPower/kill; Q `8.0/7.4/6.8s × AH`, pulse `3.8 + 2.4×INT/(INT+60)u`, heal `(68/88/108)×HealPower`, dmg `(62/80/98)×HealPower`; W invis `3.2/3.6/4.0s`, decoy `4.5s`, CD `10.5/9.4/8.3s`; E ward `4.5/5.1/5.7s`, curse `4.2/4.6/5.0s + 1.2s/cast`, 1-stack DPS `22/30/38 + 65% INT`, CD `8.5/7.7/6.9s`; R range `5.0u`, `4.2s` channel, radius `4.2 + 2.6×INT/(INT+60)u`, max slow `52/58%`, HealAmp `25/30% + 45%×(HPwr-1)/((HPwr-1)+0.80)`, Vuln `28/34% + 42%×(HPwr-1)/((HPwr-1)+0.80)`, CD `26/23s`.
+
+**Unresolved:** orb placement, orb pickup priority, exact classification/resistance interactions of negative natural regeneration, whether multiple curses stack, exact channel constraints, and final numbers.
 
 ---
 
@@ -186,31 +193,39 @@ Luís's animation reference is the Dota jungle ogre, particularly the weight and
 ### Passive
 
 - Ogre cannot perform basic attacks.
-- Ogre is immune to crowd control while performing an ability animation, including its cast and active portions.
+- Ogre is immune to crowd control while performing an ability animation, including its cast and active portions (`ogreImmuneDuringRecovery = true` default; immunity boundary into recovery remains an open detail).
+- **`v0.2.8` Approved split animation scaling:**
+  - **Wind-up speeds** scale exclusively with **Agility** (*Unbounded diminishing square root → Inverse duration*, no hard cap).
+  - **Recovery speeds** scale exclusively with **Global Attack Speed** (`EffectiveAS = sqrt(1 + k × BonusAS)`, *Unbounded diminishing → Inverse duration*, no hard cap).
 
 ### Q
 
 - After a long wind-up, slam the club into the ground ahead. The slam reaches a substantial distance in front of Ogre and stuns targets hit.
+- **`v0.2.8` Approved dual-zone mechanics & scaling:**
+  - Divides into two **mutually exclusive** impact zones: a **Central club impact zone** (full damage + stun) and an **Outer shockwave zone** (reduced damage, zero CC; visually & auditorily distinct).
+  - Central impact damage scales **Linearly** with **Attack Damage**; stun scales with **Strength** (*Bounded diminishing*); central zone dimensions scale **Linearly** proportionally with Ogre's `[R]` transformation size multiplier; Outer shockwave width scales with **Strength** (*Bounded diminishing*).
 
 ### W
 
 - Sweep the club horizontally along the ground in front of Ogre. The sweep has less reach than Q and pushes targets hit backward.
+- **`v0.2.8` Approved scaling:** Damage scales **Linearly** with **Attack Damage**; knockback scales with **Strength** (*Unbounded diminishing square root*, zero hard cap — extreme Strength can push targets far beyond melee reach); attack dimensions scale **Linearly** proportionally with `[R]` size multiplier.
 
 ### E
 
 - Wind up and pound the ground, stunning targets directly beneath Ogre and in the surrounding area.
+- **`v0.2.8` Approved scaling:** Damage scales **Linearly** with **Attack Damage**; stun duration and impact radius scale with **Strength** (*Bounded diminishing*; stun and damage apply uniformly across the entire scaled area); radius also scales **Linearly** proportionally with `[R]` size multiplier.
 
 ### R
 
-- Channel for a few seconds. Ogre visibly grows a little larger and angrier and gains very high damage reduction during the channel.
+- Channel for a few seconds. Ogre visibly grows larger and angrier and gains high damage reduction during the channel.
 - While channeling, the player enters a combination. For each input, choose Q or W and aim it individually.
 - When the channel ends, Ogre performs the attacks in the order entered. Each strike uses the direction chosen for that input, and Ogre moves a short distance with each strike.
 - These Q and W attacks animate and recover faster than their regular versions, following each other almost immediately. The final strike has an extra delay and deals a very large critical hit.
-- *(Provisional `v0.2.6` prototype timings: cast/recovery/combo speed scales with both Agility `+0.8%/AGI` and bonus Attack Speed `+70%` of bonus AS without a hard cap, with base wind-ups rebalanced to `0.90s` Q, `0.72s` W, `0.62s` E, and `0.36s` fast / `0.62s` final crit strike + `0.09s` impact beat for R; `v0.2.5` baselines were `0.85s` Q, `0.68s` W, `0.58s` E, `0.34s`/`0.58s` R, and `+1%/AGI`.)*
+- **`v0.2.8` Approved scaling:** Transformation size multiplier scales with **Strength** (*Bounded diminishing*, proportionally enlarging `[Q]`/`[W]`/`[E]` attack dimensions); strike wind-ups use **Agility** (*Unbounded sqrt*) and strike followthrough/recovery use **Global Attack Speed** (*Unbounded sqrt*); final strike preserves extra weight/delay and large crit multiplier; `[R]` damage reduction remains attribute-independent.
 
-**Scaling direction (provisional example, not finalized numbers):** Attack Damage increases club strike damage; Agility and Attack Speed increase ability wind-up/animation speed (hyperbolic time reduction `Base / Speed`, zero hard cap); Strength increases stun duration and knockback distance (diminishing returns, zero hard cap). Hybrid builds are supported.
+**Provisional `v0.2.8` numbers (`LaneTuning`):** `720 HP (+48/lvl)`, `60 AD (+5/lvl)`, `Arm 16`, `MR 12`, `Regen 1.6/s`, `Move 3.75`, `Turn 270°/s`; `ogreWindupSpeed = sqrt(1 + 0.022 × AGI)`, `ogreRecoverSpeed = EffectiveAS`; Q Central `4.7u × 1.90u`, `0.88s` wind / `0.36s` rec, CD `6.8/6.2/5.6s`, `55/73/91 + 135% AD`, stun `1.05/1.20/1.35 + 0.85×STR/(STR+50)s`, Outer `+0.65/0.75/0.85 + 1.45×STR/(STR+55)u` (`55%` dmg, `0` CC); W `3.0u` cone (`cos 0.15`), `0.72s` wind / `0.30s` rec, CD `6.2/5.6/5.0s`, `40/55/70 + 105% AD`, KB `2.40/2.65/2.90 + 2.80×(sqrt(1+0.04×STR)-1)u`; E `0.62s` wind / `0.32s` rec, CD `8.5/7.7/6.9s`, `48/64/80 + 115% AD`, stun `0.95/1.07/1.19 + 0.65×STR/(STR+50)s`, radius `2.35 + 1.55×STR/(STR+55)u`; R `2.0s` channel (`65%` DR), size `1.22/1.28 + 0.52×STR/(STR+65)x`, `4` strikes (`0.82x` / final `1.85x`), `0.36s`/`0.62s` strike windup + `0.10s` followthrough + `0.28s` post-combo recover, CD `28/24s`.
 
-**Open details.** How long does CC immunity extend into recovery? How many inputs does R accept, and what happens if the player enters an incomplete sequence?
+**Open details.** Where does CC immunity end relative to recovery? How many inputs does R accept, and what happens if the player enters an incomplete sequence?
 
 ---
 
@@ -249,27 +264,37 @@ Luís's animation reference is the Dota jungle ogre, particularly the weight and
 
 ### Passive
 
-- The swordsman has reduced movement speed. Each basic attack consists of two weaker strikes in quick succession.
+- The swordsman has reduced movement speed. Each basic attack is an **asymmetric twin-blade pair**:
+  - **1st Strike (Light Right Sabre):** faster wind-up, lower AD damage, visually distinct slender blade, procs **`[W]` Stance Temper**.
+  - **2nd Strike (Heavy Left Greatsword):** heavier follow-up wind-up, higher AD damage, visually broader blade and heavier audio cue, procs **`[E]` Vital Draw**.
+- **`v0.2.8` Approved scaling:** Both strike wind-ups and recovery divide by **Global Attack Speed** (`sqrt(1 + k × BonusAS)`, *Unbounded diminishing → Inverse duration*); **Agility** additionally shortens the Hit-1 → Hit-2 transition delay (*Bounded diminishing*), while keeping Hit 2 heavier and slower than Hit 1; strike damage scales **Linearly** with **Attack Damage**.
 
 ### Q
 
 - Slash in a forward arc with a decent reach. Enemies caught in the arc take damage and are slowed.
 - Designer-confirmed prototype rule (`v0.2.3`, from playtester feedback): hitting enemies with Q also applies R's lookback mark (prioritizing heroes).
+- **`v0.2.8` Approved scaling:** Wind-up reduces with **Agility** (*Bounded diminishing*); **recovery duration remains fixed** (`not` reduced by Agility); damage scales **Linearly** with **Attack Damage**; slow strength & slow duration remain attribute-independent.
 
-### W
+### W (`v0.2.8`: Swapped with E — Stance Temper on 1st Hit)
 
-- The first strike of the pair deals percentage-health damage and heals the swordsman for a percentage of that damage.
+- When the **1st light strike** hits, the swordsman steals defenses: he gains stacks that increase his resistances and the opponent gains stacks that reduce theirs (can push enemy resistances below zero).
+- **Self buff duration and enemy debuff duration refresh and track independently** and both scale **Linearly** with **Intelligence**; per-stack Armor/MR values remain attribute-independent.
 
-### E
+### E (`v0.2.8`: Swapped with W — Vital Draw on 2nd Hit)
 
-- When the second strike hits, the swordsman gains stacks that increase his resistances and the opponent gains stacks that reduce theirs. Both effects can build to a large number of stacks and linger a long time before fading.
+- The **2nd heavy strike** of the pair deals percentage-health magic damage and heals the swordsman for a percentage of that bonus damage.
+- Interrupting or escaping before the 2nd strike completes denies this healing (`swordsmanDisplaceCancelsSecondHit = true` default).
+- **`v0.2.8` Approved scaling:** Bonus `% Target Max HP` damage scales with **Strength** (*Bounded diminishing*); healing efficiency scales **Linearly** with **Heal Power**.
 
 ### R
 
-- Dash by the last enemy the swordsman basic-attacked or hit with Q recently (updated from basic-attacks-only per `v0.2.3` playtest feedback), slashing them for substantial damage and ending in front of them. Luís suggested roughly 10–15 seconds as the lookback window.
+- Dash by the last enemy the swordsman basic-attacked or hit with Q recently (updated from basic-attacks-only per `v0.2.3` playtest feedback), slashing them for substantial damage and ending in front of them.
 - If that enemy is below a health threshold, execute them and refresh R's cooldown.
+- **`v0.2.8` Approved scaling:** Slash damage scales **Linearly** with **Attack Damage**; execute threshold (`<100%`) scales with **Strength** (*Bounded diminishing*); dash speed scales **Linearly** with **Agility** (*Inverse travel duration*); lookback target mark duration scales **Linearly** with **Intelligence**.
 
-**Open details.** Can displacement, lost range or a move command prevent the second strike? Are W and E always applied to their respective strikes once learned, or do they require activation? The health basis for W, the resistances E affects and how its stacks fade are open. R's cast range and whether it checks the execute threshold before or after slash damage are also open.
+**Provisional `v0.2.8` numbers (`LaneTuning`):** `615 HP (+40/lvl)`, `54 AD (+4/lvl)`, `Arm 14`, `MR 14`, `Regen 1.5/s`, `Move 3.45`, `Turn 480°/s`, Melee `2.35u`; Hit 1 `48% AD` (`0.20s` wind / `EffAS`), Hit 2 `76% AD` (`(0.40 - 0.14×AGI/(AGI+45)) / EffAS`), Recover `0.46s / EffAS`; Q `3.5u` cone, windup `0.30 - 0.15×AGI/(AGI+45)s`, fixed rec `0.24s`, `45/65/85 + 90% AD`, `40/45/50%` slow `2.1s`, CD `5.5/5.0/4.5s`; W `+8/+10/+12` Arm/MR self & `-8` enemy (max `6`), separate timers `6.5 + 0.08×INT` s; E `4.5/5.9/7.3% + 6.5%×STR/(STR+60)` target Max HP magic (`140` minion cap), heals `55% × HealPower` of bonus dmg; R `7.5u`, dash `16.0 + 0.16×AGI` u/s, mark `10.0 + 0.16×INT` s, `95/135 + 135% AD`, exec `20/24% + 25%×STR/(STR+70)`, CD `22/18s`.
+
+**Open details.** Whether `[R]` cooldown should also reset on minion kills (in addition to hero kills) vs. hero-kill reset only; if the first strike lands and the opponent pushes Swordsman out of reach before Strike 2, does Strike 2 still connect? The resistances W affects and whether R checks execute before or after slash damage remain open.
 
 ---
 
@@ -332,25 +357,32 @@ Luís's animation reference is the Dota jungle ogre, particularly the weight and
 - Basic attacks fire a laser gun whose beam chains to additional targets in order with no cap on chain count, never repeating an already-hit target.
 - Each subsequent bounce deals less damage, and every damaged target gains a **Laser Damage** stack.
 - Each Laser Damage stack increases subsequent laser damage taken by that target from the hero's laser sources.
+- **`v0.2.8` Approved scaling:** Attack frequency uses **Global Attack Speed** (`EffectiveAS = sqrt(1 + k × BonusAS)`, *Unbounded diminishing → Inverse duration*); bounce/hop search distance scales with **Intelligence** (*Bounded diminishing*); maximum stack damage amplification asymptote scales with **Intelligence** (*Bounded diminishing*); stack decay floor and hop damage falloff remain attribute-independent.
 
 ### Q
 - Fire a continuous laser in a target direction for a duration, starting at very short range and steadily extending until it reaches maximum range, at which point it ends.
 - Each target struck by the beam takes a single instance of laser damage.
 - Killing multiple targets with Q grants escalating bonus gold for every kill after the first.
+- **`v0.2.8` Approved scaling:** Damage scales **Linearly** with **Attack Damage**; extension speed scales with **Intelligence** (*Unbounded diminishing square root → Inverse duration*, replacing Agility); beam max range remains fixed.
 
 ### W
 - Every target within range that carries Laser Damage stacks emits a laser area shock, dealing small damage and slowing both itself and nearby targets.
-- Both the slow strength and slow duration from overlapping shocks stack.
+- Both the slow strength and slow duration from overlapping shocks stack (plus refreshed/staggered casts use the same diminishing model without allowing recast timer bypass).
+- **`v0.2.8` Approved scaling:** Shock damage scales **Linearly** with **Intelligence**; shock radius scales with **Intelligence** (*Bounded diminishing*); single-shock slow percentage depends on rank only; overlapping/refreshed slow strength stacks with **Bounded diminishing returns**, and overlapping/refreshed slow duration scales with **Unbounded diminishing square root** (`Base × sqrt(shocks)` subtracting prior elapsed duration).
 
 ### E
-- Step patiently backward by one pace, leaving behind a stationary laser decoy for a brief duration that blocks enemy hero movement and projectiles.
+- Step **patiently and calmly backward** in an animated single pace (no instant blink/teleport; interrupted cleanly if stunned/displaced mid-step), spawning a stationary laser decoy at the starting position upon completion that blocks enemy hero movement and projectiles.
 - Creeps do not target the decoy. If an enemy damages it, they take small laser damage and a brief stun; if damaged by a hero, the decoy disappears.
+- **`v0.2.8` Approved scaling:** Step-back animation duration scales with **Agility** (*Bounded diminishing shorter duration*); retaliation damage scales **Linearly** with **Intelligence**; retaliation stun scales with **ability rank only** (zero Strength scaling); step distance stays fixed.
 
 ### R
 - After a brief pause, fire a continuous laser in the target direction while remaining able to move.
 - Every enemy hero, minion, and monster inside the beam continuously receives individual laser basic-attack procs as though the hero were basic-attacking each of them directly.
+- **`v0.2.8` Approved scaling:** Beam duration scales with **Intelligence** (*Bounded diminishing*); proc damage scales from **Attack Damage**; proc cadence scales inversely with **Global Attack Speed** (*Unbounded sqrt*); retained movement speed scales with **Agility** (*Bounded diminishing*, never reaching `100%`).
 
-**Open details.** What is the bounce search radius and minimum damage floor per chain hop? Do Laser Damage stacks have a cap or independent refresh duration? Can Q's aim rotate during extension or is it locked at cast? Does W consume stacks or keep them? Does R lock beam direction while moving or track cursor, and at what tick interval does it proc passive chains without blowing up waves/performance?
+**Provisional `v0.2.8` numbers (`LaneTuning`):** `480 HP (+30/lvl)`, `46 AD (+3.5/lvl)`, `Arm 8`, `MR 10`, `Regen 1.3/s`, `Move 4.00`, `Turn 560°/s`, Basic `6.0u` (`0.22s` wind / `0.66s` rec); Passive hop `4.2 + 3.2×INT/(INT+60)u`, decay `0.70x` (`min 25%`), `6.0s` stacks (`halfPoint = 8`), `MaxAmp = 45% + 45%×INT/(INT+60)`; Q `1.2→8.2u`, base `0.88s / sqrt(1 + 0.024×INT)`, `44/62/80 + 105% AD`, `+12g` multikill bonus, CD `7.2/6.5/5.8s`; W scan `7.8u`, radius `2.40 + 1.85×INT/(INT+60)u`, `30/42/54 + 70% INT`, single slow `20/24/28%`, overlap cap `82%`, overlap/refresh dur `1.15s×sqrt(n)`, CD `7.5/6.8/6.1s`; E step `1.65u` over `0.38 - 0.20×AGI/(AGI+50)s`, decoy `4.5s`/`120 HP`, zap `34/48/62 + 65% INT`, rank-only stun `0.65/0.80/0.95s`, CD `11.0/10.1/9.2s`; R `0.50s` wind, `2.4/2.7 + 2.0×INT/(INT+65)s`, `62% AD` proc every `0.42s / EffAS`, move `78% + 22%×AGI/(AGI+50)`, CD `28/24s`.
+
+**Open details.** `laserQTracksCursor = false`, `laserWConsumesStacks = false`, `laserRTracksCursor = false` toggles in `LaneTuning`; exact bounce radius, falloff floor, and stack cap/duration remain open for tuning.
 
 ---
 

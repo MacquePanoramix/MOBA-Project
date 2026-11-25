@@ -28,22 +28,29 @@ Luís wants substantial variation in movement feel across units and heroes. In t
   - **Agility:** often associated with speed, responsiveness, precision, movement, or fluidity.
   - **Intelligence:** often associated with magical, intricate, spatial, sustained, or unusual effects.
 - **Conventional stats remain separate:** Health, Health Regen, Attack Damage (AD), Attack Speed, Ability Haste (replacing hard-capped CDR), Armor, Magic Resist, Movement Speed, and Heal Power are independent stats rather than derived automatically from Str/Agi/Int.
-- **Smooth hyperbolic diminishing returns instead of artificial hard caps (Provisional prototype direction, `v0.2.4`):** Percentage-based and threshold-sensitive stats use theoretical diminishing curves so stacking remains less rewarding past high thresholds instead of hitting a flat ceiling:
-  - Armor & MR use `100 / (100 + R)` above `0` and `2 - 100 / (100 - R)` when shredded below `0`.
-  - **Ability Haste (`AH`)** replaces hard-capped `45%` CDR using `Base × 100 / (100 + AH)`.
-  - Attack Speed and Ogre Wind-up Speed scale animation speed linearly while cast/attack times follow `Base / Speed` hyperbolically.
-  - Threshold-sensitive `StatFormula` properties (such as stun duration, knockback distance, `% Max HP` bonus damage, vulnerability amplification, and bonus move speed) use `Diminishing` (`M × Stat / (Stat + H)`) instead of clamped hard caps, while single abilities can still scale different properties from different stats simultaneously.
-- **Provisional prototype hero showcase (not locked numbers):**
-  - **Ogre** demonstrates multi-dimensional scaling: Attack Damage linearly scales his club strike damage, Agility scales his ability wind-up/recovery speed (`+1% / AGI`, hyperbolically reducing cast times with zero hard cap), and Strength hyperbolically increases stun durations and knockback distance (`Diminishing`, no hard cap). Hybrid builds are valid.
-  - **Hero Luís (Miravel)** and **Old Man Swordsman** keep provisional, configurable scalings (`LaneTuning`) pending designer review.
+- **Scaling curve terminology (`v0.2.8` Approved terminology):** Ability and tooltip math distinguish four scaling behaviors:
+  - **Linear:** Each additional point provides the same constant absolute benefit (`Base + c × Stat`).
+  - **Bounded diminishing returns:** Additional investment always helps, asymptotically approaching a finite maximum or floor (`Base + M × S / (S + H)`). Used for Armor/MR mitigation (`100 / (100 + R)` above `0` and `2 - 100 / (100 - R)` below `0`), **Ability Haste** (`Base × 100 / (100 + AH)`), thresholds, radii, stun/KB caps where bounded, and Miravel's R amps.
+  - **Unbounded diminishing returns:** Additional investment always grants positive gain with progressively decreasing marginal return and **no finite mathematical maximum** (`sqrt(1 + k × S)` or `coeff × (sqrt(1 + k × S) - 1)`).
+  - **Inverse duration scaling:** Increasing an effective speed multiplier divides the associated duration (`Duration = Base / SpeedMultiplier`).
+- **Global Attack Speed redesign (`v0.2.8` Approved concept, provisional `k = 2.4`):**
+  - Instead of scaling attack frequency linearly forever, bonus Attack Speed follows an **unbounded diminishing square-root curve** with zero upper hard cap:
+    - `EffectiveAttackSpeed = sqrt(1 + k × BonusAttackSpeed)` *(provisional `k = 2.4`: `+30% AS → 1.31x`, `+60% → 1.56x`, `+180% → 2.31x`, `+500% → 3.61x`, `+1200% → 5.46x`)*.
+  - Governs basic-attack wind-up & recovery (`Base / EffectiveAS`), Swordsman Strike 1 & Strike 2 cadence, Ogre ability recovery durations, and Chain Laser `[R]` beam proc frequency (`0.42s / EffectiveAS`, using an accumulator loop in simulation so high AS is not bottlenecked to one proc per tick).
+  - **30 Hz simulation tick-rate limitation (Engineering finding, `v0.2.8`):** `LaneMatch` ticks at `30 Hz` (`dt = 0.0333s`). Individual Wind-up and Recover phase timers round up to whole ticks without carrying sub-tick remainder across phase transitions; at normal AS (`+0%` to `+180%`), simulated Miravel basic rate (`1.25/s` to `2.73/s`) stays close to continuous theory (`1.28/s` to `2.96/s`), while extreme stacking (`+500%` to `+1200%`) loses ~14–19% throughput to discrete `2–3` tick wind-up/recover quantization.
 
 ## Economy and items
 
 - Support and jungler items likely exist.
 - Supports should gain satisfying gold and scaling opportunities; no exact percentage of carry income approved.
 - **Diverse, mostly passive-focused shop designed independently of specific heroes:**
-  - Not every item grants Strength, Agility, or Intelligence. Items can grant pure conventional stats (e.g., Attack Damage, Attack Speed, Health, Armor, Magic Resist, Cooldown Reduction, Movement Speed), pure attributes, combinations, attribute-scaled passives (including scaling attributes a hero's kit doesn't natively focus on), or mechanical/situational passives with no attribute scaling.
-  - **Design example — The Coward's Shield:** grants temporary resistances scaling with Agility when retreating away from an enemy hero who recently damaged you, fading quickly if you turn back toward them to pursue.
+  - Not every item grants Strength, Agility, or Intelligence. Items can grant pure conventional stats (e.g., Attack Damage, Attack Speed, Health, Armor, Magic Resist, Ability Haste, Movement Speed), pure attributes, combinations, attribute-scaled passives (including scaling attributes a hero's kit doesn't natively focus on), or mechanical/situational passives with no attribute scaling.
+  - **The Coward's Shield (`v0.2.8` Rework — Concept: Luís; numbers provisional):**
+    - Grants `+15 Arm`, `+15 MR`, `+12 AGI` (`450g`). Passive grants up to `+(20 + 0.85 × AGI)` Armor & MR *(Linear AGI scaling)* based on genuine sustained retreat movement (`>= 45%` of move speed with velocity dot product `>= 0.45` away from a hero who damaged the owner within `5.0s`).
+    - Requires a brief `0.15s` commit delay and `1.55s` gradual buildup; facing away while stationary, enemy displacement, or rapid left-right wobble no longer grants stacks.
+    - Holds (without building) through a `0.75s` grace window on brief stops/stuns/path blockers (earned only after `>= 0.40s` continuous retreat and `>= 0.15` charge), then decays gradually on stationary stops (`1.90s` full fade) and decays noticeably faster (`0.85s` full fade) if turning toward/pursuing the attacker.
+  - **Kindred Charm (`v0.2.8` Universal Aura — provisional item):** `+22% Heal Power` and emits an allied regeneration aura (`+1.6 × HealPower HP/s` within provisional `7.5u` radius) on **any** hero who purchases it (detached from Miravel's kit-exclusive aura; exact range & multi-holder stacking rules remain open).
+  - **Colossus Pauldron (`v0.2.8` Tooltip clarification — provisional item):** Shield (`4s` `(65 + 2.0 × STR)`) triggers when its **owner inflicts** Stun/Knockback or drops below `45%` HP (`12s` CD).
 - Prefer passive and mechanical effects over extra active buttons; the previously brainstormed active ratio is not a target.
 - Item procs, cooldowns, stat interactions, and economy/experience distribution remain open for tuning.
 

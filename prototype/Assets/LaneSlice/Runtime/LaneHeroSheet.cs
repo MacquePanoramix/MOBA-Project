@@ -7,7 +7,8 @@ namespace Moba.LaneSlice
 {
     /// <summary>
     /// Data-driven MOBA ability/stat guide formatter producing both pretty color-coded
-    /// ability cards (for Lobby, [C] Scaling sheet, and HUD hover tooltips) and exact formulas.
+    /// ability cards (for Lobby, [C] Scaling sheet, and HUD hover tooltips) and exact simulation formulas.
+    /// Explicitly distinguishes Linear, Bounded diminishing, Unbounded diminishing, and Inverse duration curves.
     /// </summary>
     public static class LaneHeroSheet
     {
@@ -59,12 +60,29 @@ namespace Moba.LaneSlice
             var sb = new StringBuilder();
             AppendRankProgression(sb, f, unit, asPercent, maxRanks);
 
+            if (f.curve == ScalingCurve.UnboundedSqrt)
+            {
+                if (unit == "x")
+                {
+                    float s25 = f.Evaluate(1, 25f);
+                    float s50 = f.Evaluate(1, 50f);
+                    sb.Append($" (sqrt +{F(f.halfPoint, "0.###")}/pt, Unbounded diminishing • {F(s25, "0.00")}x @ 25, {F(s50, "0.00")}x @ 50)");
+                }
+                else
+                {
+                    string b25 = FormatBonusValue(f.EvaluateBonusAt(25f), unit, asPercent);
+                    string b50 = FormatBonusValue(f.EvaluateBonusAt(50f), unit, asPercent);
+                    sb.Append($" (Unbounded sqrt +{b25} @ 25, +{b50} @ 50)");
+                }
+                return sb.ToString();
+            }
+
             if (unit == "x" && f.curve == ScalingCurve.Linear)
             {
                 float ratePct = f.coeffOrMaxBonus * 100f;
                 float s25 = f.Evaluate(1, 25f);
                 float s50 = f.Evaluate(1, 50f);
-                sb.Append($" (+{F(ratePct, "0.#")}% / {statName} • {F(s25, "0.00")}x @ 25, {F(s50, "0.00")}x @ 50)");
+                sb.Append($" (+{F(ratePct, "0.#")}% / {statName}, Linear • {F(s25, "0.00")}x @ 25, {F(s50, "0.00")}x @ 50)");
                 return sb.ToString();
             }
 
@@ -74,24 +92,30 @@ namespace Moba.LaneSlice
                 {
                     if (!asPercent && string.IsNullOrEmpty(unit))
                     {
-                        sb.Append($" + {F(f.coeffOrMaxBonus * 100f)}% {statName}");
+                        sb.Append($" + {F(f.coeffOrMaxBonus * 100f)}% {statName} (Linear)");
                     }
                     else if (asPercent)
                     {
-                        sb.Append($" + {F(f.coeffOrMaxBonus * 100f, "0.#")}% per {statName}");
+                        sb.Append($" + {F(f.coeffOrMaxBonus * 100f, "0.#")}% / {statName} (Linear)");
                     }
                     else
                     {
-                        sb.Append($" + {F(f.coeffOrMaxBonus, "0.##")}{unit} per {statName}");
+                        sb.Append($" + {F(f.coeffOrMaxBonus, "0.##")}{unit} / {statName} (Linear)");
                     }
                 }
+            }
+            else if (f.coeffOrMaxBonus < 0f)
+            {
+                float s50 = f.Evaluate(1, 50f);
+                float floor = f.baseValue + f.coeffOrMaxBonus;
+                sb.Append($" (Bounded diminishing toward {F(floor, "0.00")}{unit} • {F(s50, "0.00")}{unit} @ 50)");
             }
             else
             {
                 string rateStr = FormatBonusRatePer10(f, statName, unit, asPercent);
                 string b25Str = FormatBonusValue(f.EvaluateBonusAt(25f), unit, asPercent);
                 string b50Str = FormatBonusValue(f.EvaluateBonusAt(50f), unit, asPercent);
-                sb.Append($" (+{rateStr}, diminishing • +{b25Str} @ 25, +{b50Str} @ 50)");
+                sb.Append($" (+{rateStr}, Bounded diminishing • +{b25Str} @ 25, +{b50Str} @ 50)");
             }
 
             return sb.ToString();
@@ -110,37 +134,61 @@ namespace Moba.LaneSlice
             AppendRankProgression(baseSb, f, unit, asPercent, maxRanks);
 
             string scaling;
-            if (unit == "x" && f.curve == ScalingCurve.Linear)
+            if (f.curve == ScalingCurve.UnboundedSqrt)
+            {
+                if (unit == "x")
+                {
+                    float s25 = f.Evaluate(1, 25f);
+                    float s100 = f.Evaluate(1, 100f);
+                    scaling = $"(Unbounded sqrt via {statName} • {F(s25, "0.00")}x @ 25, {F(s100, "0.00")}x @ 100)";
+                    return $"<color={baseColorHex}><b>{F(f.baseValue, "0.00")}x</b></color> <color={statColorHex}>{scaling}</color>";
+                }
+                string sq25 = FormatBonusValue(f.EvaluateBonusAt(25f), unit, asPercent);
+                string sq100 = FormatBonusValue(f.EvaluateBonusAt(100f), unit, asPercent);
+                scaling = $"(Unbounded sqrt via {statName} • +{sq25} @ 25, +{sq100} @ 100)";
+            }
+            else if (unit == "x" && f.curve == ScalingCurve.Linear)
             {
                 float ratePct = f.coeffOrMaxBonus * 100f;
                 float s25 = f.Evaluate(1, 25f);
                 float s50 = f.Evaluate(1, 50f);
-                scaling = $"(+{F(ratePct, "0.#")}% / {statName} • {F(s25, "0.00")}x @ 25, {F(s50, "0.00")}x @ 50)";
+                scaling = $"(Linear +{F(ratePct, "0.#")}% / {statName} • {F(s25, "0.00")}x @ 25, {F(s50, "0.00")}x @ 50)";
                 return $"<color={baseColorHex}><b>{F(f.baseValue, "0.00")}x</b></color> <color={statColorHex}>{scaling}</color>";
             }
             else if (f.curve == ScalingCurve.Linear)
             {
+                if (Mathf.Abs(f.coeffOrMaxBonus) <= 0.0001f)
+                {
+                    return $"<color={baseColorHex}><b>{baseSb}</b></color>";
+                }
                 if (!asPercent && string.IsNullOrEmpty(unit))
                 {
-                    scaling = $"(+{F(f.coeffOrMaxBonus * 100f)}% {statName})";
+                    scaling = $"(+{F(f.coeffOrMaxBonus * 100f)}% {statName}, Linear)";
                 }
                 else if (asPercent)
                 {
-                    scaling = $"(+{F(f.coeffOrMaxBonus * 100f, "0.#")}% per {statName})";
+                    scaling = $"(+{F(f.coeffOrMaxBonus * 100f, "0.#")}% / {statName}, Linear)";
                 }
                 else
                 {
                     string b25 = FormatBonusValue(f.EvaluateBonusAt(25f), unit, false);
                     string b50 = FormatBonusValue(f.EvaluateBonusAt(50f), unit, false);
-                    scaling = $"(+{F(f.coeffOrMaxBonus, "0.##")}{unit} / {statName} • +{b25} @ 25, +{b50} @ 50)";
+                    scaling = $"(+{F(f.coeffOrMaxBonus, "0.##")}{unit} / {statName}, Linear • +{b25} @ 25, +{b50} @ 50)";
                 }
+            }
+            else if (f.coeffOrMaxBonus < 0f)
+            {
+                float s25 = f.Evaluate(1, 25f);
+                float s50 = f.Evaluate(1, 50f);
+                float floor = f.baseValue + f.coeffOrMaxBonus;
+                scaling = $"(Bounded diminishing via {statName} → {F(floor, "0.00")}{unit} • {F(s25, "0.00")}{unit} @ 25, {F(s50, "0.00")}{unit} @ 50)";
             }
             else
             {
                 string rateStr = FormatBonusRatePer10(f, statName, unit, asPercent);
                 string b25Str = FormatBonusValue(f.EvaluateBonusAt(25f), unit, asPercent);
                 string b50Str = FormatBonusValue(f.EvaluateBonusAt(50f), unit, asPercent);
-                scaling = $"(+{rateStr}, diminishing • +{b25Str} @ 25, +{b50Str} @ 50)";
+                scaling = $"(+{rateStr}, Bounded diminishing • +{b25Str} @ 25, +{b50Str} @ 50)";
             }
 
             return $"<color={baseColorHex}><b>{baseSb}</b></color> <color={statColorHex}>{scaling}</color>";
@@ -151,24 +199,43 @@ namespace Moba.LaneSlice
             string statName,
             string unit = "",
             bool asPercent = false,
-            int maxRanks = 3)
+            int maxRanks = 3,
+            string customDomain = "")
         {
-            if (unit == "x" && f.curve == ScalingCurve.Linear)
+            string sLabel = string.IsNullOrEmpty(customDomain) ? statName : customDomain;
+            if (f.curve == ScalingCurve.UnboundedSqrt)
             {
-                float pctPerStat = f.coeffOrMaxBonus * 100f;
-                return $"Formula: Speed = 1.00 + {F(f.coeffOrMaxBonus, "0.##")} × {statName} (+{F(pctPerStat, "0.#")}% / {statName}); Wind-up = Base × 100 / (100 + {F(pctPerStat, "0.#")} × {statName}) [no hard cap]";
+                if (unit == "x")
+                {
+                    return $"[Unbounded diminishing → Inverse duration] Speed = sqrt(1 + {F(f.halfPoint, "0.####")} × {sLabel}); Duration = Base / Speed";
+                }
+                string coeffStr = asPercent ? $"{F(f.coeffOrMaxBonus * 100f, "0.#")}%" : $"{F(f.coeffOrMaxBonus, "0.##")}{unit}";
+                var bSb = new StringBuilder();
+                AppendRankProgression(bSb, f, unit, asPercent, maxRanks);
+                return $"[Unbounded diminishing] [{bSb}] + {coeffStr} × (sqrt(1 + {F(f.halfPoint, "0.####")} × {sLabel}) - 1)";
             }
 
             var baseSb = new StringBuilder();
             AppendRankProgression(baseSb, f, unit, asPercent, maxRanks);
             if (f.curve == ScalingCurve.Linear)
             {
-                string mult = asPercent ? $"{F(f.coeffOrMaxBonus * 100f, "0.#")}%" : F(f.coeffOrMaxBonus, "0.##");
-                return $"Formula: [{baseSb}] + {mult} × {statName} (no hard cap)";
+                if (Mathf.Abs(f.coeffOrMaxBonus) <= 0.0001f)
+                {
+                    return $"[Rank-only] {baseSb}";
+                }
+                string mult = asPercent ? $"{F(f.coeffOrMaxBonus * 100f, "0.#")}%" : $"{F(f.coeffOrMaxBonus, "0.##")}{unit}";
+                return $"[Linear] [{baseSb}] + {mult} × {sLabel}";
+            }
+
+            if (f.coeffOrMaxBonus < 0f)
+            {
+                string redStr = $"{F(-f.coeffOrMaxBonus, "0.##")}{unit}";
+                float floor = f.baseValue + f.coeffOrMaxBonus;
+                return $"[Bounded diminishing reduction] [{baseSb}] - {redStr} × {sLabel} / ({sLabel} + {F(f.halfPoint, "0.##")}) → {F(floor, "0.00")}{unit}";
             }
 
             string bonusStr = asPercent ? $"{F(f.coeffOrMaxBonus * 100f, "0.#")}%" : $"{F(f.coeffOrMaxBonus, "0.##")}{unit}";
-            return $"Formula: [{baseSb}] + {bonusStr} × {statName} / ({statName} + {F(f.halfPoint)}) (hyperbolic diminishing, approaches +{bonusStr} — no hard cap)";
+            return $"[Bounded diminishing] [{baseSb}] + {bonusStr} × {sLabel} / ({sLabel} + {F(f.halfPoint, "0.##")}) → +{bonusStr} asymptote";
         }
 
         private static string FormatBonusRatePer10(StatFormula f, string statName, string unit, bool asPercent)
@@ -214,9 +281,11 @@ namespace Moba.LaneSlice
                     break;
             }
 
-            g.RuleLines.Add($"<color={ColInt}><b>Zero Free Attribute Stats:</b></color> <color={ColStr}>STR</color>, <color={ColAgi}>AGI</color>, and <color={ColInt}>INT</color> start at <b>0</b> and only empower abilities or items that explicitly scale with them.");
-            g.RuleLines.Add($"<color={ColAgi}><b>The Coward's Shield (450g):</b></color> +15 Arm/MR, +12 AGI • Retreating from an enemy hero who hit you within {F(t.cowardShieldMemorySeconds, "0.0")}s grants {FormatPrettyFormula(t.cowardShieldResistFormula, ColCc, "AGI", ColAgi, " Arm/MR", maxRanks: 1)}.");
-            g.RuleLines.Add($"<color={ColMuted}><b>No Hard Caps — Hyperbolic Diminishing Curves:</b></color> Armor & MR use 100/(100+R) above 0 (negative amplifies 2 - 100/(100-R)); Ability Haste uses Base × 100/(100+AH); Attack/Wind-up Speeds use Base / Speed; and stun/knockback/threshold scalars follow M × Stat / (Stat + H) so stacking stays fair without dead walls.");
+            g.RuleLines.Add($"<color={ColInt}><b>Zero Free Attribute Stats:</b></color> <color={ColStr}>STR</color>, <color={ColAgi}>AGI</color>, and <color={ColInt}>INT</color> start at <b>0</b> and only affect abilities or items that explicitly scale with them.");
+            g.RuleLines.Add($"<color={ColAgi}><b>Global Attack Speed (Unbounded diminishing → Inverse duration):</b></color> Effective AS = <b>sqrt(1 + {F(t.attackSpeedCurveK, "0.##")} × Bonus AS)</b> (+30% AS → {F(LaneTuning.EffectiveAttackSpeed(0.30f, t.attackSpeedCurveK), "0.00")}x, +120% → {F(LaneTuning.EffectiveAttackSpeed(1.20f, t.attackSpeedCurveK), "0.00")}x, no hard cap). Governs basics, Swordsman hits, Ogre recovery, & Laser R procs.");
+            g.RuleLines.Add($"<color={ColAgi}><b>The Coward's Shield (450g):</b></color> +15 Arm/MR, +12 AGI • Sustained retreat velocity away from recent hero attacker ({F(t.cowardShieldMemorySeconds, "0.0")}s) builds {FormatPrettyFormula(t.cowardShieldResistFormula, ColCc, "AGI", ColAgi, " Arm/MR", maxRanks: 1)}; {F(t.cowardShieldGraceSeconds, "0.00")}s grace holds (never builds) on brief stop/stun/obstacle; decays in {F(t.cowardShieldStopDecaySeconds, "0.0")}s stopped or {F(t.cowardShieldPursuitDecaySeconds, "0.00")}s pursuing.");
+            g.RuleLines.Add($"<color={ColHeal}><b>Kindred Charm (325g) & Colossus Pauldron (625g):</b></color> Kindred Charm emits +{F(1.6f, "0.0")} × HealPower HP/s within {F(t.kindredAuraRadius, "0.0")}u for allies on <b>any</b> hero; Colossus triggers when its owner inflicts Stun/Knockback or drops <45% HP.");
+            g.RuleLines.Add($"<color={ColMuted}><b>Scaling Types & Curves:</b></color> <b>Linear</b> = constant gain/pt; <b>Bounded diminishing</b> = M × S/(S+H); <b>Unbounded diminishing</b> = sqrt(1+k×S); <b>Inverse duration</b> = Base / SpeedMult. Arm/MR use 100/(100+R) above 0 & 2 - 100/(100-R) below 0; Ability Haste uses Base × 100/(100+AH).</color>");
             return g;
         }
 
@@ -277,39 +346,41 @@ namespace Moba.LaneSlice
             g.BaseStatsLine = $"HP <b>720</b> (+48/lvl)  •  <color={ColAd}>AD <b>60</b> (+5/lvl)</color>  •  Arm <b>16</b>  •  MR <b>12</b>  •  Regen <b>1.6/s</b>  •  Move <b>{F(t.ogreSpeed, "0.00")}</b>  •  Turn <b>{F(t.ogreTurnRate)}°/s</b>";
             if (live != null)
             {
-                g.LiveStatsLine = $"<color={ColLive}>Live (Lvl {live.level}): AD {F(live.attackDamage)} • AS {F(live.attackSpeed, "0.00")} • STR {F(live.strength)} • AGI {F(live.agility)} • INT {F(live.intelligence)} • AH {F(live.abilityHaste)} (-{F(live.cooldownReduction * 100f)}% CD) • Windup Speed {F(live.ogreAnimSpeed, "0.00")}x</color>";
+                g.LiveStatsLine = $"<color={ColLive}>Live (Lvl {live.level}): AD {F(live.attackDamage)} • Eff AS {F(live.attackSpeed, "0.00")}x (+{F(live.bonusAttackSpeed * 100f)}%) • STR {F(live.strength)} • AGI {F(live.agility)} • AH {F(live.abilityHaste)} • Wind {F(live.ogreWindupSpeed, "0.00")}x / Rec {F(live.ogreRecoverSpeed, "0.00")}x</color>";
             }
 
             var passive = new AbilityCardData
             {
                 Slot = LaneAbilitySlot.None,
                 KeyBadge = "PASSIVE",
-                Name = "Heavy Swing & Multi-Stat Scaling",
-                MetaRight = t.ogreImmuneDuringRecovery ? "CC-Immune: Cast + Recovery" : "CC-Immune: Cast Wind-up",
-                Description = "No basic attacks — every swing is an ability. Cannot be stunned or displaced while winding up spells.",
-                MathLine = $"Formula: Speed = 1.00 + {F(t.ogreAnimSpeedFormula.coeffOrMaxBonus, "0.###")} × AGI + {F(t.ogreAttackSpeedAnimRatio, "0.##")} × (AS - 1.00); Wind-up = Base / Speed [no hard cap]",
+                Name = "Split Wind-up & Recovery Animation Scaling",
+                MetaRight = t.ogreImmuneDuringRecovery ? "CC-Immune: Windup + Recovery" : "CC-Immune: Cast Wind-up",
+                Description = "No basic attacks. Wind-ups scale exclusively with Agility (sqrt) while post-hit recoveries scale exclusively with global Attack Speed (sqrt) across Q/W/E and queued R strikes.",
+                MathLine = $"Windup: {FormatExactMath(t.ogreWindupSpeedFormula, "AGI", "x", maxRanks: 1)} | Recover: EffectiveAS = sqrt(1 + {F(t.attackSpeedCurveK, "0.##")} × BonusAS) → Recover / EffectiveAS",
             };
-            passive.StatLines.Add($"<color={ColAd}>Attack Damage:</color> Increases all club damage  |  <color={ColStr}>STR:</color> Longer stuns & knockback");
-            passive.StatLines.Add($"<b><color={ColAgi}>Animation Speed:</color></b> {FormatPrettyFormula(t.ogreAnimSpeedFormula, ColAgi, "AGI", ColAgi, "x", maxRanks: 1)} <color={ColAgi}>+ {F(t.ogreAttackSpeedAnimRatio * 100f)}% of bonus Attack Speed</color> <color={ColMuted}>(e.g. +30% AS → +{F(t.ogreAttackSpeedAnimRatio * 30f)}% speed)</color>");
-            if (live != null) passive.LiveLine = $"<color={ColLive}>Now: Wind-ups & recovery run at {F(live.ogreAnimSpeed, "0.00")}x speed</color>";
+            passive.StatLines.Add($"<b>Wind-up Speed:</b> {FormatPrettyFormula(t.ogreWindupSpeedFormula, ColAgi, "AGI", ColAgi, "x", maxRanks: 1)}");
+            passive.StatLines.Add($"<b>Recovery Speed:</b> <color={ColAgi}>Global Effective AS = sqrt(1 + {F(t.attackSpeedCurveK, "0.##")} × Bonus AS) (Unbounded diminishing → Inverse duration)</color>");
+            if (live != null) passive.LiveLine = $"<color={ColLive}>Now: Wind-ups {F(live.ogreWindupSpeed, "0.00")}x (AGI) • Recoveries {F(live.ogreRecoverSpeed, "0.00")}x (AS)</color>";
             g.Cards.Add(passive);
 
             var q = new AbilityCardData
             {
                 Slot = LaneAbilitySlot.Q,
                 KeyBadge = "Q",
-                Name = "Club Slam",
-                MetaRight = $"Beam {F(t.ogreQRange, "0.0")}u × {F(t.ogreQWidth, "0.00")}u  •  Wind-up {F(t.ogreQWindup, "0.00")}s  •  CD {F(t.ogreQCooldown, "0.0")}/{F(t.ogreQCooldown - 0.6f, "0.0")}/{F(t.ogreQCooldown - 1.2f, "0.0")}s",
-                Description = "Heft the club overhead and slam a line forward, dealing heavy physical damage and stunning targets hit.",
-                MathLine = $"{FormatExactMath(t.ogreQDamageFormula, "AD")}  |  Stun {FormatExactMath(t.ogreQStunFormula, "STR", "s")}",
+                Name = "Club Slam (Central + Shockwave)",
+                MetaRight = $"Central {F(t.ogreQRange, "0.0")}u × {F(t.ogreQWidth * 2f, "0.00")}u  •  Wind {F(t.ogreQWindup, "0.00")}s / Rec {F(t.ogreQRecover, "0.00")}s  •  CD {F(t.ogreQCooldown, "0.0")}/{F(t.ogreQCooldown - 0.6f, "0.0")}/{F(t.ogreQCooldown - 1.2f, "0.0")}s",
+                Description = $"Two mutually exclusive zones: Central club impact deals full damage + stuns (size scales linearly w/ R); Outer shockwave deals {F(t.ogreQOuterDamageRatio * 100f)}% damage with zero CC (outer width scales w/ STR).",
+                MathLine = $"Dmg {FormatExactMath(t.ogreQDamageFormula, "AD")} | Stun {FormatExactMath(t.ogreQStunFormula, "STR", "s")} | Outer +{FormatExactMath(t.ogreQOuterWidthFormula, "STR", "u")}",
             };
-            q.StatLines.Add($"<b>Physical Damage:</b> {FormatPrettyFormula(t.ogreQDamageFormula, ColPhys, "AD", ColAd)}");
-            q.StatLines.Add($"<b>Stun Duration:</b> {FormatPrettyFormula(t.ogreQStunFormula, ColCc, "STR", ColStr, "s")}");
+            q.StatLines.Add($"<b>Central Impact:</b> {FormatPrettyFormula(t.ogreQDamageFormula, ColPhys, "AD", ColAd)}  •  Stun {FormatPrettyFormula(t.ogreQStunFormula, ColCc, "STR", ColStr, "s")}");
+            q.StatLines.Add($"<b>Outer Shockwave:</b> <color={ColPhys}>{F(t.ogreQOuterDamageRatio * 100f)}% Dmg (no CC)</color>  •  +Width {FormatPrettyFormula(t.ogreQOuterWidthFormula, ColCc, "STR", ColStr, "u")}");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankQ);
-                float anim = Mathf.Max(0.4f, live.ogreAnimSpeed);
-                q.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankQ)}): {F(t.ogreQDamageFormula.Evaluate(r, live.attackDamage))} dmg • {F(t.ogreQStunFormula.Evaluate(r, live.strength), "0.00")}s stun • {F(t.ogreQWindup / anim, "0.00")}s windup • {F(LiveCd(live, t.ogreQCooldown - 0.6f * (r - 1)), "0.0")}s CD</color>";
+                float cdmg = t.ogreQDamageFormula.Evaluate(r, live.attackDamage);
+                float wind = Mathf.Max(0.4f, live.ogreWindupSpeed);
+                float rec = Mathf.Max(0.4f, live.ogreRecoverSpeed);
+                q.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankQ)}): {F(cdmg)} central / {F(cdmg * t.ogreQOuterDamageRatio)} outer • {F(t.ogreQStunFormula.Evaluate(r, live.strength), "0.00")}s stun • +{F(t.ogreQOuterWidthFormula.Evaluate(r, live.strength), "0.00")}u outer • {F(t.ogreQWindup / wind, "0.00")}s/{F(t.ogreQRecover / rec, "0.00")}s</color>";
             }
             g.Cards.Add(q);
 
@@ -318,17 +389,18 @@ namespace Moba.LaneSlice
                 Slot = LaneAbilitySlot.W,
                 KeyBadge = "W",
                 Name = "Club Sweep",
-                MetaRight = $"Cone {F(t.ogreWRange, "0.0")}u  •  Wind-up {F(t.ogreWWindup, "0.00")}s  •  CD {F(t.ogreWCooldown, "0.0")}/{F(t.ogreWCooldown - 0.6f, "0.0")}/{F(t.ogreWCooldown - 1.2f, "0.0")}s",
-                Description = "Sweep horizontally in a wide arc, knocking enemies away cleanly (stops at tree trunks).",
-                MathLine = $"{FormatExactMath(t.ogreWDamageFormula, "AD")}  |  Push {FormatExactMath(t.ogreWKnockbackFormula, "STR", "u")}",
+                MetaRight = $"Cone {F(t.ogreWRange, "0.0")}u  •  Wind {F(t.ogreWWindup, "0.00")}s / Rec {F(t.ogreWRecover, "0.00")}s  •  CD {F(t.ogreWCooldown, "0.0")}/{F(t.ogreWCooldown - 0.6f, "0.0")}/{F(t.ogreWCooldown - 1.2f, "0.0")}s",
+                Description = "Sweep horizontally in a wide arc (scales w/ R size), blasting targets away via unbounded square-root STR knockback (stops at trees/walls; huge STR can hurl foes out of reach!).",
+                MathLine = $"Dmg {FormatExactMath(t.ogreWDamageFormula, "AD")} | KB {FormatExactMath(t.ogreWKnockbackFormula, "STR", "u")}",
             };
             w.StatLines.Add($"<b>Physical Damage:</b> {FormatPrettyFormula(t.ogreWDamageFormula, ColPhys, "AD", ColAd)}");
             w.StatLines.Add($"<b>Knockback Distance:</b> {FormatPrettyFormula(t.ogreWKnockbackFormula, ColCc, "STR", ColStr, "u")}");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankW);
-                float anim = Mathf.Max(0.4f, live.ogreAnimSpeed);
-                w.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankW)}): {F(t.ogreWDamageFormula.Evaluate(r, live.attackDamage))} dmg • {F(t.ogreWKnockbackFormula.Evaluate(r, live.strength), "0.00")}u push • {F(t.ogreWWindup / anim, "0.00")}s windup • {F(LiveCd(live, t.ogreWCooldown - 0.6f * (r - 1)), "0.0")}s CD</color>";
+                float wind = Mathf.Max(0.4f, live.ogreWindupSpeed);
+                float rec = Mathf.Max(0.4f, live.ogreRecoverSpeed);
+                w.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankW)}): {F(t.ogreWDamageFormula.Evaluate(r, live.attackDamage))} dmg • {F(t.ogreWKnockbackFormula.Evaluate(r, live.strength), "0.00")}u push • {F(t.ogreWWindup / wind, "0.00")}s/{F(t.ogreWRecover / rec, "0.00")}s</color>";
             }
             g.Cards.Add(w);
 
@@ -337,17 +409,18 @@ namespace Moba.LaneSlice
                 Slot = LaneAbilitySlot.E,
                 KeyBadge = "E",
                 Name = "Quake Stomp",
-                MetaRight = $"AoE {F(t.ogreERadius, "0.00")}u  •  Wind-up {F(t.ogreEWindup, "0.00")}s  •  CD {F(t.ogreECooldown, "0.0")}/{F(t.ogreECooldown - 0.8f, "0.0")}/{F(t.ogreECooldown - 1.6f, "0.0")}s",
-                Description = "Leap-stomp the ground beneath Ogre, smashing and stunning every enemy nearby.",
-                MathLine = $"{FormatExactMath(t.ogreEDamageFormula, "AD")}  |  Stun {FormatExactMath(t.ogreEStunFormula, "STR", "s")}",
+                MetaRight = $"Wind {F(t.ogreEWindup, "0.00")}s / Rec {F(t.ogreERecover, "0.00")}s  •  CD {F(t.ogreECooldown, "0.0")}/{F(t.ogreECooldown - 0.8f, "0.0")}/{F(t.ogreECooldown - 1.6f, "0.0")}s",
+                Description = "Stomp the earth, dealing damage and stunning every enemy uniformly across the full STR-scaled radius (also scales linearly with R size).",
+                MathLine = $"Dmg {FormatExactMath(t.ogreEDamageFormula, "AD")} | Stun {FormatExactMath(t.ogreEStunFormula, "STR", "s")} | Radius ({FormatExactMath(t.ogreERadiusFormula, "STR", "u", maxRanks: 1)}) × Size",
             };
             e.StatLines.Add($"<b>Physical Damage:</b> {FormatPrettyFormula(t.ogreEDamageFormula, ColPhys, "AD", ColAd)}");
-            e.StatLines.Add($"<b>Stun Duration:</b> {FormatPrettyFormula(t.ogreEStunFormula, ColCc, "STR", ColStr, "s")}");
+            e.StatLines.Add($"<b>Stun & Radius:</b> {FormatPrettyFormula(t.ogreEStunFormula, ColCc, "STR", ColStr, "s")}  •  {FormatPrettyFormula(t.ogreERadiusFormula, ColStr, "STR", ColStr, "u", maxRanks: 1)}");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankE);
-                float anim = Mathf.Max(0.4f, live.ogreAnimSpeed);
-                e.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankE)}): {F(t.ogreEDamageFormula.Evaluate(r, live.attackDamage))} dmg • {F(t.ogreEStunFormula.Evaluate(r, live.strength), "0.00")}s stun • {F(t.ogreEWindup / anim, "0.00")}s windup • {F(LiveCd(live, t.ogreECooldown - 0.8f * (r - 1)), "0.0")}s CD</color>";
+                float wind = Mathf.Max(0.4f, live.ogreWindupSpeed);
+                float rec = Mathf.Max(0.4f, live.ogreRecoverSpeed);
+                e.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankE)}): {F(t.ogreEDamageFormula.Evaluate(r, live.attackDamage))} dmg • {F(t.ogreEStunFormula.Evaluate(r, live.strength), "0.00")}s stun • {F(t.ogreERadiusFormula.Evaluate(r, live.strength), "0.00")}u radius • {F(t.ogreEWindup / wind, "0.00")}s/{F(t.ogreERecover / rec, "0.00")}s</color>";
             }
             g.Cards.Add(e);
 
@@ -357,16 +430,17 @@ namespace Moba.LaneSlice
                 KeyBadge = "R",
                 Name = "Rampage Combo",
                 MetaRight = $"Lvl {t.ultMinLevel}+  •  Channel {F(t.ogreRChannelDuration, "0.0")}s  •  CD {F(t.ogreRCooldown)}/{F(t.ogreRCooldown - 4f)}s",
-                Description = $"Brace ({F(t.ogreRDamageReduction * 100f)}% dmg reduction, {F(t.ogreRScaleBonus, "0.00")}x size) and queue up to {t.ogreRMaxStrikes} aimed Q/W strikes, then unleash lunging hits ending in a massive crit.",
-                MathLine = $"Combo lunges {F(t.ogreRLungeDistance, "0.00")}u/hit • Wind-ups divided by AGI & AS AnimSpeed ({F(t.ogreRFastWindup, "0.00")}s / {F(t.ogreRFinalWindup, "0.00")}s) + {F(t.ogreRStrikeFollowthrough, "0.00")}s beat",
+                Description = $"Grow in size (STR bounded) with {F(t.ogreRDamageReduction * 100f)}% fixed DR and queue up to {t.ogreRMaxStrikes} Q/W strikes. Attack dimensions (Q central/W/E) scale linearly proportionally with R size; final hit stays slower & devastating.",
+                MathLine = $"Size {FormatExactMath(t.ogreRScaleFormula, "STR", "x", maxRanks: 2)} | Strike Wind = ({F(t.ogreRFastWindup, "0.00")}/{F(t.ogreRFinalWindup, "0.00")}s) / WindupSpd + {F(t.ogreRStrikeFollowthrough, "0.00")}s / RecSpd",
             };
-            ult.StatLines.Add($"<b>Combo Strikes:</b> <color={ColPhys}>0.82x</color> Q/W dmg ({F(t.ogreRFastWindup, "0.00")}s wind-up)  →  Final hit <color={ColCc}><b>{F(t.ogreRFinalCritMultiplier, "0.00")}x CRIT</b></color> ({F(t.ogreRFinalWindup, "0.00")}s wind-up)");
-            ult.StatLines.Add($"<b>Scaling:</b> <color={ColAd}>AD</color> strike dmg  •  <color={ColStr}>STR</color> stun/knockback  •  <color={ColAgi}>AGI & AS</color> combo swing speed");
+            ult.StatLines.Add($"<b>Transformation Size:</b> {FormatPrettyFormula(t.ogreRScaleFormula, ColStr, "STR", ColStr, "x", maxRanks: 2)}  <color={ColMuted}>(× proportional area dimensions)</color>");
+            ult.StatLines.Add($"<b>Combo Hits:</b> <color={ColPhys}>0.82x</color> Q/W → Final <color={ColCc}><b>{F(t.ogreRFinalCritMultiplier, "0.00")}x CRIT</b></color> • Wind=AGI (sqrt), Rec=AS (sqrt)");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankR);
-                float anim = Mathf.Max(0.4f, live.ogreAnimSpeed);
-                ult.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankR)}): fast {F(t.ogreRFastWindup / anim, "0.00")}s / final {F(t.ogreRFinalWindup / anim, "0.00")}s windup • {F(LiveCd(live, t.ogreRCooldown - 4f * (r - 1)), "0.0")}s CD</color>";
+                float sz = t.ogreRScaleFormula.Evaluate(r, live.strength);
+                float wind = Mathf.Max(0.4f, live.ogreWindupSpeed);
+                ult.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankR)}): {F(sz, "0.00")}x size • fast {F(t.ogreRFastWindup / wind, "0.00")}s / final {F(t.ogreRFinalWindup / wind, "0.00")}s windup</color>";
             }
             g.Cards.Add(ult);
         }
@@ -376,26 +450,26 @@ namespace Moba.LaneSlice
             g.BaseStatsLine = $"HP <b>530</b> (+34/lvl)  •  <color={ColAd}>AD <b>48</b> (+3.5/lvl)</color>  •  Arm <b>8</b>  •  MR <b>18</b>  •  Regen <b>1.4/s</b>  •  Move <b>{F(t.luisSpeed, "0.00")}</b>  •  Turn <b>{F(t.luisTurnRate)}°/s</b>";
             if (live != null)
             {
-                g.LiveStatsLine = $"<color={ColLive}>Live (Lvl {live.level}): AD {F(live.attackDamage)} • INT {F(live.intelligence)} • AH {F(live.abilityHaste)} (-{F(live.cooldownReduction * 100f)}% CD) • HealPower {F(live.healPower * 100f)}% • AS {F(live.attackSpeed, "0.00")}</color>";
+                g.LiveStatsLine = $"<color={ColLive}>Live (Lvl {live.level}): AD {F(live.attackDamage)} • INT {F(live.intelligence)} • AH {F(live.abilityHaste)} • HealPower {F(live.healPower * 100f)}% (+{F((live.healPower - 1f) * 100f)}% bonus) • Eff AS {F(live.attackSpeed, "0.00")}x</color>";
             }
 
             var passive = new AbilityCardData
             {
                 Slot = LaneAbilitySlot.None,
                 KeyBadge = "PASSIVE",
-                Name = "Life/Drain Aura & Takedowns",
-                MetaRight = $"Aura {F(t.luisAuraRadius, "0.0")}u  •  Ranged Staff {F(t.luisBasicRange, "0.0")}u",
-                Description = "Fires 100% AD ranged bolts, boosts nearby allied regen, drains enemy regen (purple ring on victims), and permanently gains Heal Power on hero takedowns.",
-                MathLine = $"Ally Aura = ({F(t.luisAllyAuraRegenBase, "0.0")} + 0.35×Lvl + AuraItems) × HealPower (base 100%) | Enemy Drain = -{F(t.luisEnemyAuraRegenPenaltyBase, "0.0")} - 0.35×Lvl",
+                Name = "Life & Negative-Regen Aura + Takedowns",
+                MetaRight = $"Ranged {F(t.luisBasicRange, "0.0")}u  •  AS Scaled",
+                Description = "Allied regen bonus & enemy regen drain both scale linearly with Heal Power (base 100%, +10% permanent per takedown). Enemy regen can become NEGATIVE, causing real HP loss and lethal takedowns!",
+                MathLine = $"Ally = ({F(t.luisAllyAuraRegenBase, "0.0")}+0.35×(Lvl-1)) × HealPower | Drain = ({F(t.luisEnemyAuraRegenPenaltyBase, "0.0")}+0.35×(Lvl-1)) × HealPower | Radius {FormatExactMath(t.luisAuraRadiusFormula, "INT", "u", maxRanks: 1)}",
             };
-            passive.StatLines.Add($"<b>Ally Regen / Enemy Drain:</b> <color={ColHeal}>+{F(t.luisAllyAuraRegenBase, "0.0")} (+0.35/lvl) × HealPower (starts at 100%) HP/s</color>  |  <color={ColMagic}>-{F(t.luisEnemyAuraRegenPenaltyBase, "0.0")} (-0.35/lvl) HP/s</color>");
-            passive.StatLines.Add($"<b>Takedowns & Basic:</b> <color={ColHeal}>+{F(t.luisTakedownHealPowerGain * 100f)}% permanent Heal Power</color>  |  <color={ColAd}>100% AD</color> bolt ({F(t.luisBasicWindup, "0.00")}s wind-up, AS scaled)");
+            passive.StatLines.Add($"<b>Regen Aura:</b> <color={ColHeal}>+{F(t.luisAllyAuraRegenBase, "0.0")} ally</color> / <color={ColMagic}>-{F(t.luisEnemyAuraRegenPenaltyBase, "0.0")} enemy HP/s</color> × <color={ColHeal}>Heal Power (Linear, starts 100%)</color>");
+            passive.StatLines.Add($"<b>Aura Radius:</b> {FormatPrettyFormula(t.luisAuraRadiusFormula, ColInt, "INT", ColInt, "u", maxRanks: 1)}  •  <color={ColHeal}>+{F(t.luisTakedownHealPowerGain * 100f)}% permanent HealPower / kill</color>");
             if (live != null)
             {
-                float itemAura = SumAlliedAuraRegen(live);
-                float allyHpS = (t.luisAllyAuraRegenBase + 0.35f * live.level + itemAura) * live.healPower;
-                float enemyPen = t.luisEnemyAuraRegenPenaltyBase + 0.35f * live.level;
-                passive.LiveLine = $"<color={ColLive}>Now: Ally Aura +{F(allyHpS, "0.0")}/s • Enemy Drain -{F(enemyPen, "0.0")}/s • HealPower {F(live.healPower * 100f)}%</color>";
+                float allyHpS = (t.luisAllyAuraRegenBase + 0.35f * (live.level - 1)) * live.healPower;
+                float enemyPen = (t.luisEnemyAuraRegenPenaltyBase + 0.35f * (live.level - 1)) * live.healPower;
+                float aRad = t.luisAuraRadiusFormula.Evaluate(1, live.intelligence);
+                passive.LiveLine = $"<color={ColLive}>Now: Ally +{F(allyHpS, "0.0")}/s • Drain -{F(enemyPen, "0.0")}/s • Radius {F(aRad, "0.00")}u</color>";
             }
             g.Cards.Add(passive);
 
@@ -404,18 +478,20 @@ namespace Moba.LaneSlice
                 Slot = LaneAbilitySlot.Q,
                 KeyBadge = "Q (PASSIVE)",
                 Name = "Sanctuary Orbs",
-                MetaRight = $"Spawn {F(t.luisOrbInterval, "0.0")}/{F(t.luisOrbInterval - 0.8f, "0.0")}/{F(t.luisOrbInterval - 1.6f, "0.0")}s  •  Lasts {F(t.luisOrbDuration)}s  •  Pulse {F(t.luisOrbPulseRadius, "0.0")}u",
-                Description = "Periodically drops a glowing orb into the lane. Stepping on it heals allies & blasts enemies; enemies can step on it first to deny it.",
-                MathLine = $"Heal {FormatExactMath(t.luisOrbHealFormula, "INT")} × HealPower (base 100%)  |  Dmg {FormatExactMath(t.luisOrbDamageFormula, "INT")}",
+                MetaRight = $"Interval {F(t.luisOrbInterval, "0.0")}/{F(t.luisOrbInterval - 0.6f, "0.0")}/{F(t.luisOrbInterval - 1.2f, "0.0")}s × AH  •  Lasts {F(t.luisOrbDuration)}s",
+                Description = "Periodically drops a lane orb (spawn interval scaled inversely by Ability Haste, no 4s floor). Allies trigger heal+damage pulse; enemies stepping on it deny the orb.",
+                MathLine = $"Heal [68/88/108] × HealPower | Dmg [62/80/98] × HealPower | Radius {FormatExactMath(t.luisOrbPulseRadiusFormula, "INT", "u")}",
             };
-            q.StatLines.Add($"<b>Ally Heal:</b> {FormatPrettyFormula(t.luisOrbHealFormula, ColHeal, "INT", ColInt)} <color={ColHeal}>× HealPower (base 100%)</color>");
-            q.StatLines.Add($"<b>Enemy Magic Pulse:</b> {FormatPrettyFormula(t.luisOrbDamageFormula, ColMagic, "INT", ColInt)}");
+            q.StatLines.Add($"<b>Orb Heal & Magic Dmg:</b> <color={ColHeal}>68/88/108 heal</color> • <color={ColMagic}>62/80/98 dmg</color> × <color={ColHeal}>Heal Power (Linear)</color>");
+            q.StatLines.Add($"<b>Pulse Radius:</b> {FormatPrettyFormula(t.luisOrbPulseRadiusFormula, ColInt, "INT", ColInt, "u")}  •  <color={ColMuted}>Spawn interval: Inverse AH</color>");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankQ);
-                float heal = t.luisOrbHealFormula.Evaluate(r, live.intelligence) * live.healPower;
-                float dmg = t.luisOrbDamageFormula.Evaluate(r, live.intelligence);
-                q.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankQ)}): {F(heal)} heal • {F(dmg)} magic pulse</color>";
+                float heal = t.luisOrbHealFormula.Evaluate(r, 0f) * live.healPower;
+                float dmg = t.luisOrbDamageFormula.Evaluate(r, 0f) * live.healPower;
+                float rad = t.luisOrbPulseRadiusFormula.Evaluate(r, live.intelligence);
+                float cd = LiveCd(live, t.luisOrbInterval - 0.6f * (r - 1));
+                q.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankQ)}): {F(heal)} heal • {F(dmg)} dmg • {F(rad, "0.00")}u radius • every {F(cd, "0.00")}s</color>";
             }
             g.Cards.Add(q);
 
@@ -425,9 +501,9 @@ namespace Moba.LaneSlice
                 KeyBadge = "W",
                 Name = "Shimmer Decoy",
                 MetaRight = $"CD {F(t.luisWCooldown, "0.0")}/{F(t.luisWCooldown - 1.1f, "0.0")}/{F(t.luisWCooldown - 2.2f, "0.0")}s  •  Invis {F(t.luisWDuration, "0.0")}/{F(t.luisWDuration + 0.4f, "0.0")}/{F(t.luisWDuration + 0.8f, "0.0")}s",
-                Description = $"Turn invisible (breaks on basic attack or R; E Ward stays stealthed!) and send a {F(t.luisWIllusionDuration, "0.0")}s decoy walking to your cursor position (stops on arrival, triggers E Curse if hit).",
+                Description = $"Turn invisible and send a {F(t.luisWIllusionDuration, "0.0")}s decoy walking to your cursor position (stops cleanly on arrival). No attribute scaling — rewards deception & Ability Haste.",
             };
-            w.StatLines.Add($"<b>Stealth & Illusion:</b> <color={ColInt}>{F(t.luisWDuration, "0.0")} / {F(t.luisWDuration + 0.4f, "0.0")} / {F(t.luisWDuration + 0.8f, "0.0")}s</color> invisibility • Decoy walks to cast cursor & stops (no max distance)");
+            w.StatLines.Add($"<b>Stealth & Decoy:</b> <color={ColMuted}>Fixed durations (scales with Ability Haste CD only)</color>");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankW);
@@ -441,16 +517,16 @@ namespace Moba.LaneSlice
                 KeyBadge = "E",
                 Name = "Retribution Ward",
                 MetaRight = $"Ward {F(t.luisEWardDuration, "0.0")}/{F(t.luisEWardDuration + 0.6f, "0.0")}/{F(t.luisEWardDuration + 1.2f, "0.0")}s  •  CD {F(t.luisECooldown, "0.0")}/{F(t.luisECooldown - 0.8f, "0.0")}/{F(t.luisECooldown - 1.6f, "0.0")}s",
-                Description = "Shield yourself and decoys with a Ward (does NOT break W stealth). Any enemy hero hitting you or a decoy is Cursed; casting abilities escalates Curse stacks (max 5).",
-                MathLine = $"1-stack DPS {FormatExactMath(t.luisCurseDpsFormula, "INT")}; each stack adds +35% DPS & +{F(t.luisECurseBonusDuration, "0.0")}s",
+                Description = "Guard yourself & decoys without breaking W stealth. Enemy hero hits Curse attackers; enemy casts escalate stacks up to 5. Durations remain fixed.",
+                MathLine = $"1-stack DPS {FormatExactMath(t.luisCurseDpsFormula, "INT")}; ×(1 + 0.35×(stacks-1)), +{F(t.luisECurseBonusDuration, "0.0")}s/cast (fixed)",
             };
             e.StatLines.Add($"<b>1-Stack Magic DPS:</b> {FormatPrettyFormula(t.luisCurseDpsFormula, ColMagic, "INT", ColInt)} <color={ColMuted}>(×2.40 at 5 stacks)</color>");
-            e.StatLines.Add($"<b>Curse Duration:</b> <color={ColCc}>{F(t.luisECurseBaseDuration, "0.0")}/{F(t.luisECurseBaseDuration + 0.4f, "0.0")}/{F(t.luisECurseBaseDuration + 0.8f, "0.0")}s</color> + {F(t.luisECurseBonusDuration, "0.0")}s per enemy cast");
+            e.StatLines.Add($"<b>Curse Duration:</b> <color={ColCc}>{F(t.luisECurseBaseDuration, "0.0")}/{F(t.luisECurseBaseDuration + 0.4f, "0.0")}/{F(t.luisECurseBaseDuration + 0.8f, "0.0")}s</color> + {F(t.luisECurseBonusDuration, "0.0")}s per enemy cast (fixed)");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankE);
                 float dps1 = t.luisCurseDpsFormula.Evaluate(r, live.intelligence);
-                e.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankE)}): {F(dps1, "0.0")} DPS (1-stack) → {F(dps1 * 2.40f, "0.0")} DPS (5-stack) • {F(LiveCd(live, t.luisECooldown - 0.8f * (r - 1)), "0.0")}s CD</color>";
+                e.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankE)}): {F(dps1, "0.0")} → {F(dps1 * 2.40f, "0.0")} DPS • {F(LiveCd(live, t.luisECooldown - 0.8f * (r - 1)), "0.0")}s CD</color>";
             }
             g.Cards.Add(e);
 
@@ -459,17 +535,21 @@ namespace Moba.LaneSlice
                 Slot = LaneAbilitySlot.R,
                 KeyBadge = "R",
                 Name = "Ramping Sanctum",
-                MetaRight = $"Lvl {t.ultMinLevel}+  •  Range {F(t.luisRRange, "0.0")}u / Radius {F(t.luisRRadius, "0.0")}u  •  CD {F(t.luisRCooldown)}/{F(t.luisRCooldown - 3f)}s",
-                Description = $"Channel for {F(t.luisRChannelDuration, "0.0")}s: zone ramps 0→100% power, slowing & amplifying damage to enemies while boosting ally healing.",
-                MathLine = FormatExactMath(t.luisRVulnFormula, "INT", "", asPercent: true, maxRanks: 2),
+                MetaRight = $"Lvl {t.ultMinLevel}+  •  Range {F(t.luisRRange, "0.0")}u  •  CD {F(t.luisRCooldown)}/{F(t.luisRCooldown - 3f)}s",
+                Description = $"Channel {F(t.luisRChannelDuration, "0.0")}s: zone ramps 0→100%, amplifying ALL allied healing received and enemy damage taken (scaled by bonus Heal Power above 100%) across an INT-scaled radius.",
+                MathLine = $"Radius {FormatExactMath(t.luisRRadiusFormula, "INT", "u", maxRanks: 2)} | HealAmp {FormatExactMath(t.luisRHealAmpFormula, "BonusHealPwr", "", asPercent: true, maxRanks: 2, customDomain: "(HealPwr-1)")} | Vuln {FormatExactMath(t.luisRVulnFormula, "BonusHealPwr", "", asPercent: true, maxRanks: 2, customDomain: "(HealPwr-1)")}",
             };
-            ult.StatLines.Add($"<b>Enemy Vuln (max):</b> {FormatPrettyFormula(t.luisRVulnFormula, ColCc, "INT", ColInt, "", asPercent: true, maxRanks: 2)}");
-            ult.StatLines.Add($"<b>Slow & Ally Heal Boost:</b> <color={ColCc}>{F(t.luisRMaxSlow * 100f)}% slow</color>  •  <color={ColHeal}>+{F(t.luisRMaxHealAmp * 100f)}% healing received</color>");
+            ult.StatLines.Add($"<b>Zone Radius:</b> {FormatPrettyFormula(t.luisRRadiusFormula, ColInt, "INT", ColInt, "u", maxRanks: 2)}  •  <color={ColCc}>Fixed {F(t.luisRMaxSlow * 100f)}%/{F((t.luisRMaxSlow + 0.06f) * 100f)}% max slow</color>");
+            ult.StatLines.Add($"<b>Max Ally Heal Amp:</b> <color={ColHeal}>25% / 30%</color> (+Bounded diminishing from Bonus HealPower >100%)");
+            ult.StatLines.Add($"<b>Max Enemy Vuln:</b> <color={ColCc}>28% / 34%</color> (+Bounded diminishing from Bonus HealPower >100%)");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankR);
-                float maxVuln = t.luisRVulnFormula.Evaluate(r, live.intelligence) * 100f;
-                ult.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankR)}): max +{F(maxVuln, "0.0")}% enemy dmg taken • {F(LiveCd(live, t.luisRCooldown - 3f * (r - 1)), "0.0")}s CD</color>";
+                float bonusHp = Mathf.Max(0f, live.healPower - 1f);
+                float rad = t.luisRRadiusFormula.Evaluate(r, live.intelligence);
+                float healAmp = t.luisRHealAmpFormula.Evaluate(r, bonusHp) * 100f;
+                float vuln = t.luisRVulnFormula.Evaluate(r, bonusHp) * 100f;
+                ult.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankR)}): {F(rad, "0.00")}u radius • +{F(healAmp, "0.0")}% ally heal • +{F(vuln, "0.0")}% enemy vuln • {F(LiveCd(live, t.luisRCooldown - 3f * (r - 1)), "0.0")}s CD</color>";
             }
             g.Cards.Add(ult);
         }
@@ -479,23 +559,27 @@ namespace Moba.LaneSlice
             g.BaseStatsLine = $"HP <b>615</b> (+40/lvl)  •  <color={ColAd}>AD <b>54</b> (+4/lvl)</color>  •  Arm <b>14</b>  •  MR <b>14</b>  •  Regen <b>1.5/s</b>  •  Move <b>{F(t.swordsmanSpeed, "0.00")}</b>  •  Turn <b>{F(t.swordsmanTurnRate)}°/s</b>";
             if (live != null)
             {
-                g.LiveStatsLine = $"<color={ColLive}>Live (Lvl {live.level}): AD {F(live.attackDamage)} • STR {F(live.strength)} • AS {F(live.attackSpeed, "0.00")} • AH {F(live.abilityHaste)} (-{F(live.cooldownReduction * 100f)}% CD)</color>";
+                g.LiveStatsLine = $"<color={ColLive}>Live (Lvl {live.level}): AD {F(live.attackDamage)} • STR {F(live.strength)} • AGI {F(live.agility)} • INT {F(live.intelligence)} • Eff AS {F(live.attackSpeed, "0.00")}x • HPwr {F(live.healPower * 100f)}%</color>";
             }
 
             var passive = new AbilityCardData
             {
                 Slot = LaneAbilitySlot.None,
                 KeyBadge = "PASSIVE",
-                Name = "Twin-Blade Technique",
-                MetaRight = $"Melee {F(t.swordsmanBasicRange, "0.00")}u  •  AS Scaled",
-                Description = $"Deliberate movement speed, but each basic attack delivers two rapid blades: Hit 1 procs [W], Hit 2 procs [E].",
-                MathLine = $"Hit 1 windup {F(t.swordsmanHit1Windup, "0.00")}s + Hit 2 delay {F(t.swordsmanHit2Delay, "0.00")}s + Recover {F(t.swordsmanBasicRecover, "0.00")}s (divided by Attack Speed)",
+                Name = "Asymmetric Twin-Blade",
+                MetaRight = $"Melee {F(t.swordsmanBasicRange, "0.00")}u  •  AS + AGI",
+                Description = "1st Strike (Light Right Sabre): fast wind-up, lower AD, procs [W] Stance Temper. 2nd Strike (Heavy Left Greatsword): deliberate heavier swing, higher AD, procs [E] Vital Draw.",
+                MathLine = $"Hit1={F(t.swordsmanHit1Windup, "0.00")}s/EffAS | Hit2 Delay={FormatExactMath(t.swordsmanHit2DelayFormula, "AGI", "s", maxRanks: 1)} / EffAS | Recover={F(t.swordsmanBasicRecover, "0.00")}s/EffAS",
             };
-            passive.StatLines.Add($"<b>Twin Strikes:</b> <color={ColPhys}>{F(t.swordsmanStrikeAdRatio * 100f)}% AD × 2</color> <color={ColAd}>(= {F(t.swordsmanStrikeAdRatio * 200f)}% total AD physical dmg)</color>");
+            passive.StatLines.Add($"<b>Blade Damage (Linear AD):</b> <color={ColPhys}>Hit 1 = {F(t.swordsmanHit1AdRatio * 100f)}% AD</color>  →  <color={ColAd}>Hit 2 = {F(t.swordsmanHit2AdRatio * 100f)}% AD</color> (= {F((t.swordsmanHit1AdRatio + t.swordsmanHit2AdRatio) * 100f)}% total)");
+            passive.StatLines.Add($"<b>2nd Strike Transition:</b> {FormatPrettyFormula(t.swordsmanHit2DelayFormula, ColAgi, "AGI", ColAgi, "s", maxRanks: 1)} <color={ColMuted}>(then ÷ Effective AS; stays heavier than Hit 1)</color>");
             if (live != null)
             {
-                float strike = live.attackDamage * t.swordsmanStrikeAdRatio;
-                passive.LiveLine = $"<color={ColLive}>Now: {F(strike, "0.0")} × 2 = {F(strike * 2f, "0.0")} physical damage per Twin-Blade</color>";
+                float effAs = Mathf.Max(0.4f, live.attackSpeed);
+                float h1 = live.attackDamage * t.swordsmanHit1AdRatio;
+                float h2 = live.attackDamage * t.swordsmanHit2AdRatio;
+                float d2 = t.swordsmanHit2DelayFormula.Evaluate(1, live.agility) / effAs;
+                passive.LiveLine = $"<color={ColLive}>Now: Hit1 {F(h1, "0.0")} dmg ({F(t.swordsmanHit1Windup / effAs, "0.00")}s) → Hit2 {F(h2, "0.0")} dmg ({F(d2, "0.00")}s)</color>";
             }
             g.Cards.Add(passive);
 
@@ -504,18 +588,18 @@ namespace Moba.LaneSlice
                 Slot = LaneAbilitySlot.Q,
                 KeyBadge = "Q",
                 Name = "Hamstring Arc",
-                MetaRight = $"Cone {F(t.swordsmanQRange, "0.0")}u  •  Wind-up {F(t.swordsmanQWindup, "0.00")}s  •  CD {F(t.swordsmanQCooldown, "0.0")}/{F(t.swordsmanQCooldown - 0.5f, "0.0")}/{F(t.swordsmanQCooldown - 1.0f, "0.0")}s",
-                Description = "Cleaves a forward arc with both blades, damaging, heavily slowing, and marking enemies for [R] (prioritizes heroes).",
-                MathLine = FormatExactMath(t.swordsmanQDamageFormula, "AD"),
+                MetaRight = $"Cone {F(t.swordsmanQRange, "0.0")}u  •  Fixed Rec {F(t.swordsmanQRecover, "0.00")}s  •  CD {F(t.swordsmanQCooldown, "0.0")}/{F(t.swordsmanQCooldown - 0.5f, "0.0")}/{F(t.swordsmanQCooldown - 1.0f, "0.0")}s",
+                Description = "Cleaves a forward arc, dealing physical dmg, slowing (attribute-independent), and marking targets for [R] (prioritizes heroes). AGI speeds wind-up only (recovery stays fixed).",
+                MathLine = $"Dmg {FormatExactMath(t.swordsmanQDamageFormula, "AD")} | Windup {FormatExactMath(t.swordsmanQWindupFormula, "AGI", "s", maxRanks: 1)} (Fixed Rec {F(t.swordsmanQRecover, "0.00")}s)",
             };
             q.StatLines.Add($"<b>Physical Damage:</b> {FormatPrettyFormula(t.swordsmanQDamageFormula, ColPhys, "AD", ColAd)}");
-            q.StatLines.Add($"<b>Slow:</b> <color={ColCc}>{F(t.swordsmanQSlow * 100f)}% / {F((t.swordsmanQSlow + 0.05f) * 100f)}% / {F((t.swordsmanQSlow + 0.10f) * 100f)}%</color> for {F(t.swordsmanQSlowDuration, "0.0")}s");
+            q.StatLines.Add($"<b>Wind-up & Slow:</b> {FormatPrettyFormula(t.swordsmanQWindupFormula, ColAgi, "AGI", ColAgi, "s", maxRanks: 1)}  •  <color={ColCc}>{F(t.swordsmanQSlow * 100f)}/{F((t.swordsmanQSlow + 0.05f) * 100f)}/{F((t.swordsmanQSlow + 0.10f) * 100f)}% slow ({F(t.swordsmanQSlowDuration, "0.0")}s)</color>");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankQ);
                 float dmg = t.swordsmanQDamageFormula.Evaluate(r, live.attackDamage);
-                float slow = (t.swordsmanQSlow + 0.05f * (r - 1)) * 100f;
-                q.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankQ)}): {F(dmg)} dmg • {F(slow)}% slow • {F(LiveCd(live, t.swordsmanQCooldown - 0.5f * (r - 1)), "0.0")}s CD</color>";
+                float wind = t.swordsmanQWindupFormula.Evaluate(r, live.agility);
+                q.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankQ)}): {F(dmg)} dmg • {F(wind, "0.00")}s windup / {F(t.swordsmanQRecover, "0.00")}s rec • {F(LiveCd(live, t.swordsmanQCooldown - 0.5f * (r - 1)), "0.0")}s CD</color>";
             }
             g.Cards.Add(q);
 
@@ -523,17 +607,19 @@ namespace Moba.LaneSlice
             {
                 Slot = LaneAbilitySlot.W,
                 KeyBadge = "W (1ST HIT)",
-                Name = "Vital Draw",
-                MetaRight = "Passive • Procs on Twin-Strike 1",
-                Description = $"First strike slices for % of target Max HP magic damage and heals you for {F(t.swordsmanWHealShare * 100f)}% of that bonus damage.",
-                MathLine = FormatExactMath(t.swordsmanWPercentHpFormula, "STR", "", asPercent: true),
+                Name = "Stance Temper",
+                MetaRight = $"Passive • Procs on Light Hit 1  •  Max {t.swordsmanWMaxStacks} stacks",
+                Description = "1st light blade steals defenses: grants self Arm/MR stacks (+8/+10/+12) and shreds enemy Arm/MR (-8/stack, can go negative!). Buff and debuff timers refresh separately & scale linearly with INT.",
+                MathLine = $"Buff/Debuff Duration {FormatExactMath(t.swordsmanWBuffDurationFormula, "INT", "s", maxRanks: 1)} (separate timers; fixed per-stack Arm/MR)",
             };
-            w.StatLines.Add($"<b>Bonus % Max HP Magic:</b> {FormatPrettyFormula(t.swordsmanWPercentHpFormula, ColMagic, "STR", ColStr, "", asPercent: true)} <color={ColHeal}>• Heals {F(t.swordsmanWHealShare * 100f)}% × HealPower</color>");
+            w.StatLines.Add($"<b>Resist per Stack (Fixed):</b> <color={ColAgi}>+8 / +10 / +12 Arm/MR self</color>  |  <color={ColStr}>-{F(t.swordsmanWStackShred)} enemy (down to -48)</color>");
+            w.StatLines.Add($"<b>Buff & Debuff Durations:</b> {FormatPrettyFormula(t.swordsmanWBuffDurationFormula, ColInt, "INT", ColInt, "s", maxRanks: 1)}");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankW);
-                float pct = t.swordsmanWPercentHpFormula.Evaluate(r, live.strength) * 100f;
-                w.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankW)}): {F(pct, "0.0")}% target Max HP magic bonus • heals {F(t.swordsmanWHealShare * live.healPower * 100f)}% of bonus</color>";
+                float dur = t.swordsmanWBuffDurationFormula.Evaluate(r, live.intelligence);
+                float perStack = t.swordsmanWStackGain + 2f * (r - 1);
+                w.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankW)}): +{F(perStack)}/stack ({F(live.swordResistDelta)} active) • {F(dur, "0.0")}s duration</color>";
             }
             g.Cards.Add(w);
 
@@ -541,18 +627,18 @@ namespace Moba.LaneSlice
             {
                 Slot = LaneAbilitySlot.E,
                 KeyBadge = "E (2ND HIT)",
-                Name = "Stance Temper",
-                MetaRight = $"Passive • Procs on Twin-Strike 2  •  {F(t.swordsmanEStackDuration, "0.0")}s",
-                Description = $"Second strike steals defenses: builds self Armor/MR stacks while shredding enemy Armor/MR (can push resistances negative!).",
-                MathLine = $"Gain +(6 + 2×Rank) Arm/MR per stack (max {t.swordsmanEMaxStacks}); Shred -{F(t.swordsmanEStackShred)}/stack (max -{F(t.swordsmanEStackShred * t.swordsmanEMaxStacks)})",
+                Name = "Vital Draw",
+                MetaRight = "Passive • Procs on Heavy Hit 2",
+                Description = $"2nd heavy greatsword strike adds % Target Max HP magic dmg (STR bounded diminishing) and heals for {F(t.swordsmanEHealShare * 100f)}% × Heal Power. Interrupting Strike 2 denies healing!",
+                MathLine = $"% Max HP {FormatExactMath(t.swordsmanEPercentHpFormula, "STR", "", asPercent: true)} | Heal = BonusDmg × {F(t.swordsmanEHealShare * 100f)}% × HealPower",
             };
-            e.StatLines.Add($"<b>Self Gain:</b> <color={ColAgi}>+8 / +10 / +12 Arm & MR</color> per stack <color={ColMuted}>(max {t.swordsmanEMaxStacks} = +48/+60/+72)</color>");
-            e.StatLines.Add($"<b>Enemy Shred:</b> <color={ColStr}>-{F(t.swordsmanEStackShred)} Arm & MR</color> per stack <color={ColMuted}>(max -{F(t.swordsmanEStackShred * t.swordsmanEMaxStacks)} — amplifies damage past 0!)</color>");
+            e.StatLines.Add($"<b>Bonus % Max HP Magic:</b> {FormatPrettyFormula(t.swordsmanEPercentHpFormula, ColMagic, "STR", ColStr, "", asPercent: true)}");
+            e.StatLines.Add($"<b>Vampiric Heal:</b> <color={ColHeal}>{F(t.swordsmanEHealShare * 100f)}% of bonus dmg × Heal Power (Linear)</color>");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankE);
-                float perStack = 6f + 2f * r;
-                e.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankE)}): {live.swordStacks}/{t.swordsmanEMaxStacks} stacks (+{F(live.swordResistDelta)} Arm/MR, +{F(perStack)}/stack)</color>";
+                float pct = t.swordsmanEPercentHpFormula.Evaluate(r, live.strength) * 100f;
+                e.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankE)}): {F(pct, "0.0")}% Target Max HP • heals {F(t.swordsmanEHealShare * live.healPower * 100f)}% of bonus</color>";
             }
             g.Cards.Add(e);
 
@@ -562,17 +648,19 @@ namespace Moba.LaneSlice
                 KeyBadge = "R",
                 Name = "Finishing Cross",
                 MetaRight = $"Lvl {t.ultMinLevel}+  •  Range {F(t.swordsmanRRange, "0.0")}u  •  CD {F(t.swordsmanRCooldown)}/{F(t.swordsmanRCooldown - 4f)}s",
-                Description = $"Dash cleanly past the last target you hit with a basic attack or [Q] within {F(t.swordsmanRLookbackSeconds)}s. Executes targets ≤ threshold and resets CD on kill.",
-                MathLine = FormatExactMath(t.swordsmanRDamageFormula, "AD", maxRanks: 2),
+                Description = "Dash past your last basic/Q target (INT scales mark memory; AGI scales dash speed -> inverse travel time). Executes below STR-scaled threshold and resets CD on kill.",
+                MathLine = $"Dmg {FormatExactMath(t.swordsmanRDamageFormula, "AD", maxRanks: 2)} | Exec {FormatExactMath(t.swordsmanRExecuteFormula, "STR", "", asPercent: true, maxRanks: 2)} | DashSpd {FormatExactMath(t.swordsmanRDashSpeedFormula, "AGI", "u/s", maxRanks: 2)} | Mem {FormatExactMath(t.swordsmanRLookbackFormula, "INT", "s", maxRanks: 2)}",
             };
-            ult.StatLines.Add($"<b>Physical Dash Damage:</b> {FormatPrettyFormula(t.swordsmanRDamageFormula, ColPhys, "AD", ColAd, maxRanks: 2)}");
-            ult.StatLines.Add($"<b>Execute Threshold:</b> <color={ColCc}>≤ {F(t.swordsmanRExecuteThreshold * 100f)}% / {F((t.swordsmanRExecuteThreshold + 0.04f) * 100f)}% HP (true dmg + CD reset)</color>");
+            ult.StatLines.Add($"<b>Dash Dmg & Execute:</b> {FormatPrettyFormula(t.swordsmanRDamageFormula, ColPhys, "AD", ColAd, maxRanks: 2)}  •  Exec ≤ {FormatPrettyFormula(t.swordsmanRExecuteFormula, ColCc, "STR", ColStr, "", asPercent: true, maxRanks: 2)}");
+            ult.StatLines.Add($"<b>Dash Speed & Memory:</b> {FormatPrettyFormula(t.swordsmanRDashSpeedFormula, ColAgi, "AGI", ColAgi, "u/s", maxRanks: 2)}  •  {FormatPrettyFormula(t.swordsmanRLookbackFormula, ColInt, "INT", ColInt, "s", maxRanks: 2)}");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankR);
                 float dmg = t.swordsmanRDamageFormula.Evaluate(r, live.attackDamage);
-                float exec = (t.swordsmanRExecuteThreshold + 0.04f * (r - 1)) * 100f;
-                ult.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankR)}): {F(dmg)} dmg • execute ≤ {F(exec)}% HP • {F(LiveCd(live, t.swordsmanRCooldown - 4f * (r - 1)), "0.0")}s CD</color>";
+                float exec = t.swordsmanRExecuteFormula.Evaluate(r, live.strength) * 100f;
+                float dspd = t.swordsmanRDashSpeedFormula.Evaluate(r, live.agility);
+                float mem = t.swordsmanRLookbackFormula.Evaluate(r, live.intelligence);
+                ult.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankR)}): {F(dmg)} dmg • ≤{F(exec, "0.0")}% exec • {F(dspd, "0.0")}u/s • {F(mem, "0.0")}s mark</color>";
             }
             g.Cards.Add(ult);
         }
@@ -583,8 +671,9 @@ namespace Moba.LaneSlice
             if (live != null)
             {
                 float stackScale = t.laserStackMaxAmpFormula.Evaluate(1, live.intelligence) * 100f;
-                float qExtMult = Mathf.Max(1f, t.laserQSpeedFormula.Evaluate(1, live.agility));
-                g.LiveStatsLine = $"<color={ColLive}>Live (Lvl {live.level}): AD {F(live.attackDamage)} • STR {F(live.strength)} • AGI {F(live.agility)} • INT {F(live.intelligence)} • AH {F(live.abilityHaste)} (-{F(live.cooldownReduction * 100f)}% CD) • Stack Amp Scale +{F(stackScale, "0.0")}% • Q Extend {F(qExtMult, "0.00")}x</color>";
+                float qExtMult = t.laserQSpeedFormula.Evaluate(1, live.intelligence);
+                float bounceR = t.laserChainRadiusFormula.Evaluate(1, live.intelligence);
+                g.LiveStatsLine = $"<color={ColLive}>Live (Lvl {live.level}): AD {F(live.attackDamage)} • EffAS {F(live.attackSpeed, "0.00")}x • AGI {F(live.agility)} • INT {F(live.intelligence)} • Chain {F(bounceR, "0.00")}u • StackCap +{F(stackScale, "0.0")}% • QSpd {F(qExtMult, "0.00")}x</color>";
             }
 
             var passive = new AbilityCardData
@@ -592,16 +681,17 @@ namespace Moba.LaneSlice
                 Slot = LaneAbilitySlot.None,
                 KeyBadge = "PASSIVE",
                 Name = "Chain Laser & Amplifier Stacks",
-                MetaRight = $"Range {F(t.laserBasicRange, "0.0")}u  •  Chain {F(t.laserChainRadius, "0.0")}u (Unlimited Hops)",
-                Description = "Basic attacks fire a laser that bounces endlessly to unhit enemies within chain range (never repeats a target). Every laser hit adds a Laser Damage stack amplifying your future laser damage against that target.",
-                MathLine = $"Hop decay ×{F(t.laserChainDecay * 100f)}% (floor {F(t.laserChainMinRatio * 100f)}%) | Stack Amp: 1 + Asymptote × s / (s + {F(t.laserStackHalfPoint)}) | {FormatExactMath(t.laserStackMaxAmpFormula, "INT", "", asPercent: true, maxRanks: 1)}",
+                MetaRight = $"Range {F(t.laserBasicRange, "0.0")}u  •  Unlimited Hops",
+                Description = "Fire lasers chaining endlessly to unhit enemies within INT-scaled hop range (never repeats a target; fixed 70% hop decay). Every hit applies a Laser Stack amplifying future laser damage (asymptote scales w/ INT).",
+                MathLine = $"ChainRad {FormatExactMath(t.laserChainRadiusFormula, "INT", "u", maxRanks: 1)} | StackAmp: 1+MaxAmp×s/(s+{F(t.laserStackHalfPoint)}); MaxAmp {FormatExactMath(t.laserStackMaxAmpFormula, "INT", "", asPercent: true, maxRanks: 1)}",
             };
-            passive.StatLines.Add($"<b>Chain Bounces:</b> <color={ColPhys}>100% AD first hit</color>, <color={ColMuted}>×{F(t.laserChainDecay * 100f)}% per bounce (floor {F(t.laserChainMinRatio * 100f)}%)</color>");
-            passive.StatLines.Add($"<b>Stack Asymptote ({F(t.laserStackDuration, "0.0")}s):</b> {FormatPrettyFormula(t.laserStackMaxAmpFormula, ColInt, "INT", ColInt, "", asPercent: true, maxRanks: 1)} <color={ColMuted}>(half-point {F(t.laserStackHalfPoint)} stacks)</color>");
+            passive.StatLines.Add($"<b>Attack Freq & Bounce Dist:</b> <color={ColPhys}>100% AD</color> (Global Unbounded AS)  •  Hop {FormatPrettyFormula(t.laserChainRadiusFormula, ColInt, "INT", ColInt, "u", maxRanks: 1)}");
+            passive.StatLines.Add($"<b>Stack Asymptote ({F(t.laserStackDuration, "0.0")}s):</b> {FormatPrettyFormula(t.laserStackMaxAmpFormula, ColInt, "INT", ColInt, "", asPercent: true, maxRanks: 1)}");
             if (live != null)
             {
                 float asym = t.laserStackMaxAmpFormula.Evaluate(1, live.intelligence) * 100f;
-                passive.LiveLine = $"<color={ColLive}>Now: {F(live.attackDamage, "0.0")} first-hit dmg • +{F(asym * 0.5f, "0.0")}% amp @ {F(t.laserStackHalfPoint)} stacks (+{F(asym, "0.0")}% asymptote)</color>";
+                float hop = t.laserChainRadiusFormula.Evaluate(1, live.intelligence);
+                passive.LiveLine = $"<color={ColLive}>Now: {F(live.attackDamage, "0.0")} hit dmg • {F(hop, "0.00")}u hop • +{F(asym * 0.5f, "0.0")}% @ {F(t.laserStackHalfPoint)} stacks (+{F(asym, "0.0")}% max)</color>";
             }
             g.Cards.Add(passive);
 
@@ -610,18 +700,18 @@ namespace Moba.LaneSlice
                 Slot = LaneAbilitySlot.Q,
                 KeyBadge = "Q",
                 Name = "Extending Line Beam",
-                MetaRight = $"Range {F(t.laserQStartRange, "0.0")}→{F(t.laserQMaxRange, "0.0")}u  •  {F(t.laserQDuration, "0.00")}s  •  CD {F(t.laserQCooldown, "0.0")}/{F(t.laserQCooldown - 0.7f, "0.0")}/{F(t.laserQCooldown - 1.4f, "0.0")}s",
-                Description = $"Fires a continuous extending laser beam{(t.laserQTracksCursor ? " (tracks cursor)" : " (locked line)")} hitting each target once. Killing 2+ units grants +{F(t.laserQMultiKillBonusGold)}g escalating bonus gold per kill after the 1st.",
-                MathLine = $"{FormatExactMath(t.laserQDamageFormula, "AD")}  |  Extend {FormatExactMath(t.laserQSpeedFormula, "AGI", "x", maxRanks: 1)}",
+                MetaRight = $"Fixed {F(t.laserQStartRange, "0.0")}→{F(t.laserQMaxRange, "0.0")}u  •  Base {F(t.laserQDuration, "0.00")}s  •  CD {F(t.laserQCooldown, "0.0")}/{F(t.laserQCooldown - 0.7f, "0.0")}/{F(t.laserQCooldown - 1.4f, "0.0")}s",
+                Description = $"Fires a fixed-range extending laser beam hitting each unit once (+{F(t.laserQMultiKillBonusGold)}g escalating per kill after 1st). Intelligence accelerates extension speed (unbounded sqrt → inverse duration).",
+                MathLine = $"Dmg {FormatExactMath(t.laserQDamageFormula, "AD")} | Speed {FormatExactMath(t.laserQSpeedFormula, "INT", "x", maxRanks: 1)}",
             };
             q.StatLines.Add($"<b>Physical Damage:</b> {FormatPrettyFormula(t.laserQDamageFormula, ColPhys, "AD", ColAd)}");
-            q.StatLines.Add($"<b>Extension Speed:</b> {FormatPrettyFormula(t.laserQSpeedFormula, ColAgi, "AGI", ColAgi, "x", maxRanks: 1)}");
+            q.StatLines.Add($"<b>Extension Speed:</b> {FormatPrettyFormula(t.laserQSpeedFormula, ColInt, "INT", ColInt, "x", maxRanks: 1)} <color={ColMuted}>(replaces AGI)</color>");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankQ);
                 float dmg = t.laserQDamageFormula.Evaluate(r, live.attackDamage);
-                float dur = t.laserQDuration / Mathf.Max(1f, t.laserQSpeedFormula.Evaluate(1, live.agility));
-                q.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankQ)}): {F(dmg)} dmg • {F(dur, "0.00")}s beam • {F(LiveCd(live, t.laserQCooldown - 0.7f * (r - 1)), "0.0")}s CD</color>";
+                float dur = t.laserQDuration / Mathf.Max(1f, t.laserQSpeedFormula.Evaluate(r, live.intelligence));
+                q.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankQ)}): {F(dmg)} dmg • {F(dur, "0.00")}s extend • {F(LiveCd(live, t.laserQCooldown - 0.7f * (r - 1)), "0.0")}s CD</color>";
             }
             g.Cards.Add(q);
 
@@ -630,18 +720,18 @@ namespace Moba.LaneSlice
                 Slot = LaneAbilitySlot.W,
                 KeyBadge = "W",
                 Name = "Resonant Stack Shock",
-                MetaRight = $"Cast {F(t.laserWCastRange, "0.0")}u  •  Shock {F(t.laserWShockRadius, "0.00")}u  •  CD {F(t.laserWCooldown, "0.0")}/{F(t.laserWCooldown - 0.7f, "0.0")}/{F(t.laserWCooldown - 1.4f, "0.0")}s",
-                Description = $"Every stacked enemy in range emits an area shock (+12% dmg per stack above 1). Overlapping shocks stack both slow strength (diminishing) and slow duration (+{F(t.laserWSlowDuration, "0.0")}s each).",
-                MathLine = $"{FormatExactMath(t.laserWDamageFormula, "INT")}  |  Slow/shock {FormatExactMath(t.laserWSlowFormula, "INT", "", asPercent: true)}",
+                MetaRight = $"Cast {F(t.laserWCastRange, "0.0")}u  •  BaseSlow {F(t.laserWSlowBase * 100f)}/{F((t.laserWSlowBase + t.laserWSlowPerRank) * 100f)}/{F((t.laserWSlowBase + 2f * t.laserWSlowPerRank) * 100f)}%  •  CD {F(t.laserWCooldown, "0.0")}/{F(t.laserWCooldown - 0.7f, "0.0")}/{F(t.laserWCooldown - 1.4f, "0.0")}s",
+                Description = "Every stacked enemy blasts a shockwave (dmg & shock radius scale w/ INT; single slow depends on rank only). Overlapping & refreshed slows stack via bounded slow strength (<82%) + unbounded sqrt duration!",
+                MathLine = $"Dmg {FormatExactMath(t.laserWDamageFormula, "INT")} | Rad {FormatExactMath(t.laserWShockRadiusFormula, "INT", "u")} | OverlapSlow bounded→{F(t.laserWSlowMaxCap * 100f)}%; Dur={F(t.laserWSlowDuration, "0.00")}s×sqrt(n)",
             };
-            w.StatLines.Add($"<b>Magic Damage/Shock:</b> {FormatPrettyFormula(t.laserWDamageFormula, ColMagic, "INT", ColInt)}");
-            w.StatLines.Add($"<b>Overlapping Slow:</b> {FormatPrettyFormula(t.laserWSlowFormula, ColCc, "INT", ColInt, "", asPercent: true)} <color={ColCc}>(+{F(t.laserWSlowDuration, "0.0")}s duration per shock)</color>");
+            w.StatLines.Add($"<b>Magic Damage & Radius:</b> {FormatPrettyFormula(t.laserWDamageFormula, ColMagic, "INT", ColInt)}  •  {FormatPrettyFormula(t.laserWShockRadiusFormula, ColInt, "INT", ColInt, "u")}");
+            w.StatLines.Add($"<b>Overlapping/Refreshed Slow:</b> <color={ColCc}>Base 20/24/28% → Bounded cap 82% • Duration {F(t.laserWSlowDuration, "0.00")}s × sqrt(shocks) (Unbounded, anti-bypass)</color>");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankW);
                 float dmg = t.laserWDamageFormula.Evaluate(r, live.intelligence);
-                float slowPct = t.laserWSlowFormula.Evaluate(r, live.intelligence) * 100f;
-                w.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankW)}): {F(dmg, "0.0")} dmg/shock • {F(slowPct, "0.0")}% single slow • {F(LiveCd(live, t.laserWCooldown - 0.7f * (r - 1)), "0.0")}s CD</color>";
+                float rad = t.laserWShockRadiusFormula.Evaluate(r, live.intelligence);
+                w.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankW)}): {F(dmg, "0.0")} dmg/shock • {F(rad, "0.00")}u radius • {F(LiveCd(live, t.laserWCooldown - 0.7f * (r - 1)), "0.0")}s CD</color>";
             }
             g.Cards.Add(w);
 
@@ -651,17 +741,18 @@ namespace Moba.LaneSlice
                 KeyBadge = "E",
                 Name = "Hologram Reposition",
                 MetaRight = $"Step {F(t.laserEStepBack, "0.00")}u  •  Decoy {F(t.laserEDecoyDuration, "0.0")}s  •  CD {F(t.laserECooldown, "0.0")}/{F(t.laserECooldown - 0.9f, "0.0")}/{F(t.laserECooldown - 1.8f, "0.0")}s",
-                Description = "Step back one pace and deploy a stationary laser decoy blocking enemy hero movement and projectiles (creeps/towers ignore it). Attackers take retaliation shock + stun; hero damage destroys the decoy.",
-                MathLine = $"Zap {FormatExactMath(t.laserEDecoyDamageFormula, "INT")}  |  Stun {FormatExactMath(t.laserEStunFormula, "STR", "s")}",
+                Description = "Calmly animate a fixed step back (AGI reduces step duration cleanly without teleporting), spawning the blocking hologram at your previous spot upon completion. Retaliates w/ INT zap + rank-only stun.",
+                MathLine = $"StepDur {FormatExactMath(t.laserEStepDurationFormula, "AGI", "s")} | Zap {FormatExactMath(t.laserEDecoyDamageFormula, "INT")} | Stun 0.65/0.80/0.95s (rank-only)",
             };
-            e.StatLines.Add($"<b>Retaliation Magic Zap:</b> {FormatPrettyFormula(t.laserEDecoyDamageFormula, ColMagic, "INT", ColInt)}");
-            e.StatLines.Add($"<b>Retaliation Stun:</b> {FormatPrettyFormula(t.laserEStunFormula, ColCc, "STR", ColStr, "s")}");
+            e.StatLines.Add($"<b>Step-Back & Zap:</b> {FormatPrettyFormula(t.laserEStepDurationFormula, ColAgi, "AGI", ColAgi, "s")}  •  {FormatPrettyFormula(t.laserEDecoyDamageFormula, ColMagic, "INT", ColInt)}");
+            e.StatLines.Add($"<b>Retaliation Stun:</b> <color={ColCc}>0.65 / 0.80 / 0.95s (rank-only • no attribute scaling)</color>");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankE);
+                float stepS = t.laserEStepDurationFormula.Evaluate(r, live.agility);
                 float zap = t.laserEDecoyDamageFormula.Evaluate(r, live.intelligence);
-                float stun = t.laserEStunFormula.Evaluate(r, live.strength);
-                e.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankE)}): {F(zap, "0.0")} zap dmg • {F(stun, "0.00")}s stun • {F(LiveCd(live, t.laserECooldown - 0.9f * (r - 1)), "0.0")}s CD</color>";
+                float stun = t.laserEStunFormula.Evaluate(r, 0f);
+                e.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankE)}): {F(stepS, "0.00")}s step • {F(zap, "0.0")} zap • {F(stun, "0.00")}s stun • {F(LiveCd(live, t.laserECooldown - 0.9f * (r - 1)), "0.0")}s CD</color>";
             }
             g.Cards.Add(e);
 
@@ -670,18 +761,20 @@ namespace Moba.LaneSlice
                 Slot = LaneAbilitySlot.R,
                 KeyBadge = "R",
                 Name = "Overdrive Prism Beam",
-                MetaRight = $"Lvl {t.ultMinLevel}+  •  Beam {F(t.laserRRange, "0.0")}u × {F(t.laserRHalfWidth * 2f, "0.00")}u  •  {F(t.laserRDuration, "0.0")}s  •  CD {F(t.laserRCooldown)}/{F(t.laserRCooldown - 4f)}s",
-                Description = $"After {F(t.laserRWindup, "0.00")}s wind-up, fire a continuous beam for {F(t.laserRDuration, "0.0")}s while moving freely. Every enemy inside receives chain laser basic procs every {F(t.laserRProcInterval, "0.00")}s.",
-                MathLine = $"Proc = {F(t.laserRProcDamageScale * 100f)}% AD chain every {F(t.laserRProcInterval, "0.00")}s  |  Move {FormatExactMath(t.laserRMoveRatioFormula, "AGI", "x", maxRanks: 2)}",
+                MetaRight = $"Lvl {t.ultMinLevel}+  •  Beam {F(t.laserRRange, "0.0")}u × {F(t.laserRHalfWidth * 2f, "0.00")}u  •  CD {F(t.laserRCooldown)}/{F(t.laserRCooldown - 4f)}s",
+                Description = $"After {F(t.laserRWindup, "0.00")}s wind-up, fire a continuous beam (INT bounded duration). Every target inside triggers independent Chain Laser procs (interval = {F(t.laserRProcInterval, "0.00")}s ÷ Effective AS) while you move at up to <100% MS (AGI).",
+                MathLine = $"Proc = 62% AD every {F(t.laserRProcInterval, "0.00")}s / EffAS | Dur {FormatExactMath(t.laserRDurationFormula, "INT", "s", maxRanks: 2)} | Move {FormatExactMath(t.laserRMoveRatioFormula, "AGI", "x", maxRanks: 2)}",
             };
-            ult.StatLines.Add($"<b>Beam Chain Procs:</b> <color={ColPhys}>{F(t.laserRProcDamageScale * 100f)}% AD</color> <color={ColMuted}>every {F(t.laserRProcInterval, "0.00")}s (adds stacks & bounces endlessly)</color>");
-            ult.StatLines.Add($"<b>Move Speed While Firing:</b> {FormatPrettyFormula(t.laserRMoveRatioFormula, ColAgi, "AGI", ColAgi, "x", maxRanks: 2)}");
+            ult.StatLines.Add($"<b>Chain Procs & Dur:</b> <color={ColPhys}>62% AD / proc</color> (Global Unbounded AS)  •  Dur {FormatPrettyFormula(t.laserRDurationFormula, ColInt, "INT", ColInt, "s", maxRanks: 2)}");
+            ult.StatLines.Add($"<b>Move Speed Retained:</b> {FormatPrettyFormula(t.laserRMoveRatioFormula, ColAgi, "AGI", ColAgi, "x", maxRanks: 2)} <color={ColMuted}>(approaches 1.00x max)</color>");
             if (live != null)
             {
                 int r = Mathf.Max(1, live.rankR);
                 float procDmg = live.attackDamage * t.laserRProcDamageScale;
+                float dur = t.laserRDurationFormula.Evaluate(r, live.intelligence);
                 float movePct = t.laserRMoveRatioFormula.Evaluate(r, live.agility) * 100f;
-                ult.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankR)}): {F(procDmg, "0.0")} proc dmg • {F(movePct, "0.0")}% move speed • {F(LiveCd(live, t.laserRCooldown - 4f * (r - 1)), "0.0")}s CD</color>";
+                float iv = t.laserRProcInterval / Mathf.Max(0.4f, live.attackSpeed);
+                ult.LiveLine = $"<color={ColLive}>Now ({RankTag(live.rankR)}): {F(procDmg, "0.0")} dmg every {F(iv, "0.00")}s • {F(dur, "0.00")}s beam • {F(movePct, "0.0")}% MS</color>";
             }
             g.Cards.Add(ult);
         }
@@ -717,19 +810,5 @@ namespace Moba.LaneSlice
             Mathf.Max(0.4f, baseCd * LaneMatch.CooldownFactor(live.abilityHaste));
 
         private static string RankTag(int rank) => rank > 0 ? $"R{rank}" : "Unlearned / R1 preview";
-
-        private static float SumAlliedAuraRegen(HeroSnap live)
-        {
-            if (live.items == null) return 0f;
-            float sum = 0f;
-            for (int i = 0; i < live.items.Length; i++)
-            {
-                if (live.items[i] > 0 && LaneItems.TryGet(live.items[i], out LaneItemDef item))
-                {
-                    sum += item.AddAlliedAuraRegen;
-                }
-            }
-            return sum;
-        }
     }
 }

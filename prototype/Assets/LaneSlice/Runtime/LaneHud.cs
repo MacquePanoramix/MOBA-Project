@@ -413,7 +413,7 @@ namespace Moba.LaneSlice
                 if (h.miravelDrainAura > 0.05f) tag += " [DRAIN]";
                 if (h.grievousTimer > 0f) tag += " [ANTI-HEAL]";
                 if (h.shieldHp > 1f) tag += $" [SHIELD {Mathf.RoundToInt(h.shieldHp)}]";
-                else if (h.cowardShieldBonus > 1f) tag += $" [SHIELD +{Mathf.RoundToInt(h.cowardShieldBonus)}]";
+                else if (h.cowardShieldBonus > 1f) tag += $" [COWARD +{Mathf.RoundToInt(h.cowardShieldBonus)}]";
 
                 GUI.Label(new Rect(x - 42f, y - 18f, 184f, 18f), tag);
             }
@@ -589,18 +589,19 @@ namespace Moba.LaneSlice
             // Left: Separated Conventional Stats vs Scaling Attributes
             GUILayout.BeginVertical(GUILayout.Width(240f));
             GUILayout.Label($"<b>{LaneNames.DisplayName(h.heroId)}</b> Lvl {h.level}  ({Mathf.RoundToInt(h.xp)}/{Mathf.RoundToInt(h.xpToNext)} XP)");
-            GUILayout.Label($"HP {Mathf.CeilToInt(h.hp)}/{Mathf.RoundToInt(h.maxHp)} (+{h.regenRate:0.0}/s)" +
+            string regenCol = h.netRegenRate < -0.05f ? "#ff7b7b" : "#9effbe";
+            GUILayout.Label($"HP {Mathf.CeilToInt(h.hp)}/{Mathf.RoundToInt(h.maxHp)} <color={regenCol}>({h.netRegenRate:+0.0;-0.0;+0.0}/s)</color>" +
                             (h.phase == LanePhase.Dead ? $" <color=#ff8888>RESPAWN {h.respawnTimer:0.0}s</color>" : ""));
-            GUILayout.Label($"AD:{h.attackDamage:0}  AS:{h.attackSpeed:0.00}  AH:{h.abilityHaste:0} (-{h.cooldownReduction * 100f:0}% CD)  MS:{h.moveSpeed:0.00}");
+            GUILayout.Label($"AD:{h.attackDamage:0}  AS:{h.attackSpeed:0.00}x  AH:{h.abilityHaste:0} (-{h.cooldownReduction * 100f:0}% CD)  MS:{h.moveSpeed:0.00}");
             GUILayout.Label($"Arm:{h.armor:0}  MR:{h.magicResist:0}  HPwr:{h.healPower * 100f:0}%");
             GUILayout.Label($"<color=#9ad8ff>Scalars (0 free): STR {h.strength:0} • AGI {h.agility:0} • INT {h.intelligence:0}</color>");
             if (h.heroId == LaneHeroId.Ogre)
             {
-                GUILayout.Label($"<color=#ffd070>Ogre Windup Speed: {h.ogreAnimSpeed:0.00}x (AGI + AS)</color>");
+                GUILayout.Label($"<color=#ffd070>Ogre Speed: Wind {h.ogreWindupSpeed:0.00}x (AGI) • Rec {h.ogreRecoverSpeed:0.00}x (AS)</color>");
             }
             else if (h.heroId == LaneHeroId.Swordsman && (h.swordStacks != 0 || h.swordMarkedTargetId > 0))
             {
-                GUILayout.Label($"<color=#ffd070>E Resist: {(h.swordResistDelta >= 0 ? "+" : "")}{h.swordResistDelta:0}  R Mark: {(h.swordMarkedTargetId > 0 ? "READY" : "-")}</color>");
+                GUILayout.Label($"<color=#ffd070>W Resist: {(h.swordResistDelta >= 0 ? "+" : "")}{h.swordResistDelta:0}  R Mark: {(h.swordMarkedTargetId > 0 ? "READY" : "-")}</color>");
             }
             GUILayout.EndVertical();
 
@@ -972,8 +973,16 @@ namespace Moba.LaneSlice
                 pills.Add(($"<color=#66ffd1><b>WARD ({self.wardTimer:0.0}s)</b></color>", new Color(0.08f, 0.24f, 0.22f, 0.92f)));
             if (self.shieldHp > 1f)
                 pills.Add(($"<color=#bde8ff><b>SHIELD {Mathf.RoundToInt(self.shieldHp)} ({self.shieldTimer:0.0}s)</b></color>", new Color(0.10f, 0.20f, 0.28f, 0.92f)));
-            if (self.cowardShieldBonus > 1f)
-                pills.Add(($"<color=#ffe066><b>COWARD +{Mathf.RoundToInt(self.cowardShieldBonus)} Arm/MR</b></color>", new Color(0.22f, 0.20f, 0.08f, 0.92f)));
+            if (self.cowardShieldBonus > 0.5f || self.cowardShieldState > 0)
+            {
+                string stateTag = self.cowardShieldState == 1 ? "BUILD"
+                    : (self.cowardShieldState == 2 ? "ACTIVE"
+                    : (self.cowardShieldState == 3 ? "HOLD" : "FADE"));
+                Color stateBg = self.cowardShieldState == 2
+                    ? new Color(0.10f, 0.24f, 0.28f, 0.92f)
+                    : (self.cowardShieldState == 4 ? new Color(0.26f, 0.14f, 0.08f, 0.92f) : new Color(0.22f, 0.20f, 0.08f, 0.92f));
+                pills.Add(($"<color=#ffe066><b>COWARD {stateTag} +{Mathf.RoundToInt(self.cowardShieldBonus)}</b></color>", stateBg));
+            }
             if (self.spellweaverReady)
                 pills.Add(($"<color=#70d0ff><b>ARCANE ECHO READY</b></color>", new Color(0.08f, 0.18f, 0.28f, 0.92f)));
             if (self.momentumBonus > 0.05f)

@@ -95,6 +95,7 @@ namespace Moba.LaneSlice
         LaserShock = 26,
         LaserDecoy = 27,
         LaserGoldBonus = 28,
+        OgreQShockwave = 29,
     }
 
     public enum LaneTargetKind : byte
@@ -109,6 +110,7 @@ namespace Moba.LaneSlice
     {
         Linear = 0,
         Diminishing = 1,
+        UnboundedSqrt = 2,
     }
 
     public enum LaneItemTier : byte
@@ -119,8 +121,8 @@ namespace Moba.LaneSlice
     }
 
     /// <summary>
-    /// Configurable per-property scaling formula supporting linear growth or smooth
-    /// hyperbolic diminishing returns without artificial hard caps.
+    /// Configurable per-property scaling formula supporting linear growth, bounded hyperbolic
+    /// diminishing returns, or unbounded square-root diminishing returns.
     /// Used independently by abilities and item passives on conventional stats or Str/Agi/Int.
     /// </summary>
     [Serializable]
@@ -155,9 +157,19 @@ namespace Moba.LaneSlice
         public float EvaluateBonusAt(float statValue)
         {
             float s = Mathf.Max(0f, statValue);
-            return curve == ScalingCurve.Linear
-                ? coeffOrMaxBonus * s
-                : (s > 0f && halfPoint > 0f ? coeffOrMaxBonus * (s / (s + halfPoint)) : 0f);
+            switch (curve)
+            {
+                case ScalingCurve.Linear:
+                    return coeffOrMaxBonus * s;
+                case ScalingCurve.UnboundedSqrt:
+                    return (s > 0f && halfPoint > 0f)
+                        ? coeffOrMaxBonus * (Mathf.Sqrt(1f + halfPoint * s) - 1f)
+                        : 0f;
+                default: // ScalingCurve.Diminishing (Bounded Hyperbolic)
+                    return (s > 0f && halfPoint > 0f)
+                        ? coeffOrMaxBonus * (s / (s + halfPoint))
+                        : 0f;
+            }
         }
 
         public float Evaluate(int rank, float statValue)
@@ -166,6 +178,16 @@ namespace Moba.LaneSlice
             float result = baseTotal + EvaluateBonusAt(statValue);
             if (result < minValue) result = minValue;
             return result;
+        }
+
+        public string CurveLabel()
+        {
+            switch (curve)
+            {
+                case ScalingCurve.Linear: return "Linear";
+                case ScalingCurve.UnboundedSqrt: return "Unbounded diminishing";
+                default: return "Bounded diminishing";
+            }
         }
     }
 
@@ -200,13 +222,13 @@ namespace Moba.LaneSlice
             switch (hero)
             {
                 case LaneHeroId.Ogre:
-                    return "No basics • CC-immune casts • AD=Damage, AGI & AS=Windup Speed, STR=Stun/Knockback • R Q/W Combo Crit";
+                    return "No basics • CC-immune casts • AGI=Windup (sqrt), AS=Recovery • Q Dual-Zone Slam • W Sqrt Knockback • R Size+Combos";
                 case LaneHeroId.Miravel:
-                    return "Ranged staff • Regen/Anti-Regen Aura • Q Orbs • W Invis + Cursor Decoy • E Curse • R Ramping Zone";
+                    return "Ranged staff • HealPower=Aura/Orbs/R Amp, INT=Radii/Curse • Negative-Regen Aura • W Decoy • R Sanctum";
                 case LaneHeroId.Swordsman:
-                    return "Slow move • Twin-Strike basics • Q Slow Arc • W 1st-Hit %HP Heal • E 2nd-Hit Resist Stacks • R Execute Dash";
+                    return "Twin-Blade (Light 1st->W Resist Stacks, Heavy 2nd->E %HP Heal) • Q Slow Arc • R Execute Dash";
                 case LaneHeroId.LaserShooter:
-                    return "Ranged Laser • Unlimited Chain Bounces + Laser Stacks • Q Extending Beam (+Kill Gold) • W Stacking Shock Slow • E Blocking Decoy • R Moving Proc Beam";
+                    return "Ranged Laser • Unlimited Bounces + Stacks • Q INT-Speed Beam • W Bounded/Sqrt Overlapping Slow • E Step-Back Decoy • R Moving Beam";
                 default:
                     return string.Empty;
             }
@@ -342,17 +364,17 @@ namespace Moba.LaneSlice
             new LaneItemDef(7, "Courier Boots", 325, LaneItemTier.Core, addMoveSpeed: 0.80f,
                 summary: "+0.80 Move Speed (no attributes)"),
             new LaneItemDef(11, "Kindred Charm", 325, LaneItemTier.Core, addHealPower: 0.22f, addAlliedAuraRegen: 1.6f,
-                summary: "+22% Heal Power, +1.6 Allied Aura HP/s"),
+                summary: "+22% Heal Power, +1.6 Allied Aura HP/s (7.5u aura • works on any hero)"),
             new LaneItemDef(16, "Blighted Thorn", 375, LaneItemTier.Core, addAttackDamage: 16f, addArmor: 12f, isBlightedThorn: true,
                 summary: "+16 AD, +12 Armor • Wither: Hero hits apply -35% healing/regen for 3.5s"),
 
             // Capstone tier (450-650g)
             new LaneItemDef(12, "The Coward's Shield", 450, LaneItemTier.Capstone, addArmor: 15f, addMagicResist: 15f, addAgility: 12f, isCowardsShield: true,
-                summary: "+15 Arm/MR, +12 AGI • Flight Reflex: +Resist (AGI) retreating from recent attacker"),
+                summary: "+15 Arm/MR, +12 AGI • Flight Reflex: Sustained movement away from recent attacker builds +Resist (AGI); short grace on stop/stun; faster decay pursuing"),
             new LaneItemDef(17, "Momentum Greaves", 575, LaneItemTier.Capstone, addMoveSpeed: 0.85f, addAgility: 18f, isMomentumGreaves: true,
                 summary: "+0.85 MS, +18 AGI • Windstrider: Moving out of combat builds diminishing MS (AGI)"),
             new LaneItemDef(18, "Colossus Pauldron", 625, LaneItemTier.Capstone, addMaxHp: 220f, addArmor: 20f, addStrength: 20f, isColossusPauldron: true,
-                summary: "+220 HP, +20 Arm, +20 STR • Titan Aegis: Stun/KB or <45% HP grants 4s Shield (STR)"),
+                summary: "+220 HP, +20 Arm, +20 STR • Titan Aegis: Inflicting Stun/KB or dropping <45% HP grants 4s Shield (STR)"),
             new LaneItemDef(19, "Spellweaver's Hourglass", 625, LaneItemTier.Capstone, addAbilityHaste: 18f, addIntelligence: 25f, isSpellweaverHourglass: true,
                 summary: "+18 Ability Haste, +25 INT • Arcane Echo: Next hero hit after cast deals +28 + 85% INT magic dmg"),
             new LaneItemDef(20, "Executioner's Grudge", 650, LaneItemTier.Capstone, addAttackDamage: 42f, addAttackSpeed: 0.20f, isExecutionerGrudge: true,
@@ -442,65 +464,79 @@ namespace Moba.LaneSlice
         public float swordsmanSpeed = 3.45f;
         public float swordsmanTurnRate = 480f;
 
-        // Ogre Base Timings & Multi-Dimensional Scaling Showcase (AD -> Damage, AGI & AS -> Windup Speed, STR -> Stun/Knockback)
-        public float ogreQWindup = 0.90f; // v0.2.5 baseline: 0.85f
-        public float ogreQRecover = 0.34f;
+        // Global Attack Speed (v0.2.8 unbounded diminishing returns: EffectiveAS = sqrt(1 + k * BonusAS))
+        public float attackSpeedCurveK = 2.4f;
+
+        public static float EffectiveAttackSpeed(float bonusAs, float curveK)
+        {
+            return Mathf.Sqrt(1f + Mathf.Max(0f, curveK) * Mathf.Max(0f, bonusAs));
+        }
+
+        // Ogre Base Timings & v0.2.8 Scaling (AD=Dmg, AGI=Windup Speed [sqrt], AS=Recovery Speed [sqrt], STR=Outer Q/Stun/KB/E Radius/R Size)
+        public float ogreQWindup = 0.88f;
+        public float ogreQRecover = 0.36f;
         public float ogreQRange = 4.7f;
-        public float ogreQWidth = 1.15f;
+        public float ogreQWidth = 0.95f;
+        public float ogreQOuterDamageRatio = 0.55f;
         public float ogreQCooldown = 6.8f;
 
-        public float ogreWWindup = 0.72f; // v0.2.5 baseline: 0.68f (v0.2.1: 0.50f per Amsterdam<->Brazil playtest feedback)
-        public float ogreWRecover = 0.28f;
+        public float ogreWWindup = 0.72f;
+        public float ogreWRecover = 0.30f;
         public float ogreWRange = 3.0f;
         public float ogreWArcCos = 0.15f;
         public float ogreWCooldown = 6.2f;
 
-        public float ogreEWindup = 0.62f; // v0.2.5 baseline: 0.58f
-        public float ogreERecover = 0.30f;
-        public float ogreERadius = 2.45f; // v0.2.3 baseline: 2.95f
+        public float ogreEWindup = 0.62f;
+        public float ogreERecover = 0.32f;
+        public float ogreERadius = 2.35f;
         public float ogreECooldown = 8.5f;
 
         public float ogreRChannelDuration = 2.0f;
         public float ogreRDamageReduction = 0.65f;
-        public float ogreRScaleBonus = 1.28f;
+        public float ogreRScaleBonus = 1.22f;
         public int ogreRMaxStrikes = 4;
         public float ogreRLungeDistance = 1.35f;
-        public float ogreRFastWindup = 0.36f; // v0.2.5 baseline: 0.34f (v0.2.1: 0.24f)
-        public float ogreRFinalWindup = 0.62f; // v0.2.5 baseline: 0.58f (v0.2.1: 0.42f)
-        public float ogreRStrikeFollowthrough = 0.09f;
+        public float ogreRFastWindup = 0.36f;
+        public float ogreRFinalWindup = 0.62f;
+        public float ogreRStrikeFollowthrough = 0.10f;
+        public float ogreRPostComboRecover = 0.28f;
         public float ogreRFinalCritMultiplier = 1.85f;
         public float ogreRCooldown = 28f;
 
-        // Smooth hyperbolic / Ability-Haste scaling with zero hard caps
-        public StatFormula ogreAnimSpeedFormula = new StatFormula(1.0f, 0f, ScalingCurve.Linear, 0.008f, 0f, 1.0f, 0f); // v0.2.5 baseline: 0.01f (+1%/AGI)
-        public float ogreAttackSpeedAnimRatio = 0.70f; // Bonus Attack Speed contribution to Ogre cast animation speed (v0.2.5 baseline: 0f)
+        // v0.2.8 Split Ogre Animation Speed Formulas + Dual-Zone Q / Sqrt W / STR E & R Size
+        public StatFormula ogreWindupSpeedFormula = new StatFormula(1.0f, 0f, ScalingCurve.UnboundedSqrt, 1.0f, 0.022f, 1.0f, 0f);
         public StatFormula ogreQDamageFormula = new StatFormula(55f, 18f, ScalingCurve.Linear, 1.35f);
         public StatFormula ogreQStunFormula = new StatFormula(1.05f, 0.15f, ScalingCurve.Diminishing, 0.85f, 50f, 0.5f, 0f);
+        public StatFormula ogreQOuterWidthFormula = new StatFormula(0.65f, 0.10f, ScalingCurve.Diminishing, 1.45f, 55f, 0.20f, 0f);
         public StatFormula ogreWDamageFormula = new StatFormula(40f, 15f, ScalingCurve.Linear, 1.05f);
-        public StatFormula ogreWKnockbackFormula = new StatFormula(2.5f, 0.25f, ScalingCurve.Diminishing, 2.4f, 50f, 1.0f, 0f);
+        public StatFormula ogreWKnockbackFormula = new StatFormula(2.4f, 0.25f, ScalingCurve.UnboundedSqrt, 2.8f, 0.04f, 1.0f, 0f);
         public StatFormula ogreEDamageFormula = new StatFormula(48f, 16f, ScalingCurve.Linear, 1.15f);
         public StatFormula ogreEStunFormula = new StatFormula(0.95f, 0.12f, ScalingCurve.Diminishing, 0.65f, 50f, 0.5f, 0f);
+        public StatFormula ogreERadiusFormula = new StatFormula(2.35f, 0f, ScalingCurve.Diminishing, 1.55f, 55f, 1.2f, 0f);
+        public StatFormula ogreRScaleFormula = new StatFormula(1.22f, 0.06f, ScalingCurve.Diminishing, 0.52f, 65f, 1.0f, 0f);
 
         // Open question policy flags (05_OPEN_QUESTIONS)
         public bool ogreImmuneDuringRecovery = true;
         public bool ogreRStacksCursePerStrike = false;
         public bool swordsmanDisplaceCancelsSecondHit = true;
 
-        // Hero Luis (Miravel) Provisional Timings & Formulas
+        // Hero Luis (Miravel) Provisional Timings & Formulas (HealPower = Life/Drain/R Amp, INT = Aura/Orb/R Radii & Curse)
         public float luisBasicRange = 6.2f;
         public float luisBasicWindup = 0.26f;
         public float luisBasicRecover = 0.52f;
         public float luisBasicProjSpeed = 16.5f;
 
-        public float luisAuraRadius = 7.8f;
+        public float luisAuraRadius = 7.2f;
+        public StatFormula luisAuraRadiusFormula = new StatFormula(7.2f, 0f, ScalingCurve.Diminishing, 4.2f, 60f, 3.0f, 0f);
         public float luisAllyAuraRegenBase = 2.2f;
-        public float luisEnemyAuraRegenPenaltyBase = 2.4f;
+        public float luisEnemyAuraRegenPenaltyBase = 2.6f;
         public float luisTakedownHealPowerGain = 0.10f;
 
-        public float luisOrbInterval = 7.5f;
+        public float luisOrbInterval = 8.0f;
         public float luisOrbDuration = 11.0f;
         public float luisOrbPickupRadius = 1.55f;
-        public float luisOrbPulseRadius = 4.1f;
+        public float luisOrbPulseRadius = 3.8f;
+        public StatFormula luisOrbPulseRadiusFormula = new StatFormula(3.8f, 0f, ScalingCurve.Diminishing, 2.4f, 60f, 2.0f, 0f);
 
         public float luisWDuration = 3.2f;
         public float luisWIllusionDuration = 4.5f;
@@ -513,50 +549,67 @@ namespace Moba.LaneSlice
 
         public float luisRRange = 5.0f;
         public float luisRChannelDuration = 4.2f;
-        public float luisRRadius = 4.4f;
+        public float luisRRadius = 4.2f;
+        public StatFormula luisRRadiusFormula = new StatFormula(4.2f, 0f, ScalingCurve.Diminishing, 2.6f, 60f, 2.5f, 0f);
         public float luisRMaxSlow = 0.52f;
-        public float luisRMaxHealAmp = 0.45f;
         public float luisRCooldown = 26f;
 
-        public StatFormula luisOrbHealFormula = new StatFormula(68f, 20f, ScalingCurve.Linear, 1.5f);
-        public StatFormula luisOrbDamageFormula = new StatFormula(64f, 18f, ScalingCurve.Linear, 1.4f);
+        public StatFormula luisOrbHealFormula = new StatFormula(68f, 20f, ScalingCurve.Linear, 0f);
+        public StatFormula luisOrbDamageFormula = new StatFormula(62f, 18f, ScalingCurve.Linear, 0f);
         public StatFormula luisCurseDpsFormula = new StatFormula(22f, 8f, ScalingCurve.Linear, 0.65f);
-        public StatFormula luisRVulnFormula = new StatFormula(0.36f, 0.06f, ScalingCurve.Diminishing, 0.30f, 60f, 0f, 0f);
+        // Input to R HealAmp & Vuln is BONUS HealPower (healPower - 1.0) so 100% baseline matches rank base
+        public StatFormula luisRHealAmpFormula = new StatFormula(0.25f, 0.05f, ScalingCurve.Diminishing, 0.45f, 0.80f, 0f, 0f);
+        public StatFormula luisRVulnFormula = new StatFormula(0.28f, 0.06f, ScalingCurve.Diminishing, 0.42f, 0.80f, 0f, 0f);
 
-        // Old Man Swordsman Provisional Timings & Formulas
+        // Old Man Swordsman Provisional Timings & Formulas (W = Stance Temper on 1st Hit, E = Vital Draw on 2nd Hit)
         public float swordsmanBasicRange = 2.35f;
-        public float swordsmanHit1Windup = 0.24f;
-        public float swordsmanHit2Delay = 0.22f;
-        public float swordsmanBasicRecover = 0.50f;
-        public float swordsmanStrikeAdRatio = 0.60f;
+        public float swordsmanHit1Windup = 0.20f;
+        public StatFormula swordsmanHit2DelayFormula = new StatFormula(0.40f, 0f, ScalingCurve.Diminishing, -0.14f, 45f, 0.24f, 0f);
+        public float swordsmanBasicRecover = 0.46f;
+        public float swordsmanHit1AdRatio = 0.48f;
+        public float swordsmanHit2AdRatio = 0.76f;
 
-        public float swordsmanQWindup = 0.28f;
-        public float swordsmanQRecover = 0.24f;
+        public StatFormula swordsmanQWindupFormula = new StatFormula(0.30f, 0f, ScalingCurve.Diminishing, -0.15f, 45f, 0.14f, 0f);
+        public float swordsmanQRecover = 0.24f; // Fixed recovery — NOT reduced by AGI
         public float swordsmanQRange = 3.5f;
         public float swordsmanQArcCos = 0.35f;
         public float swordsmanQSlow = 0.40f;
         public float swordsmanQSlowDuration = 2.1f;
         public float swordsmanQCooldown = 5.5f;
 
-        public float swordsmanWHealShare = 0.55f;
+        // New W: Stance Temper (activated by 1st Light Strike)
+        public float swordsmanWStackGain = 8f;
+        public float swordsmanWStackShred = 8f;
+        public int swordsmanWMaxStacks = 6;
+        public StatFormula swordsmanWBuffDurationFormula = new StatFormula(6.5f, 0f, ScalingCurve.Linear, 0.08f, 0f, 2f, 0f);
+        public StatFormula swordsmanWDebuffDurationFormula = new StatFormula(6.5f, 0f, ScalingCurve.Linear, 0.08f, 0f, 2f, 0f);
 
-        public float swordsmanEStackGain = 8f;
-        public float swordsmanEStackShred = 8f;
-        public int swordsmanEMaxStacks = 6;
-        public float swordsmanEStackDuration = 9.0f;
+        // New E: Vital Draw (activated by 2nd Heavy Strike)
+        public float swordsmanEHealShare = 0.55f;
+        public StatFormula swordsmanEPercentHpFormula = new StatFormula(0.045f, 0.014f, ScalingCurve.Diminishing, 0.065f, 60f, 0f, 0f);
 
-        public float swordsmanRLookbackSeconds = 12.0f;
+        // R: Finishing Cross
+        public StatFormula swordsmanRLookbackFormula = new StatFormula(10.0f, 0f, ScalingCurve.Linear, 0.16f, 0f, 3f, 0f);
         public float swordsmanRRange = 7.5f;
-        public float swordsmanRDashSpeed = 18.0f;
-        public float swordsmanRExecuteThreshold = 0.22f;
+        public StatFormula swordsmanRDashSpeedFormula = new StatFormula(16.0f, 0f, ScalingCurve.Linear, 0.16f, 0f, 6f, 0f);
+        public StatFormula swordsmanRExecuteFormula = new StatFormula(0.20f, 0.04f, ScalingCurve.Diminishing, 0.25f, 70f, 0.10f, 0f);
         public float swordsmanRCooldown = 22f;
 
         public StatFormula swordsmanQDamageFormula = new StatFormula(45f, 20f, ScalingCurve.Linear, 0.90f);
-        public StatFormula swordsmanWPercentHpFormula = new StatFormula(0.045f, 0.014f, ScalingCurve.Diminishing, 0.060f, 60f, 0f, 0f);
         public StatFormula swordsmanRDamageFormula = new StatFormula(95f, 40f, ScalingCurve.Linear, 1.35f);
 
-        // Item Passives — Diverse scaling & utility tiers (no hard caps; Armor/MR/MS give natural hyperbolic tradeoff)
-        public float cowardShieldMemorySeconds = 4.5f;
+        // Item Passives — v0.2.8 Coward's Shield Retreat Rework + Universal Kindred Charm + Colossus Pauldron
+        public float kindredAuraRadius = 7.5f;
+        public float cowardShieldMemorySeconds = 5.0f;
+        public float cowardShieldMinSpeedRatio = 0.45f;
+        public float cowardShieldRetreatDot = 0.45f;
+        public float cowardShieldPursuitDot = -0.25f;
+        public float cowardShieldCommitDelay = 0.15f;
+        public float cowardShieldBuildupSeconds = 1.55f;
+        public float cowardShieldGraceSeconds = 0.75f;
+        public float cowardShieldMinGraceStreak = 0.40f;
+        public float cowardShieldStopDecaySeconds = 1.90f;
+        public float cowardShieldPursuitDecaySeconds = 0.85f;
         public StatFormula cowardShieldResistFormula = new StatFormula(20f, 0f, ScalingCurve.Linear, 0.85f, 0f, 0f, 0f);
         public float minerHatchetBonusDmg = 18f;
         public float woodlandSalveRegen = 4.5f;
@@ -570,13 +623,13 @@ namespace Moba.LaneSlice
         public float executionerGrudgeAmp = 0.18f;
         public float executionerGrudgeThreshold = 0.40f;
 
-        // Chain Laser Shooter Provisional Timings & Formulas (open-question flags clearly exposed, zero hard caps)
+        // Chain Laser Shooter Provisional Timings & Formulas (v0.2.8 INT Q speed & W radius & R duration; W sqrt overlap slow; Animated E step)
         public float laserSpeed = 4.00f;
         public float laserTurnRate = 560f;
         public float laserBasicRange = 6.0f;
         public float laserBasicWindup = 0.22f;
         public float laserBasicRecover = 0.66f;
-        public float laserChainRadius = 4.6f;
+        public StatFormula laserChainRadiusFormula = new StatFormula(4.2f, 0f, ScalingCurve.Diminishing, 3.2f, 60f, 2.0f, 0f);
         public float laserChainDecay = 0.70f;
         public float laserChainMinRatio = 0.25f;
         public float laserStackDuration = 6.0f;
@@ -586,31 +639,36 @@ namespace Moba.LaneSlice
         public float laserQStartRange = 1.2f;
         public float laserQMaxRange = 8.2f;
         public float laserQHalfWidth = 0.58f;
-        public float laserQDuration = 0.85f;
+        public float laserQDuration = 0.88f;
         public float laserQCooldown = 7.2f;
         public float laserQMultiKillBonusGold = 12f;
         public bool laserQTracksCursor = false; // Open question 05_OPEN_QUESTIONS
         public StatFormula laserQDamageFormula = new StatFormula(44f, 18f, ScalingCurve.Linear, 1.05f);
-        public StatFormula laserQSpeedFormula = new StatFormula(1.0f, 0f, ScalingCurve.Linear, 0.01f, 0f, 1.0f, 0f);
+        public StatFormula laserQSpeedFormula = new StatFormula(1.0f, 0f, ScalingCurve.UnboundedSqrt, 1.0f, 0.024f, 1.0f, 0f);
 
         public float laserWCastRange = 7.8f;
-        public float laserWShockRadius = 2.65f;
-        public float laserWSlowDuration = 1.1f;
+        public StatFormula laserWShockRadiusFormula = new StatFormula(2.40f, 0f, ScalingCurve.Diminishing, 1.85f, 60f, 1.0f, 0f);
+        public float laserWSlowBase = 0.20f;
+        public float laserWSlowPerRank = 0.04f;
+        public float laserWSlowMaxCap = 0.82f;
+        public float laserWSlowOverlapHalfPoint = 3.0f;
+        public float laserWSlowDuration = 1.15f;
+        public float laserWSlowDurSqrtK = 1.0f;
         public float laserWCooldown = 7.5f;
         public bool laserWConsumesStacks = false; // Open question 05_OPEN_QUESTIONS
         public StatFormula laserWDamageFormula = new StatFormula(30f, 12f, ScalingCurve.Linear, 0.70f);
-        public StatFormula laserWSlowFormula = new StatFormula(0.20f, 0.04f, ScalingCurve.Diminishing, 0.20f, 60f, 0f, 0f);
 
         public float laserEStepBack = 1.65f;
+        public StatFormula laserEStepDurationFormula = new StatFormula(0.38f, 0f, ScalingCurve.Diminishing, -0.20f, 50f, 0.18f, 0f);
         public float laserEDecoyDuration = 4.5f;
         public float laserEDecoyHp = 120f;
         public float laserEDecoyRadius = 0.62f;
         public float laserECooldown = 11.0f;
         public StatFormula laserEDecoyDamageFormula = new StatFormula(34f, 14f, ScalingCurve.Linear, 0.65f);
-        public StatFormula laserEStunFormula = new StatFormula(0.65f, 0.15f, ScalingCurve.Diminishing, 0.45f, 55f, 0.35f, 0f);
+        public StatFormula laserEStunFormula = new StatFormula(0.65f, 0.15f, ScalingCurve.Linear, 0f, 0f, 0.35f, 0f);
 
         public float laserRWindup = 0.50f;
-        public float laserRDuration = 2.6f;
+        public StatFormula laserRDurationFormula = new StatFormula(2.4f, 0.30f, ScalingCurve.Diminishing, 2.0f, 65f, 1.0f, 0f);
         public float laserRRange = 8.0f;
         public float laserRHalfWidth = 0.72f;
         public float laserRProcInterval = 0.42f;
@@ -730,6 +788,8 @@ namespace Moba.LaneSlice
         // Status, shield & procedural animation hints
         public float miravelDrainAura;
         public float miravelLifeAura;
+        public float miravelAuraRadius;
+        public float netRegenRate;
         public float shieldHp;
         public float shieldTimer;
         public float grievousTimer;
@@ -743,6 +803,18 @@ namespace Moba.LaneSlice
         public int laserStacks;
         public float laserStackTimer;
         public float laserBeamRange;
+
+        // v0.2.8 Scaling telemetry & UI/telegraph hints
+        public float bonusAttackSpeed;
+        public float ogreWindupSpeed;
+        public float ogreRecoverSpeed;
+        public float ogreQCentralHalfWidth;
+        public float ogreQOuterHalfWidth;
+        public float ogreWRange;
+        public float ogreERadius;
+        public float cowardShieldFactor;
+        public byte cowardShieldState; // 0=Idle, 1=Building, 2=Active, 3=Grace, 4=Decaying
+        public float laserStepProgress;
     }
 
     [Serializable]

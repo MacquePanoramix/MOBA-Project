@@ -1,0 +1,2000 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using UnityEngine;
+
+namespace Moba.LaneSlice
+{
+    public static class LaneMatchChecks
+    {
+        public static void Run()
+        {
+            CheckZeroInherentAttributeBonuses();
+            CheckOgreMultiDimensionalScaling();
+            CheckConventionalItemsAndCowardsShield();
+            CheckAutoAttackMotionBufferAndAttackMove();
+            CheckOgreFullKitAndImmunity();
+            CheckMiravelFullKit();
+            CheckSwordsmanFullKitAndNegativeResist();
+            CheckWavesShopTowerAndVictory();
+            CheckHeroSheetCoversAllHeroesAndLiveScaling();
+            CheckRepeatedMoveClicksPreserveSpeed();
+            CheckTowerAggrosHeroOnDamage();
+            CheckMiravelECastKeepsInvisibility();
+            CheckSellItemRefundAndNewItemPassives();
+            CheckRepeatedAttackMoveSwordsmanBotAndOgreERadius();
+            CheckMinionProximityXpWithoutLastHit();
+            CheckLaserShooterFullKitAndDecoyBlocking();
+            CheckStopCommandAndHeroControlProfiles();
+            CheckOptionalRtsSelectionControlGroupsAndOwnership();
+            CheckPersonalSettingsKeybindingsConflictsAndPersistence();
+            CheckBotVsBotBalanceDiagnostic();
+            Debug.Log("[LaneMatchChecks] All 20 deterministic checks passed.");
+        }
+
+        private static void CheckZeroInherentAttributeBonuses()
+        {
+            var tuning = new LaneTuning { startingGold = 1200, passiveGoldPerSecond = 0f };
+            var match = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, tuning);
+            HeroSnap before = GetHero(match.Snapshot(), LaneTeam.Blue);
+
+            AssertClose(before.strength, 0f, "Base Strength must start at 0");
+            AssertClose(before.agility, 0f, "Base Agility must start at 0");
+            AssertClose(before.intelligence, 0f, "Base Intelligence must start at 0");
+
+            Assert(match.TryBuyItem(LaneTeam.Blue, 8, out _), "Buy Titan's Knuckle (+25 STR)");
+            Assert(match.TryBuyItem(LaneTeam.Blue, 9, out _), "Buy Zephyr Feather (+25 AGI)");
+            Assert(match.TryBuyItem(LaneTeam.Blue, 10, out _), "Buy Arcane Lens (+25 INT)");
+
+            HeroSnap after = GetHero(match.Snapshot(), LaneTeam.Blue);
+            AssertClose(after.strength, 25f, "STR updated");
+            AssertClose(after.agility, 25f, "AGI updated");
+            AssertClose(after.intelligence, 25f, "INT updated");
+
+            AssertClose(after.maxHp, before.maxHp, "STR must not implicitly add MaxHp");
+            AssertClose(after.regenRate, before.regenRate, "STR must not implicitly add Regen");
+            AssertClose(after.armor, before.armor, "AGI must not implicitly add Armor");
+            AssertClose(after.attackSpeed, before.attackSpeed, "AGI must not implicitly add Attack Speed");
+            AssertClose(after.attackDamage, before.attackDamage, "Attributes must not implicitly add AD");
+            AssertClose(after.magicResist, before.magicResist, "Attributes must not implicitly add MR");
+            AssertClose(after.moveSpeed, before.moveSpeed, "Attributes must not implicitly add Move Speed");
+        }
+
+        private static void CheckOgreMultiDimensionalScaling()
+        {
+            // 1. AD scales Ogre damage; AGI scales windup speed (diminishing cap); STR scales stun/knockback (capped)
+            var t1 = new LaneTuning { startingGold = 1200, waveFirstSpawnDelay = 999f, passiveGoldPerSecond = 0f };
+            var mBase = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t1);
+            var mAd = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t1);
+            var mAgi = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t1);
+            var mStr = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t1);
+            var mAs = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t1);
+
+            Assert(mAd.TryBuyItem(LaneTeam.Blue, 1, out _), "Ogre buys Iron Greatsword (+AD)");
+            Assert(mAgi.TryBuyItem(LaneTeam.Blue, 9, out _), "Ogre buys Zephyr Feather (+25 AGI)");
+            Assert(mStr.TryBuyItem(LaneTeam.Blue, 8, out _), "Ogre buys Titan's Knuckle (+25 STR)");
+            Assert(mAs.TryBuyItem(LaneTeam.Blue, 2, out _), "Ogre buys Quickstep Dagger (+30% AS)");
+
+            HeroSnap agi25 = GetHero(mAgi.Snapshot(), LaneTeam.Blue);
+            AssertClose(agi25.ogreAnimSpeed, 1.20f,
+                $"25 AGI must yield 1.20x (+0.8%/AGI) anim speed (got {agi25.ogreAnimSpeed})");
+
+            HeroSnap as30 = GetHero(mAs.Snapshot(), LaneTeam.Blue);
+            AssertClose(as30.ogreAnimSpeed, 1.21f,
+                $"30% bonus Attack Speed must yield 1.21x anim speed (got {as30.ogreAnimSpeed})");
+
+            // Combined AS + AGI stacks cleanly without hard cap (1.00 + 0.21 + 0.20 = 1.41x)
+            var mAsAgi = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t1);
+            Assert(mAsAgi.TryBuyItem(LaneTeam.Blue, 2, out _) && mAsAgi.TryBuyItem(LaneTeam.Blue, 9, out _),
+                "Ogre buys Quickstep Dagger + Zephyr Feather");
+            AssertClose(GetHero(mAsAgi.Snapshot(), LaneTeam.Blue).ogreAnimSpeed, 1.41f,
+                "Combined 30% AS + 25 AGI must yield 1.41x anim speed");
+
+            // Stack 4 Feathers (100 AGI -> 1.80x anim speed) & verify hyperbolic wind-up reduction without hard caps
+            Assert(mAgi.TryBuyItem(LaneTeam.Blue, 9, out _), "AGI 50");
+            Assert(mAgi.TryBuyItem(LaneTeam.Blue, 9, out _), "AGI 75");
+            Assert(mAgi.TryBuyItem(LaneTeam.Blue, 9, out _), "AGI 100");
+            HeroSnap agi100 = GetHero(mAgi.Snapshot(), LaneTeam.Blue);
+            AssertClose(agi100.ogreAnimSpeed, 1.80f, "100 AGI must yield 1.80x anim speed");
+
+            float w0 = t1.ogreQWindup / t1.ogreAnimSpeedFormula.Evaluate(1, 0f);
+            float w50 = t1.ogreQWindup / t1.ogreAnimSpeedFormula.Evaluate(1, 50f);
+            float w100 = t1.ogreQWindup / t1.ogreAnimSpeedFormula.Evaluate(1, 100f);
+            float w150 = t1.ogreQWindup / t1.ogreAnimSpeedFormula.Evaluate(1, 150f);
+            Assert((w0 - w50) > (w50 - w100) && (w50 - w100) > (w100 - w150) && w150 < w100,
+                "AGI wind-up time reduction must diminish hyperbolically with zero hard cap");
+
+            float s0 = t1.ogreQStunFormula.Evaluate(1, 0f);
+            float s50 = t1.ogreQStunFormula.Evaluate(1, 50f);
+            float s100 = t1.ogreQStunFormula.Evaluate(1, 100f);
+            float s150 = t1.ogreQStunFormula.Evaluate(1, 150f);
+            Assert((s50 - s0) > (s100 - s50) && (s100 - s50) > (s150 - s100) && s150 > s100,
+                "STR stun duration must scale smoothly with diminishing returns and zero hard cap");
+
+            // Level Q on all matches & collide in midfield
+            foreach (var m in new[] { mBase, mAd, mAgi, mStr, mAs })
+            {
+                Assert(m.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q), "Level Q");
+            }
+            // Note at level 1 only 1 skill point exists; level Q only, test W separately!
+            MovePairTo(mBase, new Vector2(-1f, 0f), new Vector2(1.5f, 0f));
+            MovePairTo(mAd, new Vector2(-1f, 0f), new Vector2(1.5f, 0f));
+            MovePairTo(mAgi, new Vector2(-1f, 0f), new Vector2(1.5f, 0f));
+            MovePairTo(mStr, new Vector2(-1f, 0f), new Vector2(1.5f, 0f));
+            MovePairTo(mAs, new Vector2(-1f, 0f), new Vector2(1.5f, 0f));
+
+            float baseHpBefore = GetHero(mBase.Snapshot(), LaneTeam.Red).hp;
+            float adHpBefore = GetHero(mAd.Snapshot(), LaneTeam.Red).hp;
+
+            mBase.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(2f, 0f) });
+            mAd.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(2f, 0f) });
+            mAgi.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(2f, 0f) });
+            mStr.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(2f, 0f) });
+            mAs.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(2f, 0f) });
+
+            // At t=0.65s: high-AGI Ogre has ALREADY landed Q slam (0.90 / 1.80 = 0.50s), base Ogre has NOT (0.90s)!
+            Step(mBase, 0.65f);
+            Step(mAgi, 0.65f);
+            Assert(GetHero(mBase.Snapshot(), LaneTeam.Red).stunTimer <= 0f, "Base Ogre Q shouldn't land before 0.90s");
+            HeroSnap agiAfter = GetHero(mAgi.Snapshot(), LaneTeam.Blue);
+            HeroSnap redAgiAfter = GetHero(mAgi.Snapshot(), LaneTeam.Red);
+            Assert(redAgiAfter.stunTimer > 0f,
+                $"AGI Ogre Q windup must finish faster! blue=({agiAfter.x:0.00},{agiAfter.y:0.00}) phase={agiAfter.phase} timer={agiAfter.phaseTimer:0.00} anim={agiAfter.ogreAnimSpeed:0.00} red=({redAgiAfter.x:0.00},{redAgiAfter.y:0.00}) stun={redAgiAfter.stunTimer:0.00}");
+
+            // At t=0.80s: Attack-Speed Ogre (0.90 / 1.21 = 0.74s) has ALREADY landed Q, while base Ogre (0.90s) still has not!
+            Step(mBase, 0.15f);
+            Step(mAs, 0.80f);
+            Assert(GetHero(mBase.Snapshot(), LaneTeam.Red).stunTimer <= 0f, "Base Ogre Q still winding up at 0.80s (<0.90s)");
+            Assert(GetHero(mAs.Snapshot(), LaneTeam.Red).stunTimer > 0f, "Attack-Speed Ogre Q windup must finish faster by t=0.80s");
+
+            // Finish base, AD, STR Q slams past 0.90s
+            Step(mBase, 0.20f);
+            Step(mAd, 1.00f);
+            Step(mStr, 1.00f);
+
+            float baseDmg = baseHpBefore - GetHero(mBase.Snapshot(), LaneTeam.Red).hp;
+            float adDmg = adHpBefore - GetHero(mAd.Snapshot(), LaneTeam.Red).hp;
+            Assert(adDmg > baseDmg + 25f, $"Iron Greatsword (+AD) must boost Ogre Q damage ({adDmg} vs {baseDmg})");
+
+            float baseStun = GetHero(mBase.Snapshot(), LaneTeam.Red).stunTimer;
+            float strStun = GetHero(mStr.Snapshot(), LaneTeam.Red).stunTimer;
+            Assert(strStun > baseStun + 0.12f, $"STR must boost Ogre Q stun duration ({strStun} vs {baseStun})");
+
+            // Check STR scaling W knockback distance
+            var mwBase = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t1);
+            var mwStr = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t1);
+            Assert(mwStr.TryBuyItem(LaneTeam.Blue, 8, out _), "STR item");
+            Assert(mwBase.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.W), "Level W");
+            Assert(mwStr.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.W), "Level W");
+            MovePairTo(mwBase, new Vector2(0f, 0f), new Vector2(1.8f, 0f));
+            MovePairTo(mwStr, new Vector2(0f, 0f), new Vector2(1.8f, 0f));
+            mwBase.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastW, point = new Vector2(3f, 0f) });
+            mwStr.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastW, point = new Vector2(3f, 0f) });
+            Step(mwBase, 0.80f);
+            Step(mwStr, 0.80f);
+            Assert(GetHero(mwStr.Snapshot(), LaneTeam.Red).x > GetHero(mwBase.Snapshot(), LaneTeam.Red).x + 0.4f,
+                "STR must increase Ogre W knockback distance");
+        }
+
+        private static void CheckConventionalItemsAndCowardsShield()
+        {
+            var t = new LaneTuning { startingGold = 1500, waveFirstSpawnDelay = 999f, passiveGoldPerSecond = 0f };
+            var m = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            Assert(m.TryBuyItem(LaneTeam.Blue, 12, out _), "Miravel buys The Coward's Shield");
+            HeroSnap h0 = GetHero(m.Snapshot(), LaneTeam.Blue);
+            float baseArm = h0.armor;
+            float baseMr = h0.magicResist;
+            AssertClose(h0.cowardShieldBonus, 0f, "Coward's Shield inactive before taking hero damage");
+
+            // Red Ogre levels E and hits Blue Miravel, then Blue moves LEFT (retreating away from Red at +3)
+            Assert(m.TryLevelAbility(LaneTeam.Red, LaneAbilitySlot.E), "Ogre level E");
+            MovePairTo(m, new Vector2(0f, 0f), new Vector2(1.6f, 0f));
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.CastE, point = new Vector2(0f, 0f) });
+            Step(m, 0.70f); // Stomp hits Blue, waits stun ~1.0s
+            Step(m, 1.15f);
+
+            // Blue walks away to (-10, 0): heading = 180 deg, attacker at ~+1.6 => dot < -0.2 => Shield ramps up!
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(-12f, 0f) });
+            Step(m, 0.45f);
+            HeroSnap retreating = GetHero(m.Snapshot(), LaneTeam.Blue);
+            Assert(retreating.cowardShieldBonus > 15f, $"Coward's Shield must activate when retreating ({retreating.cowardShieldBonus})");
+            Assert(retreating.armor > baseArm + 15f && retreating.magicResist > baseMr + 15f, "Temporary Armor & MR applied");
+
+            // Verify extra Agility increases Coward's Shield peak resistance bonus
+            float shield12Agi = retreating.cowardShieldBonus;
+            var mHiAgi = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            Assert(mHiAgi.TryBuyItem(LaneTeam.Blue, 12, out _), "Shield");
+            Assert(mHiAgi.TryBuyItem(LaneTeam.Blue, 9, out _), "+25 AGI");
+            Assert(mHiAgi.TryLevelAbility(LaneTeam.Red, LaneAbilitySlot.E), "Ogre level E");
+            MovePairTo(mHiAgi, new Vector2(0f, 0f), new Vector2(1.6f, 0f));
+            mHiAgi.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.CastE, point = Vector2.zero });
+            Step(mHiAgi, 1.85f);
+            mHiAgi.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(-12f, 0f) });
+            Step(mHiAgi, 0.45f);
+            HeroSnap retreatingHi = GetHero(mHiAgi.Snapshot(), LaneTeam.Blue);
+            Assert(retreatingHi.cowardShieldBonus > shield12Agi + 6f, "Coward's Shield bonus must scale with Agility");
+
+            // Now turn around toward Red (+10, 0) to pursue => bonus fades rapidly!
+            mHiAgi.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(8f, 0f) });
+            Step(mHiAgi, 0.90f);
+            HeroSnap pursuing = GetHero(mHiAgi.Snapshot(), LaneTeam.Blue);
+            Assert(pursuing.cowardShieldBonus < 2f, $"Turning to pursue must fade Coward's Shield (left: {pursuing.cowardShieldBonus})");
+
+            // Chrono Band Ability Haste check (no hard cap, independent of attributes)
+            var mCdr = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t);
+            Assert(mCdr.TryBuyItem(LaneTeam.Blue, 6, out _), "Buy Chrono Band (+22 AH)");
+            Assert(mCdr.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q), "Level Q");
+            mCdr.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(5f, 0f) });
+            Step(mCdr, 0.05f);
+            HeroSnap ahOne = GetHero(mCdr.Snapshot(), LaneTeam.Blue);
+            float expectedCdOne = t.ogreQCooldown * LaneMatch.CooldownFactor(22f);
+            Assert(Mathf.Abs(ahOne.cdQ - expectedCdOne) < 0.1f, $"1 Chrono Band (+22 AH) must set Q CD near {expectedCdOne:0.00}s (got {ahOne.cdQ:0.00}s)");
+
+            // Stack 4 Chrono Bands (88 AH => 46.8% CD reduction, smoothly passing old 45% hard cap)
+            var mAhStack = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t);
+            for (int k = 0; k < 4; k++) Assert(mAhStack.TryBuyItem(LaneTeam.Blue, 6, out _), $"Chrono Band #{k + 1}");
+            Assert(mAhStack.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q), "Level Q");
+            mAhStack.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(5f, 0f) });
+            Step(mAhStack, 0.05f);
+            HeroSnap ahFour = GetHero(mAhStack.Snapshot(), LaneTeam.Blue);
+            float expectedCdFour = t.ogreQCooldown * LaneMatch.CooldownFactor(88f);
+            Assert(ahFour.abilityHaste > 87.5f && ahFour.cooldownReduction > 0.46f && Mathf.Abs(ahFour.cdQ - expectedCdFour) < 0.1f,
+                $"88 AH must apply diminishing no-cap CD reduction ({ahFour.cooldownReduction * 100f:0.0}%, cd={ahFour.cdQ:0.00}s)");
+        }
+
+        private static void CheckAutoAttackMotionBufferAndAttackMove()
+        {
+            var t = new LaneTuning { waveFirstSpawnDelay = 999f, passiveGoldPerSecond = 0f };
+            // 1. Ogre cannot basic attack
+            var mo = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t);
+            MovePairTo(mo, new Vector2(0f, 0f), new Vector2(1.8f, 0f));
+            float mirHp0 = GetHero(mo.Snapshot(), LaneTeam.Red).hp;
+            mo.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            Step(mo, 2.5f);
+            Assert(GetHero(mo.Snapshot(), LaneTeam.Red).hp >= mirHp0 - 1f, "Ogre must never perform basic attacks");
+
+            // 2. Swordsman continuous Twin Blade attacks + generous motion buffer when opponent steps slightly back
+            var ms = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Ogre, t);
+            MovePairTo(ms, new Vector2(0f, 0f), new Vector2(2.2f, 0f));
+            float ogHp0 = GetHero(ms.Snapshot(), LaneTeam.Red).hp;
+            ms.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            Step(ms, 0.10f); // mid-windup
+            // Opponent moves slightly away (+0.5u) -> outside 2.35 base range, STILL inside buffer (2.35+0.52+1.15 = 4.02)
+            ms.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.Move, point = new Vector2(3.1f, 0f) });
+            Step(ms, 2.2f);
+            float ogHp1 = GetHero(ms.Snapshot(), LaneTeam.Red).hp;
+            Assert(ogHp1 < ogHp0 - 80f, $"Continuous auto-attack + motion buffer must land multi-hit swings (dmg={ogHp0 - ogHp1})");
+
+            // 3. A-key Quick-Cast Attack-Move acquires nearby enemy without clicking directly on top of them
+            var ma = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            MovePairTo(ma, new Vector2(-4f, 0f), new Vector2(1f, 3.0f));
+            float enemyHpStart = GetHero(ma.Snapshot(), LaneTeam.Red).hp;
+            ma.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackMove, point = new Vector2(1f, 0f) });
+            Step(ma, 1.5f);
+            Assert(GetHero(ma.Snapshot(), LaneTeam.Red).hp < enemyHpStart - 20f,
+                "A-key Attack-Move near enemy must acquire & shoot without exact cursor-on-target");
+        }
+
+        private static void CheckOgreFullKitAndImmunity()
+        {
+            var t = new LaneTuning { waveFirstSpawnDelay = 999f, startingGold = 0, ogreQCooldown = 1.0f };
+            var m = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Ogre, t);
+            MovePairTo(m, new Vector2(-1f, 0f), new Vector2(1.2f, 0f));
+
+            // CC immunity during Ogre Q windup blocks incoming enemy Q stun
+            Assert(m.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q), "Blue Ogre Q");
+            Assert(m.TryLevelAbility(LaneTeam.Red, LaneAbilitySlot.Q), "Red Ogre Q");
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.CastQ, point = new Vector2(-1f, 0f) });
+            Step(m, 0.35f);
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(2f, 0f) });
+
+            bool sawBlocked = false;
+            float dt = 1f / 30f;
+            for (int i = 0; i < 20; i++)
+            {
+                m.Tick(dt);
+                LaneSnapshot s = m.Snapshot();
+                for (int e = 0; e < s.events.Count; e++)
+                {
+                    if (s.events[e].kind == LaneEventKind.CcBlocked && s.events[e].team == LaneTeam.Blue) sawBlocked = true;
+                }
+            }
+            Assert(sawBlocked, "Ogre CC immunity during Q must emit CcBlocked against incoming enemy stun");
+            AssertClose(GetHero(m.Snapshot(), LaneTeam.Blue).stunTimer, 0f, "CC-immune Ogre must take 0 stun");
+            // Grant XP to level 4 for R unlock
+            var mr = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, new LaneTuning { ultMinLevel = 1, waveFirstSpawnDelay = 999f });
+            Assert(mr.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R), "Unlock Ogre R at lvl 1 via ultMinLevel=1");
+            MovePairTo(mr, new Vector2(-1f, 0f), new Vector2(2.0f, 0f));
+            mr.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastR, point = new Vector2(2f, 0f) });
+            Step(mr, 0.1f);
+            Assert(GetHero(mr.Snapshot(), LaneTeam.Blue).scale > 1.2f, "Ogre grows during R channel");
+            Assert(GetHero(mr.Snapshot(), LaneTeam.Blue).damageReduction > 0.5f, "Ogre gains DR during R channel");
+
+            // Queue 3 aimed strikes (Q, W, Q) during channel!
+            mr.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(2f, 0f) });
+            mr.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastW, point = new Vector2(3f, 0f) });
+            mr.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(4f, 0f) });
+            Assert(GetHero(mr.Snapshot(), LaneTeam.Blue).rComboCount == 3, "Queued 3 strikes into R");
+
+            bool sawCrit = false;
+            for (int i = 0; i < 160; i++)
+            {
+                mr.Tick(dt);
+                LaneSnapshot s = mr.Snapshot();
+                for (int e = 0; e < s.events.Count; e++)
+                {
+                    if (s.events[e].kind == LaneEventKind.OgreStrike && s.events[e].label.Contains("CRIT")) sawCrit = true;
+                }
+            }
+            Assert(sawCrit, "Ogre R final strike must fire CRIT event");
+        }
+
+        private static void CheckMiravelFullKit()
+        {
+            var t = new LaneTuning { ultMinLevel = 1, waveFirstSpawnDelay = 999f, luisOrbInterval = 2.0f, ogreRStacksCursePerStrike = false };
+            var m = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+
+            // Confirm Level-1 HealPower starts at 100% (1.0x) and Passive Life Aura is immediately active
+            Step(m, 0.05f);
+            HeroSnap mirStart = GetHero(m.Snapshot(), LaneTeam.Blue);
+            AssertClose(mirStart.healPower, 1.0f, "Miravel Heal Power must start at 100% (1.0)");
+            Assert(mirStart.miravelLifeAura > 2.4f, $"Miravel passive Life Aura must be active at Level 1 (got {mirStart.miravelLifeAura:0.00})");
+
+            // Level W & test invis + illusion walking to exact cast cursor & stopping!
+            Assert(m.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.W), "Miravel W");
+            MovePairTo(m, new Vector2(-2f, 0f), new Vector2(4.0f, 0f));
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastW, point = new Vector2(0.5f, 0f) });
+            Step(m, 0.25f);
+            HeroSnap mir = GetHero(m.Snapshot(), LaneTeam.Blue);
+            Assert(mir.invisible, "Miravel W grants invisibility");
+            Assert(m.Snapshot().illusions.Count == 1, "Miravel W leaves illusion");
+            IllusionSnap ill0 = m.Snapshot().illusions[0];
+            Assert(ill0.speed > 0.5f, $"Illusion must walk with non-zero speed while moving (speed={ill0.speed:0.00})");
+            Step(m, 0.30f);
+            Assert(m.Snapshot().illusions[0].x > ill0.x + 0.5f, "Illusion walks toward cursor");
+            Step(m, 0.95f);
+            IllusionSnap illArrived = m.Snapshot().illusions[0];
+            Assert(Mathf.Abs(illArrived.x - 0.5f) < 0.25f && illArrived.speed <= 0.01f,
+                $"Illusion must arrive and stop animating at cast cursor (x={illArrived.x:0.00}, speed={illArrived.speed:0.00})");
+            Step(m, 0.50f);
+            IllusionSnap illStay = m.Snapshot().illusions[0];
+            Assert(Mathf.Abs(illStay.x - illArrived.x) < 0.01f && illStay.speed <= 0.01f,
+                $"Illusion must stay stopped after arriving (x={illStay.x:0.00}, speed={illStay.speed:0.00})");
+
+            // Verify NO 6.5u distance cap on Miravel W decoy
+            var mwFar = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            Assert(mwFar.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.W), "Miravel W far");
+            MovePairTo(mwFar, new Vector2(-7.5f, 2.5f), new Vector2(15f, 2.5f));
+            mwFar.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastW, point = new Vector2(4.5f, 2.5f) });
+            Step(mwFar, 2.1f);
+            IllusionSnap illFarMid = mwFar.Snapshot().illusions[0];
+            Assert(illFarMid.x > 0.2f && illFarMid.speed > 0.5f,
+                $"Illusion must travel well past old 6.5u limit toward far cursor (x={illFarMid.x:0.00}, speed={illFarMid.speed:0.00})");
+            Step(mwFar, 1.3f);
+            IllusionSnap illFarStop = mwFar.Snapshot().illusions[0];
+            Assert(Mathf.Abs(illFarStop.x - 4.5f) < 0.25f && illFarStop.speed <= 0.01f,
+                $"Long-range illusion must stop at far cast cursor (x={illFarStop.x:0.00}, speed={illFarStop.speed:0.00})");
+
+            // E Ward curse triggers on Miravel OR W illusion hit, and escalates when cursed attacker casts abilities
+            var mCurse = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, new LaneTuning { ultMinLevel = 1, waveFirstSpawnDelay = 999f, ogreQCooldown = 1.0f, ogreRStacksCursePerStrike = false });
+            Assert(mCurse.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.E), "Miravel E");
+            Assert(mCurse.TryLevelAbility(LaneTeam.Red, LaneAbilitySlot.Q), "Ogre Q");
+            MovePairTo(mCurse, new Vector2(-1f, 0f), new Vector2(1.4f, 0f));
+            mCurse.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastE, point = Vector2.zero });
+            mCurse.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.CastQ, point = new Vector2(-1f, 0f) });
+            Step(mCurse, 1.0f);
+            HeroSnap ogreCursed = GetHero(mCurse.Snapshot(), LaneTeam.Red);
+            Assert(ogreCursed.curseTimer > 0f && ogreCursed.curseStacks == 1, "Attacking warded Miravel must apply 1 curse stack");
+            float durBefore = ogreCursed.curseTimer;
+
+            // Ogre casts Q again while cursed -> stack escalates & duration extends!
+            Step(mCurse, 0.35f);
+            mCurse.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.CastQ, point = new Vector2(-1f, 0f) });
+            Step(mCurse, 0.05f);
+            HeroSnap escalated = GetHero(mCurse.Snapshot(), LaneTeam.Red);
+            Assert(escalated.curseStacks == 2 && escalated.curseTimer > durBefore, "Cursed enemy ability cast must increase stacks & extend duration");
+
+            // Check Miravel R ramping zone + move interrupt!
+            var mR = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            Assert(mR.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R), "Miravel R");
+            MovePairTo(mR, new Vector2(-2f, 0f), new Vector2(0f, 0f));
+            mR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastR, point = new Vector2(0f, 0f) });
+            Step(mR, 0.5f);
+            Assert(mR.Snapshot().zones.Count == 1, "Miravel R channel creates active Sanctum Zone");
+            Assert(GetHero(mR.Snapshot(), LaneTeam.Red).damageTakenMult > 1.02f, "Miravel R ramps vulnerability on enemies inside");
+            // Moving interrupts R channel!
+            mR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(-5f, 0f) });
+            Step(mR, 0.1f);
+            Assert(mR.Snapshot().zones.Count == 0, "Issuing move interrupts Miravel R channel");
+
+            // Miravel Q orb spawn + enemy deny + friendly pulse heal/damage
+            var mq = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            MovePairTo(mq, new Vector2(-3f, 0f), new Vector2(3f, 0f));
+            Assert(mq.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q), "Miravel Q orb spawner");
+            Step(mq, 1.15f);
+            Assert(mq.Snapshot().orbs.Count >= 1, "Miravel Q must spawn orb after ranking Q");
+            OrbSnap spawnedOrb = mq.Snapshot().orbs[0];
+            mq.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.Move, point = new Vector2(spawnedOrb.x, spawnedOrb.y) });
+            bool sawDeny = false;
+            float dtQ = 1f / 30f;
+            for (int i = 0; i < 180 && mq.Snapshot().orbs.Count > 0; i++)
+            {
+                mq.Tick(dtQ);
+                LaneSnapshot sq = mq.Snapshot();
+                for (int e = 0; e < sq.events.Count; e++)
+                {
+                    if (sq.events[e].kind == LaneEventKind.LuisOrbDeny) sawDeny = true;
+                }
+            }
+            Assert(sawDeny, "Enemy stepping onto Miravel orb must deny it");
+
+            // Check E Ward curse triggers when W Illusion takes hero damage (while Miravel keeps distance)
+            var waveLoot = new LaneTuning { ultMinLevel = 1, waveFirstSpawnDelay = 0.05f, waveInterval = 20f, minionMaxHpMelee = 20f, minionMaxHpRanged = 20f, minionXpMelee = 100f };
+            var mIll = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, waveLoot);
+            Assert(mIll.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.W), "Miravel W");
+            MovePairTo(mIll, new Vector2(-1.5f, 0f), new Vector2(18f, 0f));
+            mIll.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackMove, point = new Vector2(4f, 0f) });
+            Step(mIll, 6.0f);
+            HeroSnap m2 = GetHero(mIll.Snapshot(), LaneTeam.Blue);
+            Assert(m2.level >= 2 && mIll.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.E), "Miravel must level to 2 and learn E for illusion ward test");
+            Assert(mIll.TryLevelAbility(LaneTeam.Red, LaneAbilitySlot.Q), "Ogre Q");
+            MovePairTo(mIll, new Vector2(-1.5f, 0f), new Vector2(4.2f, 0f));
+            mIll.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastW, point = new Vector2(2.0f, 0f) });
+            Step(mIll, 0.35f);
+            mIll.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(-10f, 0f) });
+            mIll.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastE, point = Vector2.zero });
+            mIll.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.CastQ, point = new Vector2(0f, 0f) });
+            Step(mIll, 1.05f);
+            Assert(GetHero(mIll.Snapshot(), LaneTeam.Red).curseTimer > 0f, "Damaging Miravel W illusion while E ward is active must curse attacker");
+        }
+
+        private static void CheckSwordsmanFullKitAndNegativeResist()
+        {
+            var t = new LaneTuning { ultMinLevel = 1, waveFirstSpawnDelay = 999f, passiveGoldPerSecond = 0f };
+
+            // 1. E stacks push target Armor negative and amplify physical damage above raw AD!
+            var me = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, t);
+            Assert(me.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.E), "Swordsman E");
+            MovePairTo(me, new Vector2(0f, 0f), new Vector2(1.6f, 0f));
+            me.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            Step(me, 2.8f); // Multiple twin-blade hits build self stacks & shred Miravel (base 8 armor -> negative!)
+            HeroSnap sw = GetHero(me.Snapshot(), LaneTeam.Blue);
+            HeroSnap mir = GetHero(me.Snapshot(), LaneTeam.Red);
+            Assert(sw.swordStacks >= 2, $"Swordsman should gain E resist stacks ({sw.swordStacks})");
+            Assert(mir.armor < 0f, $"Swordsman E should shred enemy Armor below zero ({mir.armor})");
+            Assert(LaneMatch.ResistanceFactor(mir.armor) > 1.0f, "Negative Armor must yield >1.0 damage multiplier");
+
+            // 2. Swordsman Q slow + W% HP heal + R dash execute reset!
+            var mr = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, t);
+            Assert(mr.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R), "Swordsman R");
+            MovePairTo(mr, new Vector2(0f, 0f), new Vector2(1.7f, 0f));
+            // Basic attack once to apply R Mark
+            mr.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            Step(mr, 0.35f);
+            Assert(GetHero(mr.Snapshot(), LaneTeam.Blue).swordMarkedTargetId == 2, "Swordsman attack must mark R target");
+
+            // Chip Miravel into execute window (~5.2s) cleanly, then trigger R execute reset!
+            Step(mr, 5.2f);
+            HeroSnap mirLow = GetHero(mr.Snapshot(), LaneTeam.Red);
+            Assert(mirLow.phase != LanePhase.Dead, "Miravel must still be alive before Swordsman R execute slash");
+            mr.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastR, point = Vector2.zero });
+            Step(mr, 0.7f);
+            HeroSnap mirEnd = GetHero(mr.Snapshot(), LaneTeam.Red);
+            HeroSnap swEnd = GetHero(mr.Snapshot(), LaneTeam.Blue);
+            Assert(mirEnd.phase == LanePhase.Dead, "Swordsman R must kill/execute low Miravel");
+            AssertClose(swEnd.cdR, 0f, "Swordsman R execute/kill must reset R cooldown to 0");
+
+            // 3. Swordsman Q marks enemies (prioritizing heroes over creeps) at 3.1u so Q -> R combo works cleanly
+            var mQR = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, new LaneTuning
+            {
+                ultMinLevel = 1,
+                waveFirstSpawnDelay = 0.05f,
+                minionMaxHpMelee = 55f,
+                minionMaxHpRanged = 55f,
+                minionXpMelee = 200f,
+                passiveGoldPerSecond = 0f,
+            });
+            Assert(mQR.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q), "Level Q on Swordsman Q->R check");
+            MovePairTo(mQR, new Vector2(0f, 0f), new Vector2(6.5f, 0f));
+            float dt = 1f / 30f;
+            for (int i = 0; i < 240; i++)
+            {
+                mQR.Tick(dt);
+                MinionSnap c = FindFirstEnemyMinion(mQR.Snapshot(), LaneTeam.Blue);
+                if (c != null && Mathf.Abs(c.x) <= 2.1f) break;
+            }
+            MinionSnap firstCreep = FindFirstEnemyMinion(mQR.Snapshot(), LaneTeam.Blue);
+            Assert(firstCreep != null, "Minion arrived for level-up kill");
+            mQR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackMinion, targetId = firstCreep.id, point = new Vector2(firstCreep.x, firstCreep.y) });
+            Step(mQR, 0.70f);
+            Assert(GetHero(mQR.Snapshot(), LaneTeam.Blue).level >= 2 && mQR.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R),
+                "Swordsman reaches lvl 2 and unlocks R for Q->R check");
+
+            MovePairTo(mQR, new Vector2(0f, 0f), new Vector2(3.1f, 0f));
+            Assert(GetHero(mQR.Snapshot(), LaneTeam.Blue).swordMarkedTargetId != 2, "Red Miravel not yet R-marked at 3.1u");
+            mQR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(3.1f, 0f) });
+            Step(mQR, 0.35f);
+            Assert(GetHero(mQR.Snapshot(), LaneTeam.Blue).swordMarkedTargetId == 2,
+                "Swordsman Q at 3.1u must apply R mark to enemy hero (even with creeps nearby)");
+            float redHpAfterQ = GetHero(mQR.Snapshot(), LaneTeam.Red).hp;
+            mQR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastR, point = new Vector2(3.1f, 0f) });
+            Step(mQR, 0.70f);
+            float redHpAfterR = GetHero(mQR.Snapshot(), LaneTeam.Red).hp;
+            Assert(redHpAfterR < redHpAfterQ - 70f,
+                $"Swordsman R after Q-mark must dash and slash enemy hero ({redHpAfterQ:0} -> {redHpAfterR:0})");
+        }
+
+        private static void CheckWavesShopTowerAndVictory()
+        {
+            var t = new LaneTuning { waveFirstSpawnDelay = 0.2f, startingGold = 350, passiveGoldPerSecond = 0f };
+            var m = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+
+            // Shop rejected mid-lane, allowed inside Fountain
+            MovePairTo(m, new Vector2(0f, 0f), new Vector2(18f, 0f));
+            Assert(!m.TryBuyItem(LaneTeam.Blue, 1, out string midErr), $"Mid-lane purchase must fail (got: {midErr})");
+            MovePairTo(m, t.blueFountainPos, new Vector2(18f, 0f));
+            Assert(m.TryBuyItem(LaneTeam.Blue, 1, out _), "Fountain purchase must succeed");
+
+            // Waves spawn & tower prioritizes minions before hero
+            Step(m, 0.4f);
+            Assert(m.Snapshot().minions.Count >= 6, "First creep wave must spawn for both sides");
+
+            // Verify tower targets enemy minions first even when enemy hero is also inside tower range
+            var mTower = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, new LaneTuning { waveFirstSpawnDelay = 0.05f, ogreECooldown = 1.5f, minionMaxHpMelee = 90f, minionMaxHpRanged = 90f });
+            Assert(mTower.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.E), "Ogre E to push wave");
+            MovePairTo(mTower, new Vector2(1.0f, 0f), new Vector2(20f, 0f));
+            bool orderedIntoTower = false;
+            bool checkedPriority = false;
+            float tStep = 0f;
+            while (tStep < 18f)
+            {
+                mTower.Tick(1f / 30f);
+                tStep += 1f / 30f;
+                LaneSnapshot st = mTower.Snapshot();
+                HeroSnap blueHero = GetHero(st, LaneTeam.Blue);
+
+                bool anyRedCreep = false;
+                bool blueUnderTower = false;
+                for (int mi = 0; mi < st.minions.Count; mi++)
+                {
+                    if (st.minions[mi].team == LaneTeam.Red)
+                    {
+                        anyRedCreep = true;
+                        if (blueHero.cdE <= 0f && Vector2.Distance(new Vector2(blueHero.x, blueHero.y), new Vector2(st.minions[mi].x, st.minions[mi].y)) <= 2.35f)
+                        {
+                            mTower.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastE, point = Vector2.zero });
+                        }
+                    }
+                    else if (st.minions[mi].team == LaneTeam.Blue && st.minions[mi].x > 5.0f)
+                    {
+                        blueUnderTower = true;
+                    }
+                }
+                if (!anyRedCreep && blueUnderTower && !orderedIntoTower)
+                {
+                    orderedIntoTower = true;
+                    mTower.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(7.5f, 0f) });
+                }
+
+                TowerSnap redTw = st.towers[1];
+                if (orderedIntoTower && redTw.targetId > 0)
+                {
+                    Assert(redTw.targetKind == (int)LaneTargetKind.Minion, $"Outer tower targeted {redTw.targetKind} instead of Minion");
+                    checkedPriority = true;
+                    break;
+                }
+            }
+            Assert(checkedPriority, "Outer tower must prioritize enemy minions inside range when hero is also in range");
+
+            // Verify outer tower fall triggers victory cleanly
+            var mWin = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, new LaneTuning { towerMaxHp = 90f, waveFirstSpawnDelay = 999f });
+            MovePairTo(mWin, t.redTowerPos + new Vector2(-1.8f, 0f), t.redFountainPos);
+            mWin.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackTower, targetId = 11 });
+            Step(mWin, 2.5f);
+            Assert(mWin.IsGameOver && mWin.WinnerTeam == (int)LaneTeam.Blue, "Destroying Red outer tower must declare Blue victory");
+        }
+
+        private static void MovePairTo(LaneMatch m, Vector2 bluePos, Vector2 redPos)
+        {
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = bluePos });
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.Move, point = redPos });
+
+            float maxWait = 12.0f;
+            float dt = 1f / 30f;
+            int steps = Mathf.CeilToInt(maxWait / dt);
+            bool bDone = false, rDone = false;
+            HeroSnap b = null, r = null;
+            for (int i = 0; i < steps; i++)
+            {
+                LaneSnapshot s = m.Snapshot();
+                b = GetHero(s, LaneTeam.Blue);
+                r = GetHero(s, LaneTeam.Red);
+                if (!bDone && Vector2.Distance(new Vector2(b.x, b.y), bluePos) < 0.35f)
+                {
+                    bDone = true;
+                    m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+                }
+                if (!rDone && Vector2.Distance(new Vector2(r.x, r.y), redPos) < 0.35f)
+                {
+                    rDone = true;
+                    m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.Stop });
+                }
+                if (bDone && rDone) break;
+                m.Tick(dt);
+            }
+            Assert(bDone && rDone, $"MovePairTo did not reach targets: blue=({b?.x:0.00},{b?.y:0.00})->({bluePos.x:0.00},{bluePos.y:0.00}) red=({r?.x:0.00},{r?.y:0.00})->({redPos.x:0.00},{redPos.y:0.00})");
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.Stop });
+        }
+
+        private static void Step(LaneMatch m, float seconds)
+        {
+            float dt = 1f / 30f;
+            int steps = Mathf.Max(1, Mathf.CeilToInt(seconds / dt));
+            for (int i = 0; i < steps; i++)
+            {
+                m.Tick(dt);
+            }
+        }
+
+        private static bool HasNoHardCapFormulaText(string spec) =>
+            !string.IsNullOrEmpty(spec) &&
+            !spec.Contains(", max ") &&
+            !spec.Contains("max 45%") &&
+            !spec.Contains("capped at");
+
+        private static void CheckHeroSheetCoversAllHeroesAndLiveScaling()
+        {
+            var t = new LaneTuning { startingGold = 1200, passiveGoldPerSecond = 0f };
+            string ogreSpec = LaneHeroSheet.BuildHeroSheet(LaneHeroId.Ogre, t, null);
+            string miravelSpec = LaneHeroSheet.BuildHeroSheet(LaneHeroId.Miravel, t, null);
+            string swordsmanSpec = LaneHeroSheet.BuildHeroSheet(LaneHeroId.Swordsman, t, null);
+            string laserSpec = LaneHeroSheet.BuildHeroSheet(LaneHeroId.LaserShooter, t, null);
+
+            Assert(HasNoHardCapFormulaText(ogreSpec) && ogreSpec.Contains("135% AD") && ogreSpec.Contains("+0.8% / AGI") &&
+                   (ogreSpec.Contains("bonus Attack Speed") || ogreSpec.Contains("70%")) &&
+                   ogreSpec.Contains("/ 10 STR") && ogreSpec.Contains("@ 25") && ogreSpec.Contains("Ability Haste"),
+                "Ogre hero sheet must list explicit AD/AGI/AS/STR scaling rates & breakpoints with zero opaque 'max' hard caps");
+            Assert(HasNoHardCapFormulaText(miravelSpec) && miravelSpec.Contains("INT") && miravelSpec.Contains("/ 10 INT") &&
+                   miravelSpec.Contains("@ 25") && miravelSpec.Contains("Ability Haste") && miravelSpec.Contains("Coward's Shield") &&
+                   miravelSpec.Contains("starts at 100%") && miravelSpec.Contains("base 100%") && !miravelSpec.Contains("up to 6.5u"),
+                "Miravel hero sheet must list explicit INT scaling rates, 100% base HealPower, cursor-stop decoy, Ability Haste, and Coward's Shield rules without hard caps");
+            Assert(HasNoHardCapFormulaText(swordsmanSpec) && swordsmanSpec.Contains("STR") && swordsmanSpec.Contains("/ 10 STR") &&
+                   swordsmanSpec.Contains("@ 25") && swordsmanSpec.Contains("AD") && swordsmanSpec.Contains("Ability Haste") &&
+                   swordsmanSpec.Contains("Coward's Shield"),
+                "Swordsman hero sheet must list explicit AD/STR scaling rates, Ability Haste, and Coward's Shield rules without hard caps");
+            Assert(HasNoHardCapFormulaText(laserSpec) && laserSpec.Contains("7.2/6.5/5.8s") && laserSpec.Contains("2.6s") &&
+                   laserSpec.Contains("INT") && laserSpec.Contains("AGI") && laserSpec.Contains("STR") &&
+                   laserSpec.Contains("Ability Haste") && laserSpec.Contains("Coward's Shield"),
+                "Chain Laser Shooter hero sheet must list INT/AGI/STR scaling, clean decimal timings, Ability Haste, and Coward's Shield without hard caps");
+            Assert(swordsmanSpec.Contains("for 2.1s") && swordsmanSpec.Contains("CD 5.5/5.0/4.5s") &&
+                   swordsmanSpec.Contains("within 4.5s") && !swordsmanSpec.Contains("for 21s") &&
+                   !swordsmanSpec.Contains("within 51s") && !swordsmanSpec.Contains("CD 61/"),
+                "Swordsman hero sheet must format decimals cleanly (2.1s slow, 5.5/5.0/4.5s Q CD, 4.5s Coward's Shield)");
+            Assert(ogreSpec.Contains("CD 6.8/6.2/5.6s") && ogreSpec.Contains("CD 8.5/7.7/6.9s"),
+                "Ogre hero sheet must format cooldown decimals cleanly");
+            Assert(miravelSpec.Contains("+2.2") && miravelSpec.Contains("-2.4") && miravelSpec.Contains("Channel for 4.2s"),
+                "Miravel hero sheet must format aura & channel decimals cleanly");
+
+            var match = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t);
+            HeroSnap before = GetHero(match.Snapshot(), LaneTeam.Blue);
+            string liveBefore = LaneHeroSheet.BuildHeroSheet(LaneHeroId.Ogre, t, before);
+            Assert(liveBefore.Contains("Windup Speed 1.00x") && liveBefore.Contains("0.90s windup"),
+                "Ogre live level-1 sheet should show 1.00x windup speed and 0.90s Q windup");
+
+            Assert(match.TryBuyItem(LaneTeam.Blue, 1, out _), "Buy Iron Greatsword (+26 AD)");
+            Assert(match.TryBuyItem(LaneTeam.Blue, 2, out _), "Buy Quickstep Dagger (+30% AS)");
+            Assert(match.TryBuyItem(LaneTeam.Blue, 8, out _), "Buy Titan's Knuckle (+25 STR)");
+            Assert(match.TryBuyItem(LaneTeam.Blue, 9, out _), "Buy Zephyr Feather (+25 AGI)");
+
+            HeroSnap after = GetHero(match.Snapshot(), LaneTeam.Blue);
+            string liveAfter = LaneHeroSheet.BuildHeroSheet(LaneHeroId.Ogre, t, after);
+            Assert(liveAfter != liveBefore, "Hero sheet live output should update when items are purchased");
+            var inv = CultureInfo.InvariantCulture;
+            Assert(!liveAfter.Contains("Windup Speed 1.00x") && liveAfter.Contains($"{after.ogreAnimSpeed.ToString("0.00", inv)}x"),
+                "Ogre live sheet must reflect increased AGI+AS windup speed after buying Quickstep Dagger & Zephyr Feather");
+
+            float qDmgAfter = t.ogreQDamageFormula.Evaluate(1, after.attackDamage);
+            float qStunAfter = t.ogreQStunFormula.Evaluate(1, after.strength);
+            float qWindupAfter = t.ogreQWindup / Mathf.Max(0.4f, after.ogreAnimSpeed);
+            Assert(liveAfter.Contains($"{qDmgAfter.ToString("0", inv)} dmg") && liveAfter.Contains($"{qStunAfter.ToString("0.00", inv)}s stun") && liveAfter.Contains($"{qWindupAfter.ToString("0.00", inv)}s windup"),
+                "Ogre live sheet must match evaluated live Q damage, stun duration, and AGI+AS-reduced windup time");
+        }
+
+        private static void CheckRepeatedMoveClicksPreserveSpeed()
+        {
+            var t = new LaneTuning { waveFirstSpawnDelay = 999f, startingGold = 0, passiveGoldPerSecond = 0f };
+            var m = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t);
+            MovePairTo(m, new Vector2(-16f, 0f), new Vector2(18f, 0f));
+
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(14f, 0f) });
+            Step(m, 0.70f);
+            HeroSnap moving = GetHero(m.Snapshot(), LaneTeam.Blue);
+            Assert(moving.speed >= t.ogreSpeed * 0.90f, $"Ogre should reach near full move speed (got {moving.speed:0.00})");
+
+            // Repeated rapid slightly-jittered clicks along walk path must NOT reset speed back to 0!
+            for (int i = 0; i < 10; i++)
+            {
+                m.EnqueueOrApplyOrder(new LaneOrder
+                {
+                    team = LaneTeam.Blue,
+                    kind = LaneOrderKind.Move,
+                    point = new Vector2(14f, (i % 2 == 0) ? 0.25f : -0.25f),
+                });
+                Step(m, 0.10f);
+                HeroSnap cur = GetHero(m.Snapshot(), LaneTeam.Blue);
+                Assert(cur.speed >= cur.moveSpeed * 0.85f,
+                    $"Repeated move click #{i} slowed hero down unexpectedly (speed={cur.speed:0.00}, max={cur.moveSpeed:0.00})");
+            }
+
+            // Swordsman basic-attack backswing (Recover) is immediately move-cancelable
+            var ms = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Ogre, t);
+            MovePairTo(ms, new Vector2(0f, 0f), new Vector2(1.8f, 0f));
+            ms.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            float dt = 1f / 30f;
+            bool enteredRecover = false;
+            for (int i = 0; i < 60; i++)
+            {
+                ms.Tick(dt);
+                HeroSnap b = GetHero(ms.Snapshot(), LaneTeam.Blue);
+                if (b.phase == LanePhase.Recover && b.activeSlot == LaneAbilitySlot.None)
+                {
+                    enteredRecover = true;
+                    break;
+                }
+            }
+            Assert(enteredRecover, "Swordsman should enter basic-attack Recover backswing");
+            ms.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(-10f, 0f) });
+            Step(ms, 0.05f);
+            HeroSnap canceled = GetHero(ms.Snapshot(), LaneTeam.Blue);
+            Assert(canceled.phase == LanePhase.Idle,
+                $"Move click during basic backswing must cancel Recover immediately (phase={canceled.phase})");
+            // Wait past 180-deg turn slowdown (480 deg/s => ~0.19s) to confirm immediate acceleration away
+            Step(ms, 0.25f);
+            HeroSnap accelerated = GetHero(ms.Snapshot(), LaneTeam.Blue);
+            Assert(accelerated.x < -0.25f && accelerated.speed > 1.0f,
+                $"Hero must accelerate cleanly after backswing cancel turn (x={accelerated.x:0.00}, speed={accelerated.speed:0.00})");
+        }
+
+        private static void CheckTowerAggrosHeroOnDamage()
+        {
+            var t = new LaneTuning
+            {
+                startingGold = 500,
+                waveFirstSpawnDelay = 0.05f,
+                minionMaxHpMelee = 280f,
+                minionMaxHpRanged = 180f,
+            };
+            var m = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, t);
+            Assert(m.TryBuyItem(LaneTeam.Blue, 13, out _), "Buy Hatchet for wave clear");
+            Assert(m.TryBuyItem(LaneTeam.Blue, 1, out _), "Buy Iron Greatsword");
+            Assert(m.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q), "Swordsman Q for tower aggro trigger");
+            MovePairTo(m, new Vector2(1.0f, 0f), new Vector2(18f, 0f));
+
+            bool minionsUnderRedTower = false;
+            float dt = 1f / 30f;
+            for (int i = 0; i < 600; i++)
+            {
+                m.Tick(dt);
+                LaneSnapshot s = m.Snapshot();
+                HeroSnap blueHero = GetHero(s, LaneTeam.Blue);
+                bool hasRedCreep = false;
+                bool hasBlueCreepUnderTower = false;
+                MinionSnap closestRed = null;
+                float bestD = float.MaxValue;
+                for (int mi = 0; mi < s.minions.Count; mi++)
+                {
+                    MinionSnap mn = s.minions[mi];
+                    if (mn.team == LaneTeam.Red)
+                    {
+                        hasRedCreep = true;
+                        float d = Vector2.Distance(new Vector2(blueHero.x, blueHero.y), new Vector2(mn.x, mn.y));
+                        if (d < bestD) { bestD = d; closestRed = mn; }
+                    }
+                    else if (mn.team == LaneTeam.Blue && mn.x >= 5.2f)
+                    {
+                        hasBlueCreepUnderTower = true;
+                    }
+                }
+                if (hasRedCreep && closestRed != null && (blueHero.attackTargetId == 0 || blueHero.phase == LanePhase.Idle))
+                {
+                    m.EnqueueOrApplyOrder(new LaneOrder
+                    {
+                        team = LaneTeam.Blue,
+                        kind = LaneOrderKind.AttackMinion,
+                        targetId = closestRed.id,
+                        point = new Vector2(closestRed.x, closestRed.y),
+                    });
+                }
+
+                TowerSnap redTw = s.towers[1];
+                if (!hasRedCreep && hasBlueCreepUnderTower && redTw.targetKind == (int)LaneTargetKind.Minion)
+                {
+                    minionsUnderRedTower = true;
+                    break;
+                }
+            }
+            Assert(minionsUnderRedTower, "Blue wave must establish minion tanking under Red tower first");
+
+            // Position Blue Swordsman & Red Miravel inside Red tower protection while Blue minions tank
+            MovePairTo(m, new Vector2(7.5f, 0f), new Vector2(9.2f, 0f));
+            TowerSnap beforeHit = m.Snapshot().towers[1];
+            Assert(beforeHit.targetKind == (int)LaneTargetKind.Minion && !beforeHit.aggroLockedOnHero,
+                $"Tower should still target minions before hero damage (targetKind={beforeHit.targetKind}, locked={beforeHit.aggroLockedOnHero})");
+
+            // Blue Swordsman Q cleaves Red Miravel under Red tower -> Red tower MUST snap aggro onto Blue Swordsman
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(9.2f, 0f) });
+            bool sawAggroEvent = false;
+            for (int i = 0; i < 30; i++)
+            {
+                m.Tick(dt);
+                LaneSnapshot s = m.Snapshot();
+                for (int e = 0; e < s.events.Count; e++)
+                {
+                    if (s.events[e].kind == LaneEventKind.TowerAggro) sawAggroEvent = true;
+                }
+                if (s.towers[1].aggroLockedOnHero) break;
+            }
+
+            LaneSnapshot afterHit = m.Snapshot();
+            HeroSnap blueSwordsman = GetHero(afterHit, LaneTeam.Blue);
+            TowerSnap lockedTw = afterHit.towers[1];
+            Assert(sawAggroEvent, "Damaging enemy hero under enemy tower must emit TowerAggro event");
+            Assert(lockedTw.aggroLockedOnHero && lockedTw.targetKind == (int)LaneTargetKind.Hero && lockedTw.targetId == blueSwordsman.id,
+                $"Tower must switch aggro onto attacking hero (locked={lockedTw.aggroLockedOnHero}, kind={lockedTw.targetKind}, id={lockedTw.targetId})");
+
+            // Leave tower range -> aggroLockedOnHero clears cleanly
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(-3f, 0f) });
+            Step(m, 3.0f);
+            TowerSnap afterEscape = m.Snapshot().towers[1];
+            Assert(!afterEscape.aggroLockedOnHero && afterEscape.targetKind != (int)LaneTargetKind.Hero,
+                $"Tower must clear hero aggro lock after attacker leaves range (locked={afterEscape.aggroLockedOnHero}, kind={afterEscape.targetKind})");
+        }
+
+        private static void CheckMiravelECastKeepsInvisibility()
+        {
+            // Grant XP so Miravel hits lvl 3 and can learn W, E, and R
+            var ml = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, new LaneTuning
+            {
+                ultMinLevel = 1,
+                waveFirstSpawnDelay = 0.05f,
+                minionMaxHpMelee = 10f,
+                minionMaxHpRanged = 10f,
+                minionXpMelee = 250f,
+                luisWDuration = 5.0f,
+            });
+            Assert(ml.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.W), "Level W");
+            MovePairTo(ml, new Vector2(-1f, 0f), new Vector2(18f, 0f));
+            ml.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackMove, point = new Vector2(2f, 0f) });
+            Step(ml, 6.5f);
+            HeroSnap leveled = GetHero(ml.Snapshot(), LaneTeam.Blue);
+            Assert(leveled.level >= 3 && ml.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.E) && ml.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R),
+                $"Miravel needs W/E/R unlocked (lvl={leveled.level})");
+
+            ml.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastW, point = new Vector2(4f, 0f) });
+            Step(ml, 0.15f);
+            Assert(GetHero(ml.Snapshot(), LaneTeam.Blue).invisible, "W grants invisibility");
+
+            ml.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastE, point = Vector2.zero });
+            Step(ml, 0.15f);
+            HeroSnap afterE = GetHero(ml.Snapshot(), LaneTeam.Blue);
+            Assert(afterE.invisible && afterE.wardTimer > 0f,
+                $"Miravel E cast must preserve W stealth (invis={afterE.invisible}, ward={afterE.wardTimer:0.00})");
+
+            ml.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastR, point = new Vector2(3f, 0f) });
+            Step(ml, 0.10f);
+            Assert(!GetHero(ml.Snapshot(), LaneTeam.Blue).invisible, "Miravel R channel must break W stealth");
+        }
+
+        private static void CheckSellItemRefundAndNewItemPassives()
+        {
+            var inv = CultureInfo.InvariantCulture;
+            var t = new LaneTuning { startingGold = 3000, passiveGoldPerSecond = 0f, waveFirstSpawnDelay = 999f };
+
+            // 1. Sell 70% refund & fountain-only enforcement
+            var mSell = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, t);
+            Assert(mSell.TryBuyItem(LaneTeam.Blue, 13, out _), "Buy Miner's Hatchet (200g)");
+            Assert(GetHero(mSell.Snapshot(), LaneTeam.Blue).gold == 2800, "Gold after buying 200g Hatchet");
+            MovePairTo(mSell, new Vector2(0f, 0f), new Vector2(18f, 0f));
+            Assert(!mSell.TrySellItem(LaneTeam.Blue, 0, out _), "Mid-lane item sell must fail");
+            MovePairTo(mSell, t.blueFountainPos, new Vector2(18f, 0f));
+            Assert(mSell.TrySellItem(LaneTeam.Blue, 0, out _), "Fountain item sell must succeed");
+            HeroSnap soldSnap = GetHero(mSell.Snapshot(), LaneTeam.Blue);
+            Assert(soldSnap.gold == 2940 && soldSnap.items[0] == 0,
+                $"70% sell refund must restore +140g (gold={soldSnap.gold}, slot0={soldSnap.items[0]})");
+
+            // 2. Miner's Hatchet (+18 minion dmg)
+            var tw = new LaneTuning { startingGold = 500, passiveGoldPerSecond = 0f, waveFirstSpawnDelay = 0.05f };
+            var mNoHatchet = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, tw);
+            var mHatchet = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, tw);
+            Assert(mHatchet.TryBuyItem(LaneTeam.Blue, 13, out _), "Buy Hatchet");
+            MovePairTo(mNoHatchet, new Vector2(0f, 0f), new Vector2(20f, 0f));
+            MovePairTo(mHatchet, new Vector2(0f, 0f), new Vector2(20f, 0f));
+            float dt = 1f / 30f;
+            for (int i = 0; i < 240; i++)
+            {
+                mNoHatchet.Tick(dt);
+                mHatchet.Tick(dt);
+                MinionSnap c0 = FindFirstEnemyMinion(mNoHatchet.Snapshot(), LaneTeam.Blue);
+                MinionSnap c1 = FindFirstEnemyMinion(mHatchet.Snapshot(), LaneTeam.Blue);
+                if (c0 != null && c1 != null && Mathf.Abs(c0.x) <= 2.1f && Mathf.Abs(c1.x) <= 2.1f) break;
+            }
+            MinionSnap mnBase = FindFirstEnemyMinion(mNoHatchet.Snapshot(), LaneTeam.Blue);
+            MinionSnap mnHatchet = FindFirstEnemyMinion(mHatchet.Snapshot(), LaneTeam.Blue);
+            Assert(mnBase != null && mnHatchet != null, "Minions present at midfield");
+            float hpBeforeBase = mnBase.hp;
+            float hpBeforeHat = mnHatchet.hp;
+            mNoHatchet.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackMinion, targetId = mnBase.id, point = new Vector2(mnBase.x, mnBase.y) });
+            mHatchet.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackMinion, targetId = mnHatchet.id, point = new Vector2(mnHatchet.x, mnHatchet.y) });
+            Step(mNoHatchet, 0.35f);
+            Step(mHatchet, 0.35f);
+            float dmgNoHat = hpBeforeBase - FindMinionHp(mNoHatchet.Snapshot(), mnBase.id);
+            float dmgHat = hpBeforeHat - FindMinionHp(mHatchet.Snapshot(), mnHatchet.id);
+            Assert(dmgHat > dmgNoHat + 18f, $"Miner's Hatchet must add +18 bonus minion dmg ({dmgHat:0.0} vs {dmgNoHat:0.0})");
+
+            // 3. Brawler's Buckler (-6 basic/minion block)
+            var mBuckler = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Swordsman, t);
+            Assert(mBuckler.TryBuyItem(LaneTeam.Red, 15, out _), "Swordsman buys Brawler's Buckler");
+            MovePairTo(mBuckler, new Vector2(-2f, 0f), new Vector2(2f, 0f));
+            mBuckler.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            float singleHitLoss = 0f;
+            float prevHp = GetHero(mBuckler.Snapshot(), LaneTeam.Red).hp;
+            for (int i = 0; i < 40; i++)
+            {
+                mBuckler.Tick(dt);
+                float curHp = GetHero(mBuckler.Snapshot(), LaneTeam.Red).hp;
+                if (prevHp - curHp > 5f)
+                {
+                    singleHitLoss = prevHp - curHp;
+                    break;
+                }
+                prevHp = curHp;
+            }
+            // Miravel 48 AD vs 26 Armor => 38.10; minus 6 block => ~32.05
+            Assert(singleHitLoss > 20f && singleHitLoss < 34.5f,
+                $"Brawler's Buckler must block 6 flat basic dmg (observed={singleHitLoss.ToString("0.0", inv)})");
+
+            // 4. Blighted Thorn (-35% healing/regen) & Woodland Salve (+4.5 HP/s after 5s OOC)
+            var mHealClean = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, t);
+            var mHealThorn = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, t);
+            Assert(mHealThorn.TryBuyItem(LaneTeam.Blue, 16, out _), "Buy Blighted Thorn");
+            MovePairTo(mHealClean, new Vector2(15.2f, 0f), new Vector2(16.8f, 0f));
+            MovePairTo(mHealThorn, new Vector2(15.2f, 0f), new Vector2(16.8f, 0f));
+            mHealClean.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            mHealThorn.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            Step(mHealClean, 0.85f);
+            Step(mHealThorn, 0.85f);
+            Assert(GetHero(mHealThorn.Snapshot(), LaneTeam.Red).grievousTimer > 2.0f, "Blighted Thorn must inflict Grievous Wounds");
+            // Step into outer edge of Red Fountain (center 21.2, radius 3.2 -> 18.8) keeping grievousTimer > 2.0s active
+            MovePairTo(mHealClean, new Vector2(14.5f, 0f), new Vector2(18.8f, 0f));
+            MovePairTo(mHealThorn, new Vector2(14.5f, 0f), new Vector2(18.8f, 0f));
+            float hpC0 = GetHero(mHealClean.Snapshot(), LaneTeam.Red).hp;
+            float hpT0 = GetHero(mHealThorn.Snapshot(), LaneTeam.Red).hp;
+            Step(mHealClean, 1.0f);
+            Step(mHealThorn, 1.0f);
+            float healedClean = GetHero(mHealClean.Snapshot(), LaneTeam.Red).hp - hpC0;
+            float healedThorn = GetHero(mHealThorn.Snapshot(), LaneTeam.Red).hp - hpT0;
+            Assert(healedThorn < healedClean - 10f,
+                $"Blighted Thorn -35% anti-heal must noticeably reduce fountain healing ({healedThorn:0.0} vs {healedClean:0.0})");
+
+            var mSalve = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Ogre, t);
+            Assert(mSalve.TryBuyItem(LaneTeam.Blue, 14, out _), "Buy Woodland Salve");
+            MovePairTo(mSalve, new Vector2(0f, 0f), new Vector2(1.5f, 0f));
+            Assert(mSalve.TryLevelAbility(LaneTeam.Red, LaneAbilitySlot.E), "Ogre E to chip Salve wearer");
+            mSalve.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.CastE, point = Vector2.zero });
+            Step(mSalve, 0.70f);
+            mSalve.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(-15f, 0f) });
+            Step(mSalve, 5.2f);
+            float salveBefore = GetHero(mSalve.Snapshot(), LaneTeam.Blue).hp;
+            Step(mSalve, 1.0f);
+            float salveGain = GetHero(mSalve.Snapshot(), LaneTeam.Blue).hp - salveBefore;
+            Assert(salveGain > 5.0f, $"Woodland Salve must grant +4.5 HP/s after 5s out of combat (1s gain={salveGain:0.00})");
+
+            // 5. Momentum Greaves (+MS out of combat, resets when hit)
+            var mMom = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            Assert(mMom.TryBuyItem(LaneTeam.Blue, 17, out _), "Buy Momentum Greaves");
+            MovePairTo(mMom, new Vector2(-18f, 0f), new Vector2(18f, 0f));
+            Step(mMom, 2.2f); // Ensure lastHeroDamageAge > 2s
+            mMom.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(16f, 0f) });
+            Step(mMom, 2.5f);
+            HeroSnap fastMom = GetHero(mMom.Snapshot(), LaneTeam.Blue);
+            Assert(fastMom.momentumBonus > 0.35f, $"Momentum Greaves must ramp out-of-combat MS (got +{fastMom.momentumBonus:0.00})");
+
+            // 6. Colossus Pauldron (CC shield + absorb)
+            var mCol = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t);
+            Assert(mCol.TryBuyItem(LaneTeam.Blue, 18, out _), "Buy Colossus Pauldron");
+            Assert(mCol.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q), "Level Q");
+            MovePairTo(mCol, new Vector2(0f, 0f), new Vector2(2f, 0f));
+            mCol.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(2f, 0f) });
+            Step(mCol, 0.95f);
+            HeroSnap shielded = GetHero(mCol.Snapshot(), LaneTeam.Blue);
+            Assert(shielded.shieldHp > 80f, $"Colossus Pauldron must grant STR shield when stunning target (shield={shielded.shieldHp:0})");
+            float hpBeforeHit = shielded.hp;
+            float shBeforeHit = shielded.shieldHp;
+            Step(mCol, 1.3f); // wait Miravel stun end
+            mCol.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.AttackHero, targetId = 1 });
+            Step(mCol, 0.8f);
+            HeroSnap afterAbsorb = GetHero(mCol.Snapshot(), LaneTeam.Blue);
+            Assert(afterAbsorb.shieldHp < shBeforeHit && afterAbsorb.hp >= hpBeforeHit - 5f,
+                $"Colossus shield must absorb damage before HP drops (sh {shBeforeHit:0}->{afterAbsorb.shieldHp:0}, hp {hpBeforeHit:0}->{afterAbsorb.hp:0})");
+
+            // 7. Spellweaver's Hourglass (Arcane Echo burst after cast)
+            var mSw = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            Assert(mSw.TryBuyItem(LaneTeam.Blue, 19, out _), "Buy Spellweaver's Hourglass");
+            Assert(mSw.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.E), "Level E");
+            MovePairTo(mSw, new Vector2(-2f, 0f), new Vector2(2f, 0f));
+            mSw.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastE, point = Vector2.zero });
+            Step(mSw, 0.05f);
+            Assert(GetHero(mSw.Snapshot(), LaneTeam.Blue).spellweaverReady, "Spellweaver must arm after casting E");
+            mSw.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            bool sawArcaneEcho = false;
+            for (int i = 0; i < 40; i++)
+            {
+                mSw.Tick(dt);
+                LaneSnapshot ss = mSw.Snapshot();
+                for (int e = 0; e < ss.events.Count; e++)
+                {
+                    if (ss.events[e].kind == LaneEventKind.LuisCurseProc && ss.events[e].label.Contains("ARCANE"))
+                    {
+                        sawArcaneEcho = true;
+                    }
+                }
+            }
+            Assert(sawArcaneEcho && !GetHero(mSw.Snapshot(), LaneTeam.Blue).spellweaverReady,
+                "Spellweaver's Hourglass must fire ARCANE echo magic burst on next hero hit and consume buff");
+
+            // 8. Executioner's Grudge (+18% vs <40% HP)
+            var mEx = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, new LaneTuning
+            {
+                startingGold = 2000,
+                passiveGoldPerSecond = 0f,
+                waveFirstSpawnDelay = 999f,
+            });
+            Assert(mEx.TryBuyItem(LaneTeam.Blue, 20, out _), "Buy Executioner's Grudge");
+            MovePairTo(mEx, new Vector2(-3f, 0f), new Vector2(1f, 0f));
+            mEx.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            float dmgHigh = 0f;
+            float dmgLow = 0f;
+            for (int i = 0; i < 400; i++)
+            {
+                HeroSnap ogBefore = GetHero(mEx.Snapshot(), LaneTeam.Red);
+                mEx.Tick(dt);
+                HeroSnap ogAfter = GetHero(mEx.Snapshot(), LaneTeam.Red);
+                float drop = ogBefore.hp - ogAfter.hp;
+                if (drop > 20f)
+                {
+                    if (dmgHigh == 0f && ogBefore.hp / ogBefore.maxHp > 0.70f) dmgHigh = drop;
+                    if (ogBefore.hp / ogBefore.maxHp < 0.38f)
+                    {
+                        dmgLow = drop;
+                        break;
+                    }
+                }
+            }
+            Assert(dmgHigh > 0f && dmgLow > dmgHigh * 1.15f,
+                $"Executioner's Grudge must amp dmg by ~18% below 40% HP (low={dmgLow:0.0} vs high={dmgHigh:0.0})");
+        }
+
+        private static void CheckRepeatedAttackMoveSwordsmanBotAndOgreERadius()
+        {
+            float dt = 1f / 30f;
+
+            // 1. Repeated 0.24s AttackMove spam near minions must preserve Swordsman windup and damage/kill minions
+            var ma = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, new LaneTuning
+            {
+                waveFirstSpawnDelay = 0.05f,
+                startingGold = 0,
+                passiveGoldPerSecond = 0f,
+            });
+            MovePairTo(ma, new Vector2(0f, 0f), new Vector2(19f, 0f));
+
+            bool creepArrived = false;
+            for (int i = 0; i < 240; i++)
+            {
+                ma.Tick(dt);
+                LaneSnapshot s = ma.Snapshot();
+                HeroSnap blue = GetHero(s, LaneTeam.Blue);
+                MinionSnap m = FindFirstEnemyMinion(s, LaneTeam.Blue);
+                if (m != null && Vector2.Distance(new Vector2(blue.x, blue.y), new Vector2(m.x, m.y)) <= 2.3f)
+                {
+                    creepArrived = true;
+                    break;
+                }
+            }
+            Assert(creepArrived, "Red minion wave must arrive within melee range of Swordsman");
+
+            float waveHpBefore = SumTeamMinionHp(ma.Snapshot(), LaneTeam.Red);
+            int slashes = 0;
+            for (int i = 0; i < 105; i++)
+            {
+                if (i % 7 == 0)
+                {
+                    ma.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackMove, point = new Vector2(-1.5f, 0f) });
+                }
+                ma.Tick(dt);
+                LaneSnapshot s = ma.Snapshot();
+                for (int e = 0; e < s.events.Count; e++)
+                {
+                    if (s.events[e].kind == LaneEventKind.SwordsmanSlash && s.events[e].team == LaneTeam.Blue)
+                    {
+                        slashes++;
+                    }
+                }
+            }
+            LaneSnapshot afterSpam = ma.Snapshot();
+            HeroSnap blueAfter = GetHero(afterSpam, LaneTeam.Blue);
+            float waveHpLost = waveHpBefore - SumTeamMinionHp(afterSpam, LaneTeam.Red);
+            Assert(slashes >= 4 && (blueAfter.creepScore >= 1 || waveHpLost >= 180f),
+                $"Repeated 0.24s AttackMove must preserve Swordsman windup & damage minions (slashes={slashes}, CS={blueAfter.creepScore}, hpLost={waveHpLost:0.0})");
+
+            // 2. AttackMove spam every tick during Recover cannot exploit-reset basic attack cooldown
+            var mExp = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Ogre, new LaneTuning
+            {
+                waveFirstSpawnDelay = 999f,
+                passiveGoldPerSecond = 0f,
+            });
+            MovePairTo(mExp, new Vector2(0f, 0f), new Vector2(1.8f, 0f));
+            float ogStartHp = GetHero(mExp.Snapshot(), LaneTeam.Red).hp;
+            int exploitSlashes = 0;
+            for (int i = 0; i < 60; i++)
+            {
+                mExp.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackMove, point = new Vector2(1.8f, 0f) });
+                mExp.Tick(dt);
+                LaneSnapshot s = mExp.Snapshot();
+                for (int e = 0; e < s.events.Count; e++)
+                {
+                    if (s.events[e].kind == LaneEventKind.SwordsmanSlash && s.events[e].team == LaneTeam.Blue)
+                    {
+                        exploitSlashes++;
+                    }
+                }
+            }
+            float ogDealt = ogStartHp - GetHero(mExp.Snapshot(), LaneTeam.Red).hp;
+            Assert(ogDealt > 80f && ogDealt < 180f && exploitSlashes <= 6,
+                $"AttackMove spam must deal valid Twin-Blade dmg without skipping Recover backswing (dmg={ogDealt:0.0}, slashes={exploitSlashes})");
+
+            // 3. Swordsman LaneBot actively farms minion CS instead of stalling at 0 CS
+            var mb = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, new LaneTuning { passiveGoldPerSecond = 0f });
+            var bot = new LaneBot(LaneTeam.Blue);
+            int farmTicks = Mathf.RoundToInt(42f / dt);
+            for (int i = 0; i < farmTicks; i++)
+            {
+                bot.Tick(mb, dt);
+                mb.Tick(dt);
+            }
+            HeroSnap farmed = GetHero(mb.Snapshot(), LaneTeam.Blue);
+            Assert(farmed.creepScore >= 3, $"Swordsman bot must farm lane minions cleanly (got CS={farmed.creepScore})");
+
+            // 4. Ogre [E] tightened radius (2.45u) boundary verification
+            var te = new LaneTuning { waveFirstSpawnDelay = 999f, startingGold = 0, passiveGoldPerSecond = 0f };
+            Assert(te.ogreERadius < 2.6f, $"Ogre E radius must be tightened below 2.6u (got {te.ogreERadius:0.00})");
+
+            var mOut = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, te);
+            Assert(mOut.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.E), "Level Blue Ogre E (out check)");
+            MovePairTo(mOut, Vector2.zero, new Vector2(3.15f, 0f));
+            float outHpBefore = GetHero(mOut.Snapshot(), LaneTeam.Red).hp;
+            mOut.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastE, point = Vector2.zero });
+            Step(mOut, 0.75f);
+            HeroSnap outAfter = GetHero(mOut.Snapshot(), LaneTeam.Red);
+            Assert(Mathf.Abs(outAfter.hp - outHpBefore) < 0.01f && outAfter.stunTimer <= 0.001f,
+                $"Ogre E (2.45u) must miss target at 3.15u (hp={outAfter.hp:0.0} vs {outHpBefore:0.0}, stun={outAfter.stunTimer:0.00})");
+
+            var mIn = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, te);
+            Assert(mIn.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.E), "Level Blue Ogre E (in check)");
+            MovePairTo(mIn, Vector2.zero, new Vector2(2.30f, 0f));
+            float inHpBefore = GetHero(mIn.Snapshot(), LaneTeam.Red).hp;
+            mIn.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastE, point = Vector2.zero });
+            Step(mIn, 0.75f);
+            HeroSnap inAfter = GetHero(mIn.Snapshot(), LaneTeam.Red);
+            Assert(inAfter.hp < inHpBefore - 25f && inAfter.stunTimer > 0.5f,
+                $"Ogre E (2.45u) must hit & stun target at 2.30u (dmg={inHpBefore - inAfter.hp:0.0}, stun={inAfter.stunTimer:0.00})");
+        }
+
+        private static void CheckMinionProximityXpWithoutLastHit()
+        {
+            float dt = 1f / 30f;
+
+            // Helper: Move Blue Ogre to idleSpot (never attacks) while Red Miravel clears Blue's 4 minions at midfield,
+            // letting Red's 4 surviving minions march cleanly into Blue outer tower.
+            HeroSnap RunTowerCreepDeathScenario(Vector2 blueIdleSpot, Vector2 redPostClearSpot, out float redXpBeforeTower, out int redLvlBeforeTower, out HeroSnap redAfterOut)
+            {
+                var t = new LaneTuning
+                {
+                    waveFirstSpawnDelay = 0.05f,
+                    waveInterval = 40f,
+                    startingGold = 0,
+                    passiveGoldPerSecond = 0f,
+                    minionMaxHpMelee = 48f,
+                    minionMaxHpRanged = 48f,
+                    minionMeleeDamage = 1f,
+                    minionRangedDamage = 1f,
+                    minionXpMelee = 60f,
+                    minionXpRanged = 60f,
+                    towerAttackDamage = 200f,
+                    towerAttackInterval = 0.35f,
+                };
+                var m = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t);
+                MovePairTo(m, blueIdleSpot, new Vector2(1.2f, 0f));
+
+                int orderedTarget = 0;
+                for (int i = 0; i < 360; i++)
+                {
+                    m.Tick(dt);
+                    LaneSnapshot s = m.Snapshot();
+                    HeroSnap red = GetHero(s, LaneTeam.Red);
+                    if (red.creepScore >= 4) break;
+                    MinionSnap blueCreep = FindFirstEnemyMinion(s, LaneTeam.Red);
+                    if (blueCreep != null && (orderedTarget != blueCreep.id || red.attackTargetId != blueCreep.id))
+                    {
+                        orderedTarget = blueCreep.id;
+                        m.EnqueueOrApplyOrder(new LaneOrder
+                        {
+                            team = LaneTeam.Red,
+                            kind = LaneOrderKind.AttackMinion,
+                            targetId = blueCreep.id,
+                            point = new Vector2(blueCreep.x, blueCreep.y),
+                        });
+                    }
+                }
+
+                LaneSnapshot postClear = m.Snapshot();
+                HeroSnap redPostClear = GetHero(postClear, LaneTeam.Red);
+                Assert(redPostClear.creepScore >= 4, $"Miravel must clear all 4 Blue minions at midfield (cs={redPostClear.creepScore})");
+                redXpBeforeTower = redPostClear.xp;
+                redLvlBeforeTower = redPostClear.level;
+
+                m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.Move, point = redPostClearSpot });
+                Step(m, 8.5f);
+
+                LaneSnapshot fin = m.Snapshot();
+                redAfterOut = GetHero(fin, LaneTeam.Red);
+                return GetHero(fin, LaneTeam.Blue);
+            }
+
+            // 1. Living hero within minionXpRadius (12u) receives full 100% XP when tower kills enemy creeps (0 Gold/CS);
+            //    enemy hero standing near their OWN dying creeps receives 0 XP.
+            HeroSnap blueNear = RunTowerCreepDeathScenario(new Vector2(-14.0f, 0f), new Vector2(-10.0f, 7.2f),
+                out float redXpBefore, out int redLvlBefore, out HeroSnap redNearAfter);
+            Assert(blueNear.gold == 0 && blueNear.creepScore == 0,
+                $"Proximity soak must not grant gold/CS without last hit (gold={blueNear.gold}, cs={blueNear.creepScore})");
+            Assert(blueNear.level >= 2,
+                $"Blue Ogre within 12u of 4 tower-killed enemy creeps (240 XP) must reach Level 2 (lvl={blueNear.level}, xp={blueNear.xp:0.0})");
+            Assert(redNearAfter.level == redLvlBefore && Mathf.Abs(redNearAfter.xp - redXpBefore) < 0.01f,
+                $"Red Miravel near own dying Red creeps must gain 0 XP (lvl {redLvlBefore}->{redNearAfter.level}, xp {redXpBefore:0.0}->{redNearAfter.xp:0.0})");
+
+            // 2. Hero outside minionXpRadius (inside Fountain > 16u away) gains 0 XP and 0 gold.
+            HeroSnap blueFar = RunTowerCreepDeathScenario(new Vector2(-21.2f, 0f), new Vector2(18.0f, 0f),
+                out _, out _, out _);
+            Assert(blueFar.level == 1 && blueFar.xp <= 0.01f && blueFar.gold == 0,
+                $"Hero outside 12u soak radius must earn 0 XP and 0 gold (lvl={blueFar.level}, xp={blueFar.xp:0.0}, gold={blueFar.gold})");
+        }
+
+        private static float SumTeamMinionHp(LaneSnapshot snap, LaneTeam team)
+        {
+            float sum = 0f;
+            for (int i = 0; i < snap.minions.Count; i++)
+            {
+                if (snap.minions[i].team == team && snap.minions[i].hp > 0f) sum += snap.minions[i].hp;
+            }
+            return sum;
+        }
+
+        private static void CheckLaserShooterFullKitAndDecoyBlocking()
+        {
+            float dt = 1f / 30f;
+
+            // (a) Passive: unlimited chain bounces (never repeats target), decaying hop dmg, and Laser Stacks amplify follow-up laser dmg
+            var tp = new LaneTuning
+            {
+                waveFirstSpawnDelay = 0.05f,
+                waveInterval = 40f,
+                minionMaxHpMelee = 220f,
+                minionMaxHpRanged = 220f,
+                minionMeleeDamage = 0f,
+                minionRangedDamage = 0f,
+                startingGold = 0,
+                passiveGoldPerSecond = 0f,
+            };
+            var mp = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Miravel, tp);
+            MovePairTo(mp, new Vector2(-3.2f, 0f), new Vector2(1.6f, 0f));
+            for (int i = 0; i < 240; i++)
+            {
+                mp.Tick(dt);
+                LaneSnapshot sWave = mp.Snapshot();
+                int near = 0;
+                for (int m = 0; m < sWave.minions.Count; m++)
+                {
+                    if (sWave.minions[m].team == LaneTeam.Red && sWave.minions[m].x <= 5.5f) near++;
+                }
+                if (near >= 4) break;
+            }
+
+            LaneSnapshot preShot1 = mp.Snapshot();
+            HeroSnap red0 = GetHero(preShot1, LaneTeam.Red);
+            var redMinionHp0 = new System.Collections.Generic.Dictionary<int, float>();
+            for (int m = 0; m < preShot1.minions.Count; m++)
+            {
+                if (preShot1.minions[m].team == LaneTeam.Red) redMinionHp0[preShot1.minions[m].id] = preShot1.minions[m].hp;
+            }
+
+            mp.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = red0.id, point = new Vector2(red0.x, red0.y) });
+            Step(mp, 0.32f);
+            mp.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+
+            LaneSnapshot postShot1 = mp.Snapshot();
+            HeroSnap red1 = GetHero(postShot1, LaneTeam.Red);
+            float shot1HeroDmg = red0.hp - red1.hp;
+            Assert(shot1HeroDmg > 25f && red1.laserStacks == 1,
+                $"Chain Laser basic must damage primary target and apply exactly 1 stack (dmg={shot1HeroDmg:0.0}, stacks={red1.laserStacks})");
+
+            int bouncedMinions = 0;
+            float minBounceDmg = float.MaxValue;
+            for (int m = 0; m < postShot1.minions.Count; m++)
+            {
+                MinionSnap ms = postShot1.minions[m];
+                if (ms.team == LaneTeam.Red && redMinionHp0.TryGetValue(ms.id, out float hp0))
+                {
+                    float mdmg = hp0 - ms.hp;
+                    if (mdmg > 1f)
+                    {
+                        bouncedMinions++;
+                        Assert(ms.laserStacks == 1, $"Each bounced minion must be hit at most once per shot (stacks={ms.laserStacks})");
+                        if (mdmg < minBounceDmg) minBounceDmg = mdmg;
+                    }
+                }
+            }
+            Assert(bouncedMinions >= 3, $"Chain Laser must bounce past 3+ minions with no bounce cap (bounced={bouncedMinions})");
+            Assert(shot1HeroDmg > minBounceDmg + 5f, $"Subsequent chain hops must deal reduced damage (primary={shot1HeroDmg:0.0}, last={minBounceDmg:0.0})");
+
+            // 2nd and 3rd shots on stacked target deal progressively more damage than 1st shot
+            Step(mp, 0.70f); // clear basic attack cooldown
+            float redBeforeShot2 = GetHero(mp.Snapshot(), LaneTeam.Red).hp;
+            mp.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = red1.id, point = new Vector2(red1.x, red1.y) });
+            Step(mp, 0.25f);
+            mp.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+            HeroSnap red2 = GetHero(mp.Snapshot(), LaneTeam.Red);
+            float shot2HeroDmg = redBeforeShot2 - red2.hp;
+            Assert(red2.laserStacks == 2 && shot2HeroDmg > shot1HeroDmg + 1.0f,
+                $"Laser Stack on target must amplify follow-up laser damage (shot1={shot1HeroDmg:0.0}, shot2={shot2HeroDmg:0.0}, stacks={red2.laserStacks})");
+
+            Step(mp, 0.70f);
+            float redBeforeShot3 = GetHero(mp.Snapshot(), LaneTeam.Red).hp;
+            mp.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = red2.id, point = new Vector2(red2.x, red2.y) });
+            Step(mp, 0.25f);
+            mp.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+            HeroSnap red3 = GetHero(mp.Snapshot(), LaneTeam.Red);
+            float shot3HeroDmg = redBeforeShot3 - red3.hp;
+            Assert(red3.laserStacks == 3 && shot3HeroDmg > shot2HeroDmg + 0.8f,
+                $"Additional Laser Stacks must keep scaling damage higher (shot2={shot2HeroDmg:0.0}, shot3={shot3HeroDmg:0.0}, stacks={red3.laserStacks})");
+
+            // (b) [Q] extending line beam hits each unit once & grants escalating multi-kill bonus gold
+            var tq = new LaneTuning
+            {
+                waveFirstSpawnDelay = 0.05f,
+                waveInterval = 40f,
+                minionMaxHpMelee = 38f,
+                minionMaxHpRanged = 38f,
+                minionMeleeDamage = 0f,
+                minionRangedDamage = 0f,
+                minionGoldMelee = 20,
+                minionGoldRanged = 16,
+                startingGold = 0,
+                passiveGoldPerSecond = 0f,
+            };
+            var mq = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Miravel, tq);
+            Assert(mq.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q), "Level Laser Q");
+            MovePairTo(mq, new Vector2(-3.2f, 0f), new Vector2(16.0f, 0f));
+            for (int i = 0; i < 240; i++)
+            {
+                mq.Tick(dt);
+                LaneSnapshot sw = mq.Snapshot();
+                int inLine = 0;
+                for (int m = 0; m < sw.minions.Count; m++)
+                {
+                    if (sw.minions[m].team == LaneTeam.Red && sw.minions[m].x > -2.5f && sw.minions[m].x < 4.5f) inLine++;
+                }
+                if (inLine >= 4) break;
+            }
+            HeroSnap qBefore = GetHero(mq.Snapshot(), LaneTeam.Blue);
+            mq.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(4.0f, 0f) });
+            Step(mq, 0.28f);
+            HeroSnap qMid = GetHero(mq.Snapshot(), LaneTeam.Blue);
+            Assert(qMid.phase == LanePhase.Casting && qMid.activeSlot == LaneAbilitySlot.Q &&
+                   qMid.laserBeamRange > tq.laserQStartRange + 0.1f && qMid.laserBeamRange < tq.laserQMaxRange - 0.1f,
+                $"Laser Q beam must extend gradually over its duration (range={qMid.laserBeamRange:0.00})");
+            Step(mq, 0.80f);
+            HeroSnap qAfter = GetHero(mq.Snapshot(), LaneTeam.Blue);
+            int qKills = qAfter.creepScore - qBefore.creepScore;
+            int qGoldGained = qAfter.gold - qBefore.gold;
+            int minEscBonus = Mathf.RoundToInt(tq.laserQMultiKillBonusGold) * (qKills - 1) * qKills / 2;
+            Assert(qKills >= 3 && qGoldGained >= qKills * 16 + minEscBonus && qGoldGained > qKills * 20 + 20,
+                $"Laser Q multi-kill must grant escalating bonus gold (kills={qKills}, goldGained={qGoldGained})");
+
+            // (c) [W] overlapping shocks stack both slow strength and slow duration
+            var twSingle = new LaneTuning { waveFirstSpawnDelay = 999f, startingGold = 0, passiveGoldPerSecond = 0f };
+            var mw1 = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Miravel, twSingle);
+            Assert(mw1.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.W), "Level Laser W (single shock)");
+            MovePairTo(mw1, new Vector2(-3.0f, 0f), new Vector2(1.5f, 0f));
+            mw1.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2, point = new Vector2(1.5f, 0f) });
+            Step(mw1, 0.30f);
+            mw1.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+            mw1.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastW, point = new Vector2(1.5f, 0f) });
+            Step(mw1, 0.04f);
+            HeroSnap redW1 = GetHero(mw1.Snapshot(), LaneTeam.Red);
+
+            var twMulti = new LaneTuning
+            {
+                waveFirstSpawnDelay = 0.05f,
+                waveInterval = 40f,
+                minionMaxHpMelee = 250f,
+                minionMaxHpRanged = 250f,
+                minionMeleeDamage = 0f,
+                minionRangedDamage = 0f,
+                startingGold = 0,
+                passiveGoldPerSecond = 0f,
+            };
+            var mwN = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Miravel, twMulti);
+            Assert(mwN.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.W), "Level Laser W (multi shock)");
+            MovePairTo(mwN, new Vector2(-3.5f, 0f), new Vector2(1.2f, 0f));
+            for (int i = 0; i < 240; i++)
+            {
+                mwN.Tick(dt);
+                LaneSnapshot sw = mwN.Snapshot();
+                int closeCreeps = 0;
+                for (int m = 0; m < sw.minions.Count; m++)
+                {
+                    if (sw.minions[m].team == LaneTeam.Red && Vector2.Distance(new Vector2(sw.minions[m].x, sw.minions[m].y), new Vector2(1.2f, 0f)) <= 2.3f)
+                    {
+                        closeCreeps++;
+                    }
+                }
+                if (closeCreeps >= 2) break;
+            }
+            HeroSnap redPreN = GetHero(mwN.Snapshot(), LaneTeam.Red);
+            mwN.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = redPreN.id, point = new Vector2(redPreN.x, redPreN.y) });
+            Step(mwN, 0.32f);
+            mwN.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+            mwN.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastW, point = new Vector2(redPreN.x, redPreN.y) });
+            Step(mwN, 0.04f);
+            HeroSnap redWN = GetHero(mwN.Snapshot(), LaneTeam.Red);
+            Assert(redWN.slowAmount > redW1.slowAmount + 0.05f && redWN.slowTimer > redW1.slowTimer + 0.8f,
+                $"Overlapping W shocks must stack both slow strength and duration (single={redW1.slowAmount:0.00}/{redW1.slowTimer:0.00}s vs multi={redWN.slowAmount:0.00}/{redWN.slowTimer:0.00}s)");
+
+            // (d) [E] step-back, blocks hero movement & intercepts projectiles, zaps+stuns attacker, disappears on hero hit, and creeps ignore it
+            var te = new LaneTuning { waveFirstSpawnDelay = 999f, startingGold = 0, passiveGoldPerSecond = 0f };
+            var me = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Miravel, te);
+            Assert(me.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.E), "Level Laser E");
+            MovePairTo(me, Vector2.zero, new Vector2(2.6f, 0f));
+            me.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastE, point = new Vector2(2.6f, 0f) });
+            Step(me, 0.05f);
+            LaneSnapshot decoySnap = me.Snapshot();
+            HeroSnap blueStep = GetHero(decoySnap, LaneTeam.Blue);
+            Assert(blueStep.x < -1.1f && decoySnap.illusions.Count == 1 && decoySnap.illusions[0].isLaserDecoy,
+                $"Laser E must step hero back and spawn stationary decoy (blueX={blueStep.x:0.00}, ill={decoySnap.illusions.Count})");
+
+            // Enemy hero trying to walk straight through decoy gets blocked east of decoy's actual spawn spot
+            Vector2 decoyPos = new Vector2(decoySnap.illusions[0].x, decoySnap.illusions[0].y);
+            me.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.Move, point = new Vector2(-3.0f, 0f) });
+            Step(me, 0.70f);
+            HeroSnap redBlocked = GetHero(me.Snapshot(), LaneTeam.Red);
+            float distFromDecoy = Vector2.Distance(new Vector2(redBlocked.x, redBlocked.y), decoyPos);
+            Assert(redBlocked.x >= decoyPos.x + 0.95f && distFromDecoy >= te.laserEDecoyRadius + 0.44f && me.Snapshot().illusions.Count == 1,
+                $"Laser decoy must block enemy hero movement across it (redX={redBlocked.x:0.00}, decoyX={decoyPos.x:0.00}, dist={distFromDecoy:0.00})");
+
+            // Enemy Miravel projectile toward Blue behind decoy is intercepted; Miravel takes zap dmg + stun + stack; decoy disappears
+            float blueHpBeforeProj = GetHero(me.Snapshot(), LaneTeam.Blue).hp;
+            float redHpBeforeProj = redBlocked.hp;
+            me.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.AttackHero, targetId = blueStep.id, point = new Vector2(blueStep.x, blueStep.y) });
+            Step(me, 0.55f);
+            LaneSnapshot afterProj = me.Snapshot();
+            HeroSnap blueAfterProj = GetHero(afterProj, LaneTeam.Blue);
+            HeroSnap redAfterProj = GetHero(afterProj, LaneTeam.Red);
+            Assert(Mathf.Abs(blueAfterProj.hp - blueHpBeforeProj) < 0.01f,
+                "Laser decoy must intercept enemy ranged basic projectile");
+            Assert(redAfterProj.hp < redHpBeforeProj - 20f && redAfterProj.stunTimer > 0.15f && redAfterProj.laserStacks >= 1,
+                $"Damaging decoy must zap & stun attacker (hp {redHpBeforeProj:0.0}->{redAfterProj.hp:0.0}, stun={redAfterProj.stunTimer:0.00}, stacks={redAfterProj.laserStacks})");
+            Assert(afterProj.illusions.Count == 0, "Damaging Laser decoy as a hero must destroy it");
+
+            // Creeps must never target or damage the Laser decoy
+            var tec = new LaneTuning
+            {
+                waveFirstSpawnDelay = 0.05f,
+                waveInterval = 40f,
+                minionMaxHpMelee = 200f,
+                minionMaxHpRanged = 200f,
+                minionMeleeDamage = 18f,
+                minionRangedDamage = 18f,
+                laserEDecoyDuration = 12f,
+                startingGold = 0,
+                passiveGoldPerSecond = 0f,
+            };
+            var mec = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Miravel, tec);
+            Assert(mec.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.E), "Level Laser E (creep ignore test)");
+            MovePairTo(mec, new Vector2(-1.0f, 0f), new Vector2(16.0f, 0f));
+            mec.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastE, point = new Vector2(2.0f, 0f) });
+            Step(mec, 0.05f);
+            mec.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(-12.0f, 0f) });
+            Step(mec, 7.5f);
+            LaneSnapshot creepSnap = mec.Snapshot();
+            Assert(creepSnap.illusions.Count == 1 && Mathf.Abs(creepSnap.illusions[0].hp - tec.laserEDecoyHp) < 0.01f,
+                $"Creeps must ignore Laser decoy without damaging it (hp={creepSnap.illusions[0].hp:0.0})");
+
+            // (e) [R] brief wind-up pause, then fire continuous chain-proc beam while moving freely
+            var tr = new LaneTuning { ultMinLevel = 1, waveFirstSpawnDelay = 999f, startingGold = 0, passiveGoldPerSecond = 0f };
+            var mr = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Miravel, tr);
+            Assert(mr.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R), "Level Laser R");
+            MovePairTo(mr, new Vector2(-2.0f, 0f), new Vector2(3.8f, 0f));
+            float redHpBeforeR = GetHero(mr.Snapshot(), LaneTeam.Red).hp;
+            mr.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastR, point = new Vector2(3.8f, 0f) });
+            Step(mr, 0.25f);
+            HeroSnap rWind = GetHero(mr.Snapshot(), LaneTeam.Blue);
+            Assert(rWind.phase == LanePhase.Casting && rWind.activeSlot == LaneAbilitySlot.R,
+                $"Laser R must have brief wind-up pause before firing (phase={rWind.phase})");
+
+            Step(mr, 0.35f);
+            HeroSnap rChan = GetHero(mr.Snapshot(), LaneTeam.Blue);
+            Assert(rChan.phase == LanePhase.Channeling && rChan.activeSlot == LaneAbilitySlot.R,
+                $"Laser R must enter Channeling firing state after wind-up (phase={rChan.phase})");
+
+            mr.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(2.2f, 0f) });
+            Step(mr, 1.4f);
+            HeroSnap blueAfterR = GetHero(mr.Snapshot(), LaneTeam.Blue);
+            HeroSnap redAfterR = GetHero(mr.Snapshot(), LaneTeam.Red);
+            Assert(blueAfterR.x > rChan.x + 2.0f, $"Laser Shooter must move freely while channeling R (x {rChan.x:0.00}->{blueAfterR.x:0.00})");
+            Assert(redAfterR.laserStacks >= 3 && redAfterR.hp < redHpBeforeR - 70f,
+                $"Laser R continuous beam must deliver multiple chain basic procs (stacks={redAfterR.laserStacks}, dmg={redHpBeforeR - redAfterR.hp:0.0})");
+        }
+
+        private static void CheckStopCommandAndHeroControlProfiles()
+        {
+            var t = new LaneTuning { waveFirstSpawnDelay = 999f, ultMinLevel = 1, startingGold = 0, passiveGoldPerSecond = 0f };
+
+            // 1. Stop cancels active movement
+            var mMove = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            MovePairTo(mMove, new Vector2(-4f, 0f), new Vector2(8f, 0f));
+            mMove.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(4f, 0f) });
+            Step(mMove, 0.25f);
+            HeroSnap moving = GetHero(mMove.Snapshot(), LaneTeam.Blue);
+            Assert(moving.speed > 1.0f, $"Miravel should be moving before Stop (speed={moving.speed:0.00})");
+            mMove.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+            HeroSnap stoppedImmediate = GetHero(mMove.Snapshot(), LaneTeam.Blue);
+            AssertClose(stoppedImmediate.speed, 0f, "Stop must halt movement immediately");
+            Step(mMove, 0.25f);
+            HeroSnap stayed = GetHero(mMove.Snapshot(), LaneTeam.Blue);
+            AssertClose(stayed.x, stoppedImmediate.x, "Hero must remain stationary after Stop");
+
+            // 2. Stop cancels basic Windup with zero damage & clears attack intent
+            var mWind = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            MovePairTo(mWind, new Vector2(0f, 0f), new Vector2(4.2f, 0f));
+            float ogHp0 = GetHero(mWind.Snapshot(), LaneTeam.Red).hp;
+            mWind.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            Step(mWind, 0.14f);
+            HeroSnap inWindup = GetHero(mWind.Snapshot(), LaneTeam.Blue);
+            Assert(inWindup.phase == LanePhase.Windup, $"Expected Windup phase (got {inWindup.phase})");
+            mWind.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+            HeroSnap canceled = GetHero(mWind.Snapshot(), LaneTeam.Blue);
+            Assert(canceled.phase == LanePhase.Idle && canceled.attackTargetKind == 0,
+                $"Stop must cancel Windup and clear attack intent (phase={canceled.phase}, target={canceled.attackTargetKind})");
+            Step(mWind, 0.65f);
+            LaneSnapshot afterCancel = mWind.Snapshot();
+            AssertClose(GetHero(afterCancel, LaneTeam.Red).hp, ogHp0, "Cancelled Windup must deal zero damage");
+            Assert(afterCancel.projectiles.Count == 0, "Cancelled Windup must fire zero projectiles");
+
+            // 3. Stop during Recover clears follow-up intent without bypassing recovery cooldown
+            var mRec = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            MovePairTo(mRec, new Vector2(0f, 0f), new Vector2(4.2f, 0f));
+            mRec.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            Step(mRec, 0.34f); // luisBasicWindup=0.26 -> entered Recover
+            HeroSnap recovering = GetHero(mRec.Snapshot(), LaneTeam.Blue);
+            Assert(recovering.phase == LanePhase.Recover && recovering.phaseTimer > 0.20f,
+                $"Expected Recover backswing after shot (phase={recovering.phase}, t={recovering.phaseTimer:0.00})");
+            mRec.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+            HeroSnap recStopped = GetHero(mRec.Snapshot(), LaneTeam.Blue);
+            Assert(recStopped.phase == LanePhase.Recover && recStopped.attackTargetKind == 0,
+                $"Stop must preserve Recover timer while clearing auto-attack intent (phase={recStopped.phase})");
+            Step(mRec, 0.90f);
+            HeroSnap recDone = GetHero(mRec.Snapshot(), LaneTeam.Blue);
+            Assert(recDone.phase == LanePhase.Idle && recDone.attackTargetId == 0 && mRec.Snapshot().projectiles.Count == 0,
+                "Miravel must stay idle without firing a second shot after Stop during Recover");
+
+            // 4. Stop interrupts Miravel [R] Sanctum channel
+            var mMirR = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            Assert(mMirR.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R), "Level Miravel R");
+            MovePairTo(mMirR, Vector2.zero, new Vector2(4f, 0f));
+            mMirR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastR, point = new Vector2(2f, 0f) });
+            Step(mMirR, 0.25f);
+            Assert(mMirR.Snapshot().zones.Count == 1 && GetHero(mMirR.Snapshot(), LaneTeam.Blue).phase == LanePhase.Channeling,
+                "Miravel R channel must be active before Stop");
+            mMirR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+            LaneSnapshot mirRAfter = mMirR.Snapshot();
+            Assert(GetHero(mirRAfter, LaneTeam.Blue).phase == LanePhase.Idle && mirRAfter.zones.Count == 0,
+                "Stop must cancel Miravel [R] Sanctum channel");
+
+            // 5. Stop respects committed ability casts (Ogre [Q], Ogre [R] channel, Swordsman [R] dash) & stops LaserShooter feet during mobile [R]
+            var mOgre = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t);
+            Assert(mOgre.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q), "Level Ogre Q");
+            MovePairTo(mOgre, Vector2.zero, new Vector2(2.2f, 0f));
+            float mirBeforeQ = GetHero(mOgre.Snapshot(), LaneTeam.Red).hp;
+            mOgre.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(2.2f, 0f) });
+            Step(mOgre, 0.25f);
+            mOgre.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+            Assert(GetHero(mOgre.Snapshot(), LaneTeam.Blue).phase == LanePhase.Casting, "Stop must NOT cancel committed Ogre Q cast");
+            Step(mOgre, 0.80f);
+            Assert(GetHero(mOgre.Snapshot(), LaneTeam.Red).hp < mirBeforeQ - 30f, "Committed Ogre Q must finish after Stop");
+
+            var mOgreR = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t);
+            Assert(mOgreR.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R), "Level Ogre R");
+            MovePairTo(mOgreR, Vector2.zero, new Vector2(2.0f, 0f));
+            mOgreR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastR, point = new Vector2(2f, 0f) });
+            Step(mOgreR, 0.20f);
+            mOgreR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(2f, 0f) });
+            mOgreR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+            Assert(GetHero(mOgreR.Snapshot(), LaneTeam.Blue).phase == LanePhase.Channeling &&
+                   GetHero(mOgreR.Snapshot(), LaneTeam.Blue).rComboCount == 1,
+                "Stop must NOT cancel Ogre [R] Rampage channel");
+
+            var mSwR = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, t);
+            Assert(mSwR.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R), "Level Swordsman R");
+            MovePairTo(mSwR, Vector2.zero, new Vector2(1.8f, 0f));
+            mSwR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            Step(mSwR, 0.35f); // First strike marks Red for R
+            mSwR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.Move, point = new Vector2(5.2f, 0f) });
+            Step(mSwR, 0.70f);
+            float mirPreDashHp = GetHero(mSwR.Snapshot(), LaneTeam.Red).hp;
+            mSwR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastR, point = new Vector2(5.2f, 0f) });
+            Step(mSwR, 0.04f);
+            Assert(GetHero(mSwR.Snapshot(), LaneTeam.Blue).phase == LanePhase.ExecuteDash, "Swordsman R dash should start");
+            mSwR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+            Step(mSwR, 0.35f);
+            Assert(GetHero(mSwR.Snapshot(), LaneTeam.Red).hp < mirPreDashHp - 60f, "Stop must NOT cancel committed Swordsman R dash");
+
+            var mLaserR = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Miravel, t);
+            Assert(mLaserR.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R), "Level Laser R");
+            MovePairTo(mLaserR, Vector2.zero, new Vector2(4.0f, 0f));
+            mLaserR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastR, point = new Vector2(4.0f, 0f) });
+            Step(mLaserR, 0.60f);
+            mLaserR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(4.0f, 0f) });
+            Step(mLaserR, 0.15f);
+            Assert(GetHero(mLaserR.Snapshot(), LaneTeam.Blue).speed > 1.0f, "LaserShooter walks during mobile R");
+            mLaserR.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+            HeroSnap laserStoppedR = GetHero(mLaserR.Snapshot(), LaneTeam.Blue);
+            Assert(laserStoppedR.speed == 0f && laserStoppedR.phase == LanePhase.Channeling && laserStoppedR.activeSlot == LaneAbilitySlot.R,
+                $"Stop must halt LaserShooter feet while preserving [R] overdrive beam (spd={laserStoppedR.speed}, phase={laserStoppedR.phase})");
+
+            // 6. Hero Control Profile availability checks & Ogre authoritative rejection of basic attacks / AttackMove
+            var defSettings = new PlayerSettingsData();
+            HeroControlProfile ogreProf = HeroControlCatalog.ForHero(LaneHeroId.Ogre);
+            Assert(ogreProf.SupportsStop && !ogreProf.SupportsBasicAttack, "Ogre profile must allow Stop and disallow basic attacks");
+            Assert(!ogreProf.IsCommandAvailable(ControlCommand.AttackOrder, defSettings) &&
+                   !ogreProf.IsCommandAvailable(ControlCommand.AttackMove, defSettings),
+                "Ogre profile must mark AttackOrder and AttackMove unavailable");
+
+            mOgre.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackMove, point = new Vector2(5f, 0f) });
+            mOgre.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2, point = new Vector2(2f, 0f) });
+            HeroSnap ogAfterAtk = GetHero(mOgre.Snapshot(), LaneTeam.Blue);
+            Assert(!ogAfterAtk.isAttackMoving && ogAfterAtk.attackTargetKind == 0,
+                "Ogre must ignore AttackMove and AttackHero orders authoritatively");
+
+            // 7. Future archetype control profiles (architectural verification)
+            HeroControlProfile koboldProf = HeroControlCatalog.ForFutureArchetype("KoboldKing");
+            HeroControlProfile planeProf = HeroControlCatalog.ForFutureArchetype("AirplaneFighter");
+            HeroControlProfile twinProf = HeroControlCatalog.ForFutureArchetype("TwinStickShooter");
+            Assert(koboldProf.RtsSupport == RtsControlMode.Required &&
+                   koboldProf.IsRtsEnabled(new PlayerSettingsData { enableOptionalRtsControls = false }) &&
+                   koboldProf.IsCommandAvailable(ControlCommand.RtsGroup1, new PlayerSettingsData { enableOptionalRtsControls = false }),
+                "Kobold King profile must always enable RTS controls even when Optional RTS toggle is false");
+            var allEnabledSettings = new PlayerSettingsData { enableOptionalRtsControls = true };
+            Assert(!planeProf.SupportsStop && !planeProf.IsCommandAvailable(ControlCommand.Stop, allEnabledSettings) &&
+                   !planeProf.IsCommandAvailable(ControlCommand.RtsGroup1, allEnabledSettings),
+                "Airplane Fighter must disallow Stop and RTS even if personal toggle is on");
+            Assert(!twinProf.SupportsStop && !twinProf.IsCommandAvailable(ControlCommand.Stop, allEnabledSettings) &&
+                   twinProf.TryGetAbilityCommand(LaneAbilitySlot.R, out ControlCommand twinUlt) &&
+                   twinUlt == ControlCommand.TwinStickAbility4,
+                "Twin-Stick Shooter must disallow Stop and expose custom ability slot commands");
+            Assert(!HeroControlCatalog.ForHero(LaneHeroId.Miravel).IsRtsEnabled(defSettings) &&
+                   HeroControlCatalog.ForHero(LaneHeroId.Miravel).IsRtsEnabled(allEnabledSettings),
+                "Conventional heroes must disable RTS by default and enable when personal preference opts in");
+        }
+
+        private static void CheckOptionalRtsSelectionControlGroupsAndOwnership()
+        {
+            var t = new LaneTuning { waveFirstSpawnDelay = 999f, startingGold = 0, passiveGoldPerSecond = 0f, luisWIllusionDuration = 4.5f };
+            var m = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Miravel, t);
+            Assert(m.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.W), "Level Blue Miravel W");
+            Assert(m.TryLevelAbility(LaneTeam.Red, LaneAbilitySlot.W), "Level Red Miravel W");
+            MovePairTo(m, new Vector2(-3f, 0f), new Vector2(6f, 0f));
+
+            // Spawn controllable decoy on both teams
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastW, point = new Vector2(-1.0f, 1.8f) });
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.CastW, point = new Vector2(4.0f, -1.8f) });
+            Step(m, 0.08f);
+
+            LaneSnapshot snap = m.Snapshot();
+            Assert(snap.illusions.Count == 2, $"Expected 2 illusions in mirror test (got {snap.illusions.Count})");
+            IllusionSnap blueIll = snap.illusions[0].team == LaneTeam.Blue ? snap.illusions[0] : snap.illusions[1];
+            IllusionSnap redIll = snap.illusions[0].team == LaneTeam.Red ? snap.illusions[0] : snap.illusions[1];
+            Assert(blueIll.controllable && redIll.controllable, "Miravel W illusions must report controllable=true");
+
+            var rts = new LaneRtsSelection();
+            var auth = new List<ControllableUnitInfo>();
+            rts.GetAuthorizedUnits(snap, LaneTeam.Blue, auth);
+            Assert(auth.Count == 2 && auth[0].Id == 1 && auth[1].Id == blueIll.id,
+                $"Blue authorized units must contain only Blue hero + Blue decoy (count={auth.Count})");
+
+            // Non-controllable LaserShooter [E] decoy is excluded even for its owner
+            var ml = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Ogre, t);
+            Assert(ml.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.E), "Level Laser E");
+            MovePairTo(ml, new Vector2(-1f, 0f), new Vector2(4f, 0f));
+            ml.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastE, point = new Vector2(2f, 0f) });
+            Step(ml, 0.05f);
+            LaneSnapshot laserSnap = ml.Snapshot();
+            Assert(laserSnap.illusions.Count == 1 && !laserSnap.illusions[0].controllable,
+                "Laser E hologram decoy must be non-controllable");
+            rts.GetAuthorizedUnits(laserSnap, LaneTeam.Blue, auth);
+            Assert(auth.Count == 1 && auth[0].IsHero, "Laser decoy must never appear as RTS selectable unit");
+
+            // Disabled RTS pins selection to hero
+            rts.SyncWithSnapshot(snap, LaneTeam.Blue, rtsActive: false, autoSelectSummons: true);
+            Assert(rts.SelectedUnitIds.Count == 1 && rts.SelectedUnitIds[0] == 1, "RTS off must pin selection to hero");
+
+            // Enabled RTS: unauthorized enemy selection rejected, decoy selection, empty drag preserves selection, multi-select, control groups & double-tap
+            rts.SyncWithSnapshot(snap, LaneTeam.Blue, rtsActive: true, autoSelectSummons: false);
+            Assert(!rts.SelectSingleUnit(redIll.id, false, snap, LaneTeam.Blue), "Selecting enemy illusion must be rejected");
+            Assert(!rts.SelectSingleUnit(2, false, snap, LaneTeam.Blue), "Selecting enemy hero must be rejected");
+            Assert(rts.SelectSingleUnit(blueIll.id, false, snap, LaneTeam.Blue), "Selecting own decoy must succeed");
+            Assert(rts.SelectByPredicate(_ => false, false, snap, LaneTeam.Blue) == 0 &&
+                   rts.SelectedUnitIds.Count == 1 && rts.SelectedUnitIds[0] == blueIll.id,
+                "Empty drag-box must preserve existing selection");
+            Assert(rts.AssignControlGroup(2, snap, LaneTeam.Blue), "Assign decoy to group 2");
+            Assert(rts.SelectByPredicate(_ => true, false, snap, LaneTeam.Blue) == 2 && rts.SelectedUnitIds.Count == 2,
+                "Drag-box matching both authorized units must multi-select hero + decoy");
+            Assert(rts.AssignControlGroup(1, snap, LaneTeam.Blue), "Assign both units to group 1");
+
+            Assert(rts.RecallControlGroup(2, snap, LaneTeam.Blue, 10.0f, out bool centerFirst, out _), "Recall group 2");
+            Assert(!centerFirst && rts.SelectedUnitIds.Count == 1 && rts.SelectedUnitIds[0] == blueIll.id,
+                "Single-tap recall selects group without camera snap");
+            Assert(rts.RecallControlGroup(2, snap, LaneTeam.Blue, 10.15f, out bool centerSecond, out _), "Double-tap recall group 2");
+            Assert(centerSecond, "Double-tap recall within window must request camera centering");
+
+            // Issue Move and Stop ONLY to Decoy without touching Blue Hero position/orders
+            HeroSnap heroBefore = GetHero(snap, LaneTeam.Blue);
+            int[] decoyOnly = rts.GetCommandTargetUnitIds(true, snap, LaneTeam.Blue);
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(-10f, -3f), unitIds = decoyOnly });
+            Step(m, 0.35f);
+            LaneSnapshot afterDecoyMove = m.Snapshot();
+            HeroSnap heroAfter = GetHero(afterDecoyMove, LaneTeam.Blue);
+            IllusionSnap decoyMoved = afterDecoyMove.illusions[0].id == blueIll.id ? afterDecoyMove.illusions[0] : afterDecoyMove.illusions[1];
+            AssertClose(heroAfter.x, heroBefore.x, "Moving decoy alone must not move Miravel");
+            Assert(decoyMoved.speed > 1.0f && decoyMoved.x < blueIll.x - 0.5f,
+                $"Commanding decoy alone must steer decoy toward target (x {blueIll.x:0.00}->{decoyMoved.x:0.00}, spd={decoyMoved.speed:0.00})");
+
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop, unitIds = decoyOnly });
+            LaneSnapshot afterDecoyStop = m.Snapshot();
+            IllusionSnap decoyStopped = afterDecoyStop.illusions[0].id == blueIll.id ? afterDecoyStop.illusions[0] : afterDecoyStop.illusions[1];
+            AssertClose(decoyStopped.speed, 0f, "Stop targeting decoy alone must halt decoy");
+
+            // Authoritative server check: unauthorized unitIds sent on Blue order cannot move Red hero or Red illusion!
+            Vector2 redIllPosBefore = new Vector2(redIll.x, redIll.y);
+            HeroSnap redHeroBefore = GetHero(afterDecoyStop, LaneTeam.Red);
+            m.EnqueueOrApplyOrder(new LaneOrder
+            {
+                team = LaneTeam.Blue,
+                kind = LaneOrderKind.Move,
+                point = new Vector2(-18f, 0f),
+                unitIds = new[] { 2, redIll.id },
+            });
+            m.EnqueueOrApplyOrder(new LaneOrder
+            {
+                team = LaneTeam.Blue,
+                kind = LaneOrderKind.Stop,
+                unitIds = new[] { 2, redIll.id },
+            });
+            Step(m, 0.04f);
+            HeroSnap redHeroAfter = GetHero(m.Snapshot(), LaneTeam.Red);
+            AssertClose(redHeroAfter.x, redHeroBefore.x, "Enemy hero must ignore unauthorized Move from opponent");
+
+            // Recall Group 1 (Hero + Decoy) and issue simultaneous multi-unit Move east
+            rts.RecallControlGroup(1, m.Snapshot(), LaneTeam.Blue, 20.0f, out _, out _);
+            int[] bothIds = rts.GetCommandTargetUnitIds(true, m.Snapshot(), LaneTeam.Blue);
+            float decoyXBeforeBoth = GetIllusionById(m.Snapshot(), blueIll.id).x;
+            float heroXBeforeBoth = GetHero(m.Snapshot(), LaneTeam.Blue).x;
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(8f, 0f), unitIds = bothIds });
+            Step(m, 0.45f);
+            LaneSnapshot afterBoth = m.Snapshot();
+            Assert(GetHero(afterBoth, LaneTeam.Blue).x > heroXBeforeBoth + 0.8f &&
+                   GetIllusionById(afterBoth, blueIll.id).x > decoyXBeforeBoth + 0.8f,
+                "Multi-unit Move command must move both Hero and Decoy together");
+
+            // Expire illusion -> Sync prunes dead ID & restores hero selection
+            Step(m, 4.5f);
+            LaneSnapshot expiredSnap = m.Snapshot();
+            Assert(expiredSnap.illusions.Count == 0, "Illusions should have expired");
+            rts.SyncWithSnapshot(expiredSnap, LaneTeam.Blue, rtsActive: true, autoSelectSummons: false);
+            Assert(rts.SelectedUnitIds.Count == 1 && rts.SelectedUnitIds[0] == 1,
+                "Selection must prune expired decoy and fall back to hero");
+        }
+
+        private static void CheckPersonalSettingsKeybindingsConflictsAndPersistence()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "MobaSettingsCheck_" + Guid.NewGuid().ToString("N"));
+            string path = Path.Combine(tempDir, "personal_settings.json");
+            try
+            {
+                var store = new PlayerSettingsStore(path, persistToDisk: true);
+                store.Load();
+
+                Assert(!store.Data.enableOptionalRtsControls, "Optional RTS controls must default to false");
+                Assert(store.GetKey(ControlCommand.Stop) == KeyCode.S, "Stop must default to S");
+                Assert(store.GetKey(ControlCommand.TwinStickMoveDown) == KeyCode.S, "Twin-Stick Move Down must default to S");
+
+                store.ValidateAllBindings(out var initConflicts, out var initUnbound);
+                Assert(initConflicts.Count == 0 && initUnbound.Count == 0,
+                    $"Default bindings must have zero conflicts/unbound commands (conflicts={initConflicts.Count}, unbound={initUnbound.Count})");
+
+                // Context-aware conflict checks
+                Assert(store.FindConflicts(ControlCommand.Stop, KeyCode.S).Count == 0,
+                    "Stop=S must NOT conflict with TwinStickMoveDown=S across separate hero contexts");
+                Assert(!store.TrySetBinding(ControlCommand.Stop, KeyCode.A, ConflictResolutionMode.RejectIfConflict, out var atkConflicts) &&
+                       atkConflicts.Count == 1 && atkConflicts[0].ConflictingCommand == ControlCommand.AttackMove,
+                    "Stop=A must detect conflict with AttackMove");
+                Assert(!store.TrySetBinding(ControlCommand.Stop, KeyCode.B, ConflictResolutionMode.RejectIfConflict, out var globalConflicts) &&
+                       globalConflicts.Count == 1 && globalConflicts[0].ConflictingCommand == ControlCommand.ToggleShop,
+                    "Stop=B must detect conflict with Global ToggleShop");
+                Assert(!store.TrySetBinding(ControlCommand.RtsGroup1, KeyCode.Q, ConflictResolutionMode.RejectIfConflict, out var rtsConflicts) &&
+                       rtsConflicts.Count == 1 && rtsConflicts[0].ConflictingCommand == ControlCommand.CastQ,
+                    "RtsGroup1=Q must detect conflict with CastQ");
+                Assert(!store.TrySetBinding(ControlCommand.Stop, KeyCode.Escape, ConflictResolutionMode.SwapWithConflicting, out _),
+                    "Reserved Escape key must be rejected");
+                Assert(!store.TrySetBinding(ControlCommand.Stop, KeyCode.LeftControl, ConflictResolutionMode.SwapWithConflicting, out _),
+                    "Reserved Ctrl modifier key must be rejected");
+
+                // Swap & Unbind resolution modes
+                Assert(store.TrySetBinding(ControlCommand.Stop, KeyCode.H, ConflictResolutionMode.RejectIfConflict, out _), "Bind Stop=H");
+                Assert(store.TrySetBinding(ControlCommand.Stop, KeyCode.B, ConflictResolutionMode.SwapWithConflicting, out _), "Swap Stop(H) with Shop(B)");
+                Assert(store.GetKey(ControlCommand.Stop) == KeyCode.B && store.GetKey(ControlCommand.ToggleShop) == KeyCode.H,
+                    "SwapWithConflicting must exchange both keys cleanly");
+
+                Assert(store.TrySetBinding(ControlCommand.AttackMove, KeyCode.B, ConflictResolutionMode.UnbindConflicting, out _), "Rebind AttackMove=B, unbind Stop");
+                Assert(store.GetKey(ControlCommand.AttackMove) == KeyCode.B && store.GetKey(ControlCommand.Stop) == KeyCode.None,
+                    "UnbindConflicting must assign new command and clear conflicting binding");
+
+                // Persist across restart (fresh instance reads disk file)
+                store.SetOptionalRtsEnabled(true);
+                store.SetExtraPref("custom_future_pref", "verified_v027");
+                Assert(File.Exists(path), "Settings file must be written to disk");
+
+                var reloaded = new PlayerSettingsStore(path, persistToDisk: true);
+                reloaded.Load();
+                Assert(reloaded.Data.enableOptionalRtsControls, "Optional RTS preference must persist across restart");
+                Assert(reloaded.GetKey(ControlCommand.AttackMove) == KeyCode.B, "AttackMove rebind must persist");
+                Assert(reloaded.GetKey(ControlCommand.Stop) == KeyCode.None, "Unbound Stop state must persist");
+                Assert(reloaded.GetExtraPref("custom_future_pref") == "verified_v027", "Extensible extraPrefs must persist");
+
+                // Forward compatibility when older JSON lacks newly added commands
+                File.WriteAllText(path, "{\"version\":1,\"enableOptionalRtsControls\":true,\"keybindings\":[{\"command\":\"Stop\",\"key\":\"G\"}]}");
+                var partialLoad = new PlayerSettingsStore(path, persistToDisk: true);
+                partialLoad.Load();
+                Assert(partialLoad.Data.enableOptionalRtsControls &&
+                       partialLoad.GetKey(ControlCommand.Stop) == KeyCode.G &&
+                       partialLoad.GetKey(ControlCommand.CastQ) == KeyCode.Q,
+                    "Partial settings JSON must retain saved overrides and backfill new commands with defaults");
+
+                // Restore defaults & persist
+                partialLoad.RestoreDefaults(save: true);
+                var afterReset = new PlayerSettingsStore(path, persistToDisk: false);
+                afterReset.Load();
+                Assert(!afterReset.Data.enableOptionalRtsControls &&
+                       afterReset.GetKey(ControlCommand.Stop) == KeyCode.S &&
+                       afterReset.GetKey(ControlCommand.AttackMove) == KeyCode.A &&
+                       afterReset.GetKey(ControlCommand.ToggleShop) == KeyCode.B,
+                    "RestoreDefaults must revert and persist all defaults cleanly");
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, recursive: true);
+                }
+            }
+        }
+
+        private static IllusionSnap GetIllusionById(LaneSnapshot snap, int id)
+        {
+            for (int i = 0; i < snap.illusions.Count; i++)
+            {
+                if (snap.illusions[i].id == id) return snap.illusions[i];
+            }
+            throw new InvalidOperationException($"Missing illusion {id} in snapshot");
+        }
+
+        private static void CheckBotVsBotBalanceDiagnostic()
+        {
+            var pairs = new[]
+            {
+                (LaneHeroId.Ogre, LaneHeroId.Miravel),
+                (LaneHeroId.Miravel, LaneHeroId.Ogre),
+                (LaneHeroId.Ogre, LaneHeroId.Swordsman),
+                (LaneHeroId.Swordsman, LaneHeroId.Ogre),
+                (LaneHeroId.Miravel, LaneHeroId.Swordsman),
+                (LaneHeroId.Swordsman, LaneHeroId.Miravel),
+                (LaneHeroId.LaserShooter, LaneHeroId.Ogre),
+                (LaneHeroId.Ogre, LaneHeroId.LaserShooter),
+                (LaneHeroId.LaserShooter, LaneHeroId.Miravel),
+                (LaneHeroId.Miravel, LaneHeroId.LaserShooter),
+                (LaneHeroId.LaserShooter, LaneHeroId.Swordsman),
+                (LaneHeroId.Swordsman, LaneHeroId.LaserShooter),
+            };
+
+            float dt = 1f / 30f;
+            int totalTicks = Mathf.RoundToInt(120f / dt);
+
+            for (int p = 0; p < pairs.Length; p++)
+            {
+                (LaneHeroId blueId, LaneHeroId redId) = pairs[p];
+                var m = new LaneMatch(blueId, redId, new LaneTuning());
+                var botB = new LaneBot(LaneTeam.Blue);
+                var botR = new LaneBot(LaneTeam.Red);
+
+                for (int step = 0; step < totalTicks && !m.IsGameOver; step++)
+                {
+                    botB.Tick(m, dt);
+                    botR.Tick(m, dt);
+                    m.Tick(dt);
+                }
+
+                LaneSnapshot snap = m.Snapshot();
+                HeroSnap b = GetHero(snap, LaneTeam.Blue);
+                HeroSnap r = GetHero(snap, LaneTeam.Red);
+                Assert(!float.IsNaN(b.hp) && !float.IsNaN(b.x) && !float.IsNaN(r.hp) && !float.IsNaN(r.x),
+                    $"NaN detected in bot matchup {blueId} vs {redId}");
+                Assert(b.gold > 0 && r.gold > 0, $"Economy stalled in {blueId} vs {redId}");
+
+                float bTw = snap.towers[0].alive ? snap.towers[0].hp : 0f;
+                float rTw = snap.towers[1].alive ? snap.towers[1].hp : 0f;
+                string win = snap.gameOver ? ((LaneTeam)snap.winnerTeam).ToString() : "None";
+                Debug.Log($"[BalanceDiagnostic] {blueId} vs {redId} (120s): Kills {b.kills}-{r.kills} | CS {b.creepScore}-{r.creepScore} | Gold {b.gold}-{r.gold} | TowerHP {bTw:0}-{rTw:0} | Winner={win}");
+            }
+        }
+
+        private static MinionSnap FindFirstEnemyMinion(LaneSnapshot snap, LaneTeam myTeam)
+        {
+            for (int i = 0; i < snap.minions.Count; i++)
+            {
+                if (snap.minions[i].team != myTeam && snap.minions[i].hp > 0f) return snap.minions[i];
+            }
+            return null;
+        }
+
+        private static float FindMinionHp(LaneSnapshot snap, int minionId)
+        {
+            for (int i = 0; i < snap.minions.Count; i++)
+            {
+                if (snap.minions[i].id == minionId) return snap.minions[i].hp;
+            }
+            return 0f;
+        }
+
+        private static HeroSnap GetHero(LaneSnapshot snap, LaneTeam team)
+        {
+            for (int i = 0; i < snap.heroes.Count; i++)
+            {
+                if (snap.heroes[i].team == team) return snap.heroes[i];
+            }
+            throw new InvalidOperationException($"Missing {team} hero in snapshot");
+        }
+
+        private static void Assert(bool cond, string message)
+        {
+            if (!cond) throw new InvalidOperationException($"LaneMatchChecks failed: {message}");
+        }
+
+        private static void AssertClose(float actual, float expected, string message)
+        {
+            if (Mathf.Abs(actual - expected) > 0.02f)
+            {
+                throw new InvalidOperationException($"LaneMatchChecks failed: {message} (expected {expected}, got {actual})");
+            }
+        }
+    }
+}

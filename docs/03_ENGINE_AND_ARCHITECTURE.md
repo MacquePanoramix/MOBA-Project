@@ -20,6 +20,19 @@ A previous discussion recommended **Unreal Engine 5**, using C++ for common syst
 - **Economy:** item inventory and mostly-passive effects, gold/XP, support/jungle role instruments.
 - **Multiplayer:** eventually server authoritative with correct ability ownership, prediction, server-side hit validation and replayable tests.
 
+## Implemented prototype control & settings architecture (`WoodlandLane` `v0.2.7`)
+
+To keep future divergent hero archetypes (RTS pet heroes, continuous-flight heroes, WASD twin-stick heroes) clean without rewriting shared input or settings systems, `prototype/Assets/LaneSlice/Runtime/` separates physical inputs, personal preferences, unit ownership, and hero capabilities:
+
+- **`LaneControls.cs` (`ControlContext`, `ControlCommand`, `HeroControlProfile`, `HeroControlCatalog`):**
+  - Abstracts gameplay intents (`Move`, `AttackOrder`, `AttackMove`, `Stop`, `CastQ..R`, `RtsSelectHero..RtsGroup4`, `ToggleShop..CenterCamera`, plus architectural context definitions for `FlightSteering` and `TwinStick`) away from physical `KeyCode`s.
+  - Defines composable per-hero profiles (`RequiredCommands`, `OptionalCommands`, `UnavailableCommands`, `RtsControlMode` [`Unavailable`/`Optional`/`Required`], `AbilitySlotCommands`, and per-command notes). Personal preferences can enable `Optional` controls (`Optional RTS Controls`) but can never re-enable `Unavailable` commands (e.g. Ogre basic attacks, Twin-Stick/Airplane Stop) or disable `Required` hero mechanics (e.g. Kobold King RTS controls).
+  - Enforces **context-aware keybinding conflict detection**: keys inside overlapping contexts (`Global`, `ConventionalMoba`, `RtsMultiUnit`) flag conflicts (unless explicitly paired like `RMB` `Move` + `AttackOrder`), whereas mutually exclusive primary hero contexts (`ConventionalMoba Stop = S` vs. `TwinStick Move Down = S`) coexist cleanly.
+- **`LaneSettings.cs` (`PlayerSettingsStore`, `PlayerSettingsData`):**
+  - Persists preferences (`enableOptionalRtsControls` defaulting to `false`, RTS helpers, customizable keybindings, and extensible `extraPrefs`) as atomic JSON under `Application.persistentDataPath/personal_settings.json` — outside the install directory so automatic GitHub updates never wipe player settings.
+- **`LaneRtsSelection.cs` + `LaneMatch.cs` `unitIds` ownership validation:**
+  - Client-side drag-box selection, Shift additive click, hero/all/cycle hotkeys, and 4 control groups (`Ctrl+1..4` assign, `1..4` recall + optional double-tap camera center) query `controllable` local-team units, while the authoritative `LaneMatch` simulation validates every `order.unitIds` entry against team ownership and unit controllability (allowing Miravel's `[W]` Shimmer Decoy while ignoring unauthorized enemy units, creeps, towers, and stationary Laser Decoys).
+
 ## Critical technical risks
 
 1. Replicated deterministic/authoritative simulation for many units and ability interactions.

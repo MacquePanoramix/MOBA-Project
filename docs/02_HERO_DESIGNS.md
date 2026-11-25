@@ -1,4 +1,4 @@
-# Twelve Hero Concepts — User-Authored Mechanics
+# Fifteen Hero Concepts — User-Authored Mechanics
 
 These are **working transcriptions of Luís's hero designs**. Each kit records the mechanics he described and flags tentative numbers and open questions. Design feedback appears at the end.
 
@@ -6,10 +6,13 @@ These are **working transcriptions of Luís's hero designs**. Each kit records t
 
 ## 1. Hero Luís
 
+### Basic attack
+- Ranged staff projectile attack (designer-confirmed for `WoodlandLane` prototype).
+
 ### Passive
 - Increase allied health regeneration in an aura.
 - Decrease enemy health regeneration in an aura.
-- Participating in a hero takedown permanently increases healing power slightly.
+- Participating in a hero takedown permanently increases healing power slightly (note: base Heal Power starts at `100%` / `1.0x`, so Level-1 auras and healing are immediately active).
 
 ### Q (passive)
 - Periodically spawns an orb in the world.
@@ -19,9 +22,11 @@ These are **working transcriptions of Luís's hero designs**. Each kit records t
 
 ### W
 - Become invisible for a short time and leave behind a temporary illusion.
+- Designer-confirmed prototype behavior (`v0.2.6`): the illusion walks to the cursor's location at cast time (no maximum distance limit), stops walking and stops its walk animation once it reaches that point, and can absorb enemy hero hits to trigger E's curse.
 
 ### E
 - For a short duration, when Luís or any of his illusions takes damage from an enemy hero, curse that attacker.
+- Designer-confirmed prototype rule (`v0.2.2`): casting E does **not** break active W invisibility.
 - The curse burns over time; each time the cursed enemy uses an ability, its damage/power and duration increase.
 
 ### R
@@ -30,7 +35,7 @@ These are **working transcriptions of Luís's hero designs**. Each kit records t
 - Allies progressively gain increased healing received/effectiveness.
 - Continue until full duration or channel interrupted.
 
-**Unresolved:** orb placement, orb pickup by others, whether multiple curses stack, illusion behavior, exact channel constraints, and all numbers.
+**Unresolved:** orb placement, orb pickup by others, whether multiple curses stack, exact channel constraints, and all numbers.
 
 ---
 
@@ -201,6 +206,9 @@ Luís's animation reference is the Dota jungle ogre, particularly the weight and
 - While channeling, the player enters a combination. For each input, choose Q or W and aim it individually.
 - When the channel ends, Ogre performs the attacks in the order entered. Each strike uses the direction chosen for that input, and Ogre moves a short distance with each strike.
 - These Q and W attacks animate and recover faster than their regular versions, following each other almost immediately. The final strike has an extra delay and deals a very large critical hit.
+- *(Provisional `v0.2.6` prototype timings: cast/recovery/combo speed scales with both Agility `+0.8%/AGI` and bonus Attack Speed `+70%` of bonus AS without a hard cap, with base wind-ups rebalanced to `0.90s` Q, `0.72s` W, `0.62s` E, and `0.36s` fast / `0.62s` final crit strike + `0.09s` impact beat for R; `v0.2.5` baselines were `0.85s` Q, `0.68s` W, `0.58s` E, `0.34s`/`0.58s` R, and `+1%/AGI`.)*
+
+**Scaling direction (provisional example, not finalized numbers):** Attack Damage increases club strike damage; Agility and Attack Speed increase ability wind-up/animation speed (hyperbolic time reduction `Base / Speed`, zero hard cap); Strength increases stun duration and knockback distance (diminishing returns, zero hard cap). Hybrid builds are supported.
 
 **Open details.** How long does CC immunity extend into recovery? How many inputs does R accept, and what happens if the player enters an incomplete sequence?
 
@@ -246,6 +254,7 @@ Luís's animation reference is the Dota jungle ogre, particularly the weight and
 ### Q
 
 - Slash in a forward arc with a decent reach. Enemies caught in the arc take damage and are slowed.
+- Designer-confirmed prototype rule (`v0.2.3`, from playtester feedback): hitting enemies with Q also applies R's lookback mark (prioritizing heroes).
 
 ### W
 
@@ -257,7 +266,7 @@ Luís's animation reference is the Dota jungle ogre, particularly the weight and
 
 ### R
 
-- Dash by the last enemy the swordsman basic-attacked recently, slashing them for substantial damage and ending in front of them. Luís suggested roughly 10–15 seconds as the lookback window.
+- Dash by the last enemy the swordsman basic-attacked or hit with Q recently (updated from basic-attacks-only per `v0.2.3` playtest feedback), slashing them for substantial damage and ending in front of them. Luís suggested roughly 10–15 seconds as the lookback window.
 - If that enemy is below a health threshold, execute them and refresh R's cooldown.
 
 **Open details.** Can displacement, lost range or a move command prevent the second strike? Are W and E always applied to their respective strikes once learned, or do they require activation? The health basis for W, the resistances E affects and how its stacks fade are open. R's cast range and whether it checks the execute threshold before or after slash damage are also open.
@@ -372,6 +381,131 @@ Luís's animation reference is the Dota jungle ogre, particularly the weight and
 
 ---
 
+## 13. Kobold King
+
+Based on the concept of a hero commanding RTS-controlled minion/servant units.
+
+### Passive
+- Whenever a unit you control kills a creep or monster, you gain bonus gold.
+- Units you control gain bonus stats based on how close they are to you (starting within a fair proximity area).
+- All units summoned by this hero can be fully controlled directly like units in an RTS.
+
+### Q — Whip Kobold
+- Periodically spawns a **Whip Kobold** if there is currently none alive.
+- The Whip Kobold's basic attacks slow enemies on hit.
+- Pressing **Q** orders it to perform a whip attack that damages and slows enemies hit in a straight line.
+
+### W — Sling Kobold
+- Periodically spawns a **Sling Kobold** if there is currently none alive.
+- Has a ranged basic attack and uses its sling to hurl rocks with an on-hit chance to stun the enemy.
+- Pressing **W** orders it to hurl a rock in a target direction, hitting and stunning the first enemy unit hit.
+
+### E — Spear Kobold
+- Periodically spawns a **Spear Kobold** if there is currently none alive.
+- Has a piercing melee basic attack. Each target hit has its armor reduced on hit, stacking and refreshing/resetting its stack duration on each hit.
+- Pressing **E** orders it to stretch its spear forward, passing through all enemies in a line and dealing damage strongly amplified by how much armor reduction each enemy currently has applied to them at the time of the damage.
+
+### R — Succession (Heart Attack)
+- Can only be cast while you are currently selecting one of your kobold servants.
+- After casting R and waiting a short delay, if the kobold selected at cast time is still alive, the Kobold King suffers a heart attack and dies (this does **not** count as a real hero death for kill credit/bounty/deaths). If that selected kobold died before the delay finishes, the ability enters cooldown without doing anything.
+- The selected kobold servant becomes the new **Kobold King**, effectively becoming the hero: it receives **full health**, retains **none of the previous king's active status conditions**, and has **all basic ability cooldowns (Q/W/E) reset**.
+
+**Open details.** Do Q/W/E respawn timers pause while that kobold is alive or tick only once killed, and can servants walk anywhere on the map vs. leashing? Which stats scale with king proximity (damage, attack speed, resistances, move speed) and is the curve stepped or continuous? When R turns a servant into the new king (losing that servant slot until Q/W/E respawns a replacement), how does camera/RTS selection recover seamlessly, and does the new king inherit all items, level, and gold identically? Also consider Sling Kobold's RNG on-hit stun vs. pseudo-random distribution (PRD) to prevent frustrating back-to-back stunlocks.
+
+---
+
+## 14. Mr. Random
+
+*Status: Documented concept for future roster — **do not implement the procedural generation system during the current milestone.** Numerical values, balance parameters, and generation weights remain undecided.*
+
+### Core concept
+- Mr. Random's entire ability kit is **procedurally generated at the beginning of each match**.
+- Rather than randomly picking complete abilities from existing heroes, a **modular procedural generation algorithm** constructs original abilities by combining mechanics, properties, effects, and scaling relationships so the player experiences a potentially different hero every match.
+
+### Passive
+- All of Mr. Random's abilities (`Q`, `W`, `E`, `R`) are custom randomized abilities created by the modular procedural generation algorithm for each match.
+- Also receives a **randomly generated passive ability** each match.
+
+### Q / W / E / R
+- **Q:** Randomly generated basic ability.
+- **W:** Randomly generated basic ability.
+- **E:** Randomly generated basic ability.
+- **R:** Randomly generated ultimate ability with an appropriate ultimate-level power budget and identity.
+
+### Procedural ability generation
+- Genuinely modular construction rather than selecting from a finite pool of complete predetermined abilities.
+- Candidate building-block categories: delivery methods, targeting methods, activation conditions, effects, triggers, projectile behavior, movement behavior, area shapes, durations, summoning mechanics, environmental interactions, resource interactions, scaling relationships, and other compatible mechanical modifiers.
+- *Illustrative example (not a finalized ability):* combining a projectile + returning trajectory + offensive effect on the outward path + supportive effect on return + attribute-based scaling relationship.
+- Should eventually be capable of producing abilities and combinations not individually hand-authored.
+
+### Internal kit synergy
+- Generation should gently encourage abilities within a rolled kit to synergize without becoming so rigid that the hero loses randomness or always rolls hyper-curated combos (retaining unexpected mechanics and occasionally awkward but playable rolls).
+- Potential synergy mechanisms (illustrative): status setup/detonation across abilities, positional setup for another spell, shared attribute scaling across different mechanics, compensating weaknesses, shared resource loops, environmental or complementary combat/movement interactions — leaving room for player discovery.
+
+### Lane affinity
+- Rolled kit should have a soft affinity bias toward the player's selected position among the six intended positions: **Top**, **Mid**, **Bot Carry**, **Support**, **Safe Jungle**, and **Advanced Jungle**.
+- Influences rather than hard locks: e.g., **Support** biases higher likelihood of ally utility, protection, healing, or crowd control while still allowing unusual offensive rolls; **Safe Jungle** biases clear/sustain/farming tools; two Support Mr. Randoms can still roll radically different kits.
+- Balances three weights (still undecided): randomness/discovery, internal kit synergy, and position suitability.
+
+### Kit reveal & intended experience
+- Intended reveal timing: when the match begins or, preferably, during the **match loading screen** so the player can read the rolled kit before spawn (after choosing lane position).
+- Opponents and allies must have a clear, fair way to inspect Mr. Random's generated abilities.
+- Rewards adaptability, creativity, broad game knowledge, experimentation, and on-the-fly itemization rather than muscle memory for one static kit.
+
+### Open technical & design details
+- Modular ability definitions and mechanical compatibility validation (preventing broken or infinitely recursive triggers), reasonable power budgets, dynamic tooltip generation, readable procedural VFX/telegraphs, authoritative seed/kit replication in multiplayer, flexible per-property `StatFormula` scaling, and exact reveal/inspection timing and position weights.
+
+---
+
+## 15. Twin-Stick Shooter Roguelike
+
+*Status: Documented concept for future roster — **do not implement procedural generation, roguelike progression, or specialized WASD combat systems during the current milestone.** Numerical values, balance rules, and pools remain undecided.*
+
+### Core concept
+- Combines **twin-stick shooter controls** with an in-match **roguelike progression system**: unlike Mr. Random (full rolled kit at match start), this hero begins with **no active abilities** and gradually builds its kit throughout the match via randomized level-up choices.
+
+### Passive — Alternative movement controls
+- Moves using **WASD** rather than conventional mouse click-to-move.
+- Movement and aiming are independent (can strafe/retreat while aiming in another direction).
+- Conventional **Stop** command is **unavailable** (releasing movement keys stops movement).
+
+### Passive — Basic shooting mechanic
+- Left mouse click (`LMB` default) fires a slow-moving, round, **physical and dodgeable** projectile toward the mouse cursor (replacing conventional targeted basic attacks).
+- Deals damage to the first enemy touched or disappears upon reaching maximum range.
+- Fire rate scales with **Attack Speed**; holding left mouse click continuously fires whenever the next shot is available.
+
+### Passive — Roguelike level-up progression
+- Starts with **zero active abilities**.
+- At **every level (including Level 1)**, receives **3 or 4 randomized level-up options** (exact option count open): either a **new ability** or an **upgrade to an already-acquired ability**.
+- Upgrades should be creative rather than purely numerical — potentially altering behavior, adding bouncing projectiles, delayed secondary effects, conditional triggers, or cross-mechanic interactions (illustrative examples only).
+
+### Ability and upgrade rarity
+- Rewards roll a rarity reflecting how **unusual, transformative, or mechanically wild** an ability or upgrade is rather than raw power: lower rarity = straightforward mechanics/stats, intermediate = unusual conditions/behaviors, higher = transformative changes to how an ability or the character plays.
+- Higher rarity is **not** automatically stronger; a straightforward numeric option may outperform a transformative roll for a specific build.
+
+### Ability slots and default controls
+Acquired abilities fill slots in acquisition order (all default bindings compatible with the customizable keybinding system and Twin-Stick control context):
+1. **Right mouse click (`RMB` default) — First acquired ability.**
+2. **`Shift` default — Second acquired ability.**
+3. **`Q` default — Third acquired ability.**
+4. **`E` default — Fourth acquired ability (Ultimate slot):** whichever ability is chosen for this 4th slot receives an **additional Ultimate bonus** (increased power, extra effects, or expanded functionality appropriate to that ability; exact transformation rules undecided).
+
+### Progression decisions & intended experience
+- Creates real run-to-run build tension between acquiring a wider toolkit quickly, specializing heavily into existing abilities, pushing toward unlocking the 4th Ultimate slot, and adapting item builds around rolled synergies.
+- Rewards action-roguelike adaptation, aim/kiting skill, and iterative build construction atop a consistent projectile foundation.
+
+### Open technical & design details
+- Whether ability/upgrade pools are handcrafted modules, procedurally generated, or hybrid; whether upgrades can modify the basic `LMB` projectile itself; 3 vs. 4 choices per level; minimum level gates / guaranteed new-ability safeguards / upgrade caps; dynamic tooltip & slot reassignment UI; non-obstructive level-up UI during live combat; opponent/ally inspection of the evolving kit; authoritative multiplayer level-up choices; and preventing recursive/overlapping effect loops.
+
+---
+
+## Relationship between Mr. Random and Twin-Stick Shooter Roguelike
+- **Mr. Random** receives a complete procedurally generated kit at the beginning of the match and adapts its strategy and itemization to that fixed rolled kit.
+- **Twin-Stick Shooter Roguelike** gradually constructs and mutates its kit level-by-level mid-match through curated/randomized choices paired with independent WASD + projectile shooter mechanics.
+- Preserve this distinct experiential identity between the two concepts.
+
+---
+
 ## Design feedback (non-canonical)
 
 - Luís: orb denial, W/E interaction and escalating R are standouts; avoid overwhelming raw amplification.
@@ -383,3 +517,6 @@ Luís's animation reference is the Dota jungle ogre, particularly the weight and
 - Airplane Fighter: strong spatial identity; warrants an isolated flight/steering lab before 1v1 tuning.
 - Bomb Planter & Chain Laser Shooter: high-personality lane kits whose wave interactions (minion explosions, chain hops, Q multi-kill gold) come alive once lane creeps and walls exist.
 - Automatron Bot 3000 & Multi-Phase Raid Boss: bold structural experiments (RTS-style macro delegation and boss-bar life economy) best deferred until core MOBA lane/map systems exist.
+- Kobold King: cohesive RTS-micro pet hero where each servant fills a distinct combat job (slow line, ranged stun, piercing armor-shred nuke) and R's succession cheat-death turns servant positioning into a tense escape/bait mechanic; requires multi-unit selection controls beyond single-hero MOBA input.
+- Mr. Random & Twin-Stick Shooter Roguelike: complementary roguelike pillars separated cleanly by pre-match full-kit roll (Mr. Random) vs. level-by-level acquisition + WASD/cursor control (Twin-Stick); our context-aware control profiles and data-driven ability cards are designed to accommodate both without rewriting shared input systems.
+- Mr. Random: high-replayability roguelike-style kit concept; needs strict per-slot power-budget constraints and readable auto-generated tooltips/telegraphs so opponents aren't blindsided by illegible spells.

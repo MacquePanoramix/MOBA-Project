@@ -24,26 +24,29 @@
 ## Milestone 2 — Basic combat laboratory
 
 - [x] First slice with one stationary dummy, visible attack phases, and a shared basic attack for both movement profiles.
-- [ ] Two targetable graybox heroes, teams, HP and respawn.
-- [ ] Basic attacks, attack wind-up and backswing.
-- [ ] One projectile skillshot, simple collision, short stun/root, damage and healing.
-- [ ] Test lightweight attribute scaling formulas and unit tests.
+- [~] First two-ability 1v1 duel slice (`WoodlandDuel`: Ogre vs Hero Luís / Miravel over Direct TCP) reached a live Amsterdam↔Brazil playtest; human feedback showed basic attacks, `A` Attack-Move, slower Ogre W telegraphing (`~0.68s`), and full kits/lane objectives are needed before judging subjective feel.
+- [ ] Basic attacks, attack wind-up, motion buffer, and `A` Attack-Move targeting verified in playtest.
+- [ ] Full abilities (Passive + Q/W/E/R) and short stun/root/slow CC interactions verified from all playable heroes' perspectives.
+- [ ] Explicit Str/Agi/Int attribute scaling formulas (zero automatic universal bonuses) verified in unit tests and lane play.
 
-**Done when:** tiny 1v1 graybox combat supports repeated tuning.
+**Done when:** tiny 1v1 combat supports repeated feel and kit tuning.
 
-## Milestone 3 — Expand the first duel
+## Milestone 3 — Expand the first duel into full kits
 
-- [ ] Extend a selected duelist with a signature interaction that the opponent can read and respond to.
-- [ ] Play from both sides before expanding either kit. Use the [first playable match proposal](#first-playable-match-proposal) for candidate interactions.
-- [ ] Keep ability values configurable and test transition edge cases.
+- [x] Extend the playable cast (`Ogre`, `Hero Luís`, and `Old Man Swordsman`) to full Passive + Q/W/E/R kits with readable telegraphs (`~0.68s` Ogre W sweep, R `0.34s`/`0.58s` + `0.09s` multi-strike sequence, articulated weapon/limb animations, Luís W decoy + stealth-preserving E curse + drain/ward/curse rings + R zone, Swordsman Twin Blade + R execute reset).
+- [~] Play all matchups from both sides (solo vs bot and 2-player online via Unity Relay Room Code or Direct TCP) and tune ability timing and cooldowns (`v0.2.2` addressed click-spam slowdown, tower aggro on hero damage, clearer status/animation feedback, and tiered item builds).
+- [ ] Keep ability and combat values configurable in `LaneTuning` and cover transition/CC-immunity edge cases with automated checks.
 
-**Done when:** the first pair shows how its two heroes make different decisions in the same fight.
+**Done when:** the first 3-hero cast demonstrates distinct, readable decision-making across melee bruiser, healer/illusionist, and dual-strike duelist kits.
 
-## Milestone 4 — One lane and game economy
+## Milestone 4 — One lane and game economy (`WoodlandLane` active slice)
 
-- [ ] Basic creeps, towers, gold/XP, item/stat pipeline.
-- [ ] Basic support item and jungle camp proof of concept.
-- [ ] Hero role and scaling validation.
+- [x] `v0.2.2` 1v1 woodland lane with periodic minion waves (3 melee + 1 ranged), outer towers with hero-damage aggro switching, fountain regen, levels 1–6, last-hit gold/XP, and a 20-item `Starter` / `Core` / `Capstone` Fountain Shop with `70%` sell refunds.
+- [x] `v0.2.6` Part A expansion: add 4th hero (**Chain Laser Shooter**) — unlimited non-repeating chain lasers + **Laser Damage** amplification stacks, extending `[Q]` line beam with escalating multi-kill bonus gold, `[W]` stack-triggered area shocks stacking both slow strength and slow duration, `[E]` step-back blocking decoy (ignored by creeps/towers, blocks heroes & projectiles, zaps/stuns attackers), and `[R]` mobile continuous prism-beam overdrive.
+- [x] `v0.2.7` Control, Settings & Naming foundation (`Ultimate Free MOBA`): hero-specific composable control profiles (`LaneControls.cs`), `S` Stop command respecting committed casts/channels, Optional RTS multi-unit box selection & `1..4` control groups (`LaneRtsSelection.cs`), persistent context-aware personal settings & keybindings surviving auto-updates (`LaneSettings.cs`), plus full design/implementation review provenance docs (`docs/09_IMPLEMENTATION_REVIEW_GUIDE.md`).
+- [ ] `v0.3.0` Part B next expansion: **2v2** multiplayer lane format (lobby, 4-hero lane simulation, and allied orb/aura rules).
+- [ ] Basic support item and jungle camp proof of concept (support item included in starter/core shop; jungle camp deferred until 2v2/lane loop is tuned).
+- [ ] Hero role and explicit attribute scaling validation.
 
 ## Milestone 5 — Map, vision, multiplayer proof of concept
 
@@ -79,6 +82,9 @@
 | Automatron Bot 3000 | Tests indirect AI posture toggles (Brave/Coward, Farm) and macro camera/unit cycling. | Cannot validate direct hero movement/attack feel; relies on minions, individual gold/XP, and shop infrastructure (Milestone 4+). |
 | Chain Laser Shooter | Strong ranged kiting and skillshot duel test: extending Q beam, W stack slows, and E decoy blocks/stuns. | Unlimited chain bounces and Q multi-kill bonus gold stay mostly dormant without a minion wave; strong candidate for the first ranged test once waves exist (or a 3rd 1v1). |
 | Multiple Phases Raid Boss Hero | Tests boss-bar phase threshold pacing (20% cleanses) and an isolating R arena. | Q/W/E multi-part combo patterns are still undecided, and Phase 1 begins with zero active abilities; better after core combat combos and threshold feel settle. |
+| Kobold King | Could showcase RTS servant positioning, armor-shred piercing into E nuke, and R succession body-swap escapes. | `v0.2.7` adds reusable RTS multi-unit selection/group architecture (`RtsControlMode.Required`), but kobold servant entities, creep/monster bonus gold, and succession swap remain unimplemented pending Kobold King's milestone. |
+| Mr. Random | High-variance test of procedural telegraphs, soft internal synergy, soft 6-role affinity, and readable ability cards once modular ability building blocks exist. | Requires a mature modular ability-generation grammar, compatibility validator, power-budget balancer, loading-screen reveal UI, and runtime tooltip/telegraph synthesizer (do not implement yet). |
+| Twin-Stick Shooter Roguelike | Fast WASD + LMB dodging projectile combat paired with level-up roguelike kit drafting (RMB / Shift / Q / E Ultimate) and transformative rarity tiers. | Requires WASD + physical continuous projectile movement/combat (`ControlContext.TwinStick` already modeled in `LaneControls`), non-obstructive level-up choice UI, and dynamic ability/upgrade composition (do not implement yet). |
 
 ### Proposed builds and playtest
 

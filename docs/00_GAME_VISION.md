@@ -1,8 +1,8 @@
-# Game Vision — Working Draft
+# Game Vision — **Ultimate Free MOBA** *(Provisional Name)*
 
 ## Elevator pitch
 
-An original, deliberately paced MOBA that combines the physical, terrain-conscious, occasionally janky feel of early Dota 2 with a skillshot-oriented, lower-hard-CC combat language and largely passive/stat-focused items. The designer is considering a strategically flexible sixth player on a larger map.
+**Ultimate Free MOBA** *(working/provisional title; `Woodland Lane` remains the current prototype battlefield)* is an original, deliberately paced MOBA that combines the physical, terrain-conscious, occasionally janky feel of early Dota 2 with a skillshot-oriented, lower-hard-CC combat language and largely passive/stat-focused items. The designer is considering a strategically flexible sixth player on a larger map (intended positions: **Top**, **Mid**, **Bot Carry**, **Support**, **Safe Jungle**, and **Advanced Jungle**).
 
 ## Intended feel
 
@@ -18,7 +18,7 @@ An original, deliberately paced MOBA that combines the physical, terrain-conscio
 
 ## Roster design philosophy
 
-The twelve hero concepts explore different ways to move, attack, farm, and warp an encounter.
+The fifteen hero concepts explore different ways to move, attack, farm, control units, and warp an encounter (including non-conventional control schemes such as RTS multi-unit micro, continuous flight steering, and twin-stick WASD shooting):
 
 1. **Luís:** sustain, orb denial, illusion mind games, anti-casting curse, escalating zone/channel teamfight.
 2. **All-Passive Hero:** Q/W/E/R all passive; satisfy behavioral triggers and overlap buffs to enter a strong state.
@@ -26,12 +26,15 @@ The twelve hero concepts explore different ways to move, attack, farm, and warp 
 4. **Four-Form Botlaner:** preset ordered rotation across ADC, poke mage support, engage support, enchanter support; each cast advances form; shared slot cooldowns.
 5. **Slow Tortuga:** defensive shell with damage diversion; shell breaking transforms into fast aggressive red bleed/acid/charge form.
 6. **Ogre:** fights entirely through club abilities, gaining crowd-control immunity during their animations. During the ultimate's channel, the player queues and aims a rapid sequence of slams and sweeps with a delayed critical finisher.
-7. **Airplane Fighter:** takes off from base, flies continuously toward the cursor over terrain and parks on returning. Stuns and roots lock its heading. It aims strikes with the cursor and leaves bombs along its flight path.
+7. **Airplane Fighter:** takes off from base, flies continuously toward the cursor over terrain and parks on returning (no Stop command). Stuns and roots lock its heading. It aims strikes with the cursor and leaves bombs along its flight path.
 8. **Old Man Swordsman:** moves slowly and attacks twice in quick succession. His first strike sustains him, and his second builds his resistances while wearing down the opponent's. He can dash past the last foe he basic-attacked within a short window. Executing that foe refreshes his ultimate.
 9. **Bomb Planter:** no basic-attack hero damage—instead plants long-timer bombs on hits while exploding last-hit creeps; mutual push-off Q, temporary wall-hop-and-return W, wide reveal taunt E that charges planted bombs, and skill-check log-barricade run R.
 10. **Automatron Bot 3000:** outside-observer engineer who unlocks up to four AI Automatrons across tiers with individual gold/levels and toggled camera, brave/coward, farming, and tier-cycling directives.
 11. **Chain Laser Shooter:** unlimited non-repeating chain-laser basics that stack laser vulnerability, expanding gold-harvest Q beam, stack-detonating slow shocks W, projectile/hero-blocking stun decoy E, and moving multi-proc beam R.
 12. **Multiple Phases Raid Boss Hero:** unhealable, zero-regen five-phase boss who cleanses and turns invulnerable at every 20% HP loss while unlocking Q/W/E/R multi-part combos and growing more demonic, culminating in an isolating true-damage arena R.
+13. **Kobold King:** RTS-controlled hero with three periodic kobold servants (Whip slow, Sling stun, Spear armor-shred) gaining proximity buffs and creep/monster bonus gold, plus R heart-attack succession body-swap into a selected servant.
+14. **Mr. Random:** receives an entire custom modular procedurally generated Passive + Q/W/E/R kit at match start with soft internal synergy and soft lane-position affinity.
+15. **Twin-Stick Shooter Roguelike:** WASD movement (no Stop) + continuous cursor-aimed physical projectiles; begins with 0 active abilities and drafts 3–4 rarity-driven new abilities/upgrades per level into RMB, Shift, Q, and E (Ultimate).
 
 ## Failure shapes to watch
 

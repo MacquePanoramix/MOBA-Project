@@ -6,6 +6,12 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/LaneSlice/Scenes/WoodlandLane.unity
+    guid: b26e24a08a9e840438708675db78ebe4
+  - enabled: 1
+    path: Assets/Duel/Scenes/WoodlandDuel.unity
+    guid: 9fc16b84b27c49cf8cf512ffabb11ff8
+  - enabled: 1
     path: Assets/MovementLab/Scenes/MovementLab.unity
     guid: a3b4eba680118704ab4672e268e6de7d
   m_configObjects: {}

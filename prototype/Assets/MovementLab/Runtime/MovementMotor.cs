@@ -61,6 +61,11 @@ namespace Moba.MovementLab
             Speed = 0f;
         }
 
+        public void SetPositionPreserveSpeed(Vector2 pos)
+        {
+            Position = pos;
+        }
+
         internal bool TurnToward(Vector2 target, MovementTuning tuning, float deltaTime)
         {
             Vector2 offset = target - Position;

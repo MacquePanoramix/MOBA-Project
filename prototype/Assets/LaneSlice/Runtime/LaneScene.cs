@@ -84,8 +84,8 @@ namespace Moba.LaneSlice
         {
             headlessMode = Application.isBatchMode;
             Application.runInBackground = true;
-            LaneUpdater.CleanupStagingDir();
             updater = new LaneUpdater();
+            updater.RecoverFromPreviousUpdateIfNeeded();
             settingsStore = new PlayerSettingsStore(persistToDisk: !headlessMode);
             settingsStore.Load();
 
@@ -266,6 +266,11 @@ namespace Moba.LaneSlice
             {
                 StartCoroutine(updater.DownloadAndApplyCoroutine());
             }
+        }
+
+        public void OpenReleasesInBrowser()
+        {
+            updater?.OpenReleasePageInBrowser();
         }
 
         private void HookLink(bool isHost)

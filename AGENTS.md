@@ -50,4 +50,4 @@ The engine choice remains open. Unity `6000.6.0f1` lives in `prototype/` for ear
 
 ## Current focus
 
-Take the active scope from `docs/CURRENT_STATE.md` and `prototype/README.md`. Currently: maintain `MovementLab.unity` and `WoodlandDuel.unity` baselines intact while iterating on and playtesting **Ultimate Free MOBA (`WoodlandLane.unity`, `v0.2.8` Scaling Patch)** across the four implemented heroes (`Ogre`, `Miravel / Hero Luís`, `Old Man Swordsman`, `Chain Laser Shooter`). Ask only essential setup questions when truly blocked, and keep reversible test values clearly labeled.
+Take the active scope from `docs/CURRENT_STATE.md` and `prototype/README.md`. Currently: maintain `MovementLab.unity`, `WoodlandDuel.unity`, and `v0.2.8` hero/scaling mechanics unchanged while completing **`v0.2.9`: The Reliability Patch** (static-manifest updater, rate-limit/cooldown & integrity hardening, release automation, and documentation). Ask only essential setup questions when truly blocked, and keep reversible test values clearly labeled.

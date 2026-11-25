@@ -125,8 +125,11 @@ namespace Moba.LaneSlice
    - Unity Relay (Recommended): Host clicks 'Host Relay Room' -> Copy the 6-letter Room Code -> Guest clicks Paste & 'Join Code'. Zero port-forwarding or extra tools needed!
    - Direct TCP Fallback (:47777): Click 'Host TCP' (or pass '-laneHost 0.0.0.0:47777' / '-laneJoin <host>:47777').
 
-4. ONE-CLICK UPDATES:
-   - In the Lobby bottom bar, click 'Check for Updates'. If a newer release zip exists on GitHub Releases (configured in updater_config.json), click 'Update' to download and relaunch cleanly.
+4. ONE-CLICK UPDATES & DIRECT DOWNLOAD FALLBACK:
+   - In the Lobby bottom bar, click 'Check for Updates'. Starting in v0.2.9, update checks read a free public static manifest (no GitHub REST API rate limits) and verify exact byte size + SHA-256 + ZIP integrity before installing.
+   - If your network blocks or rate-limits GitHub, click 'Open Download Page' (or 'Releases') to download the latest zip directly in your browser without using the GitHub API:
+     https://github.com/MacquePanoramix/MOBA-Project/releases/latest/download/WoodlandLane-Windows.zip
+   - Your personal settings & keybindings live outside the install folder and always survive updates.
 ";
             File.WriteAllText(Path.Combine(WindowsBuildDir, "HOW_TO_PLAY.txt"), howTo);
             File.WriteAllText(Path.Combine(WindowsBuildDir, "version.txt"), LaneUpdater.BuildVersion);

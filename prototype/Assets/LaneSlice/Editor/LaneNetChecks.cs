@@ -1,7 +1,12 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 using Unity.Collections;
 using Unity.Networking.Transport;
@@ -19,8 +24,9 @@ namespace Moba.LaneSlice
             CheckTransportFragmentedReliablePipeline();
             CheckRelayOfflineUnlinkedGuard();
             CheckUpdaterParsingAndVersionCompare();
+            CheckUpdaterRealHttpAndRecoveryScenarios();
             CheckSettingsSurviveSimulatedUpdate();
-            Debug.Log("[LaneNetChecks] All TCP loopback, UTP Fragmented+Reliable loopback, Relay, Updater, and Update-Persistence checks passed.");
+            Debug.Log("[LaneNetChecks] All TCP loopback, UTP Fragmented+Reliable loopback, Relay, Static-Manifest Updater, and Update-Persistence checks passed.");
         }
 
         private static void CheckTcpLoopbackFullCycle()
@@ -277,10 +283,33 @@ namespace Moba.LaneSlice
                 throw new InvalidOperationException("Valid github.com HTTPS release URL rejected.");
             if (!LaneUpdater.IsAllowedDownloadUrl("https://objects.githubusercontent.com/github-production-release-asset/foo.zip"))
                 throw new InvalidOperationException("Valid githubusercontent.com HTTPS asset URL rejected.");
+            if (!LaneUpdater.IsAllowedManifestUrl("https://macquepanoramix.github.io/MOBA-Project/latest.json"))
+                throw new InvalidOperationException("Valid github.io HTTPS manifest URL rejected.");
             if (LaneUpdater.IsAllowedDownloadUrl("http://github.com/foo.zip"))
                 throw new InvalidOperationException("Insecure HTTP URL must be rejected.");
             if (LaneUpdater.IsAllowedDownloadUrl("https://evil.example.com/WoodlandLane-Windows.zip"))
                 throw new InvalidOperationException("Non-GitHub URL must be rejected.");
+            if (LaneUpdater.IsAllowedDownloadUrl("https://evilgithub.com/foo.zip"))
+                throw new InvalidOperationException("Lookalike non-GitHub domain must be rejected.");
+
+            var prodEndpoints = new LaneUpdater(new LaneUpdater.UpdaterConfig()).BuildCheckEndpoints();
+            if (prodEndpoints.Count < 3 ||
+                prodEndpoints[0].IsGitHubApi || !prodEndpoints[0].Url.Contains("/releases/latest/download/latest.json") ||
+                prodEndpoints[1].IsGitHubApi || !prodEndpoints[1].Url.Contains("raw.githubusercontent.com/") ||
+                !prodEndpoints[2].IsGitHubApi || !prodEndpoints[2].Url.Contains("api.github.com/"))
+            {
+                throw new InvalidOperationException("Production endpoint order must prefer static manifests before optional API fallback.");
+            }
+
+            const string validManifest =
+                "{\"schemaVersion\":1,\"version\":\"v0.2.9\",\"assetName\":\"WoodlandLane-Windows.zip\"," +
+                "\"downloadUrl\":\"https://github.com/MacquePanoramix/MOBA-Project/releases/download/v0.2.9/WoodlandLane-Windows.zip\"," +
+                "\"releaseUrl\":\"https://github.com/MacquePanoramix/MOBA-Project/releases/tag/v0.2.9\"," +
+                "\"sizeBytes\":36900000,\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}";
+            if (!LaneUpdater.ParseManifestJson(validManifest, "WoodlandLane-Windows.zip", out var parsedManifest, out string parseErr))
+                throw new InvalidOperationException($"ParseManifestJson failed on valid payload: {parseErr}");
+            if (parsedManifest.version != "v0.2.9" || parsedManifest.sizeBytes != 36900000)
+                throw new InvalidOperationException("Parsed manifest fields mismatch.");
 
             const string sampleJson =
                 "{\"tag_name\":\"v0.2.1\",\"assets\":[{\"name\":\"notes.txt\",\"browser_download_url\":\"https://github.com/a/b\",\"size\":12}," +
@@ -293,18 +322,591 @@ namespace Moba.LaneSlice
             string script = LaneUpdater.BuildApplyScript(1234, "C:\\Game's Dir", "C:\\Game's Dir\\_update_staging\\update.zip", "C:\\Game's Dir\\WoodlandLane.exe");
             if (script.IndexOf("1234", StringComparison.Ordinal) < 0 ||
                 script.IndexOf("Expand-Archive", StringComparison.Ordinal) < 0 ||
+                script.IndexOf("$backupDir", StringComparison.Ordinal) < 0 ||
+                script.IndexOf("last_update_error.txt", StringComparison.Ordinal) < 0 ||
                 script.IndexOf("Game''s Dir", StringComparison.Ordinal) < 0 ||
                 script.IndexOf("Start-Process", StringComparison.Ordinal) < 0)
             {
-                throw new InvalidOperationException("BuildApplyScript missing expected PID wait, Expand-Archive, quote escaping, or relaunch.");
+                throw new InvalidOperationException("BuildApplyScript missing expected PID wait, backup/rollback, error marker, quote escaping, or relaunch.");
             }
+        }
+
+        private static void CheckUpdaterRealHttpAndRecoveryScenarios()
+        {
+            string tempRoot = Path.Combine(Path.GetTempPath(), "MobaUpdaterHttpSuite_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempRoot);
+
+            int port = FindFreeTcpPort();
+            string baseUrl = $"http://127.0.0.1:{port}";
+            Func<HttpListenerContext, int> handler = null;
+
+            using (var server = new LocalHttpTestServer(port, ctx => handler(ctx)))
+            {
+                DateTime virtualNow = new DateTime(2026, 11, 25, 20, 0, 0, DateTimeKind.Utc);
+                var client = new TestLoopbackHttpClient();
+
+                List<LaneUpdater.CheckEndpoint> TestEndpoints(bool includeApiFallback = true)
+                {
+                    var list = new List<LaneUpdater.CheckEndpoint>
+                    {
+                        new LaneUpdater.CheckEndpoint($"{baseUrl}/releases/latest/download/latest.json", isGitHubApi: false),
+                        new LaneUpdater.CheckEndpoint($"{baseUrl}/raw/latest.json", isGitHubApi: false),
+                    };
+                    if (includeApiFallback)
+                    {
+                        list.Add(new LaneUpdater.CheckEndpoint($"{baseUrl}/api/releases/latest", isGitHubApi: true));
+                    }
+                    return list;
+                }
+
+                // Prepare a valid zip package for download tests (v0.2.9)
+                string validZipPath = Path.Combine(tempRoot, "server_v029.zip");
+                CreateTestBuildZip(validZipPath, "v0.2.9", corruptEntry: false);
+                byte[] validZipBytes = File.ReadAllBytes(validZipPath);
+                string validSha = LaneUpdater.ComputeFileSha256(validZipPath);
+
+                // Scenario 1: Normal static manifest check (API must NOT be contacted!)
+                int staticHits = 0;
+                int apiHits = 0;
+                string servedManifest = BuildManifestJson("v0.2.10", $"{baseUrl}/download/v0.2.10/WoodlandLane-Windows.zip",
+                    $"{baseUrl}/releases/tag/v0.2.10", validZipBytes.Length, validSha);
+
+                handler = ctx =>
+                {
+                    if (ctx.Request.Url.AbsolutePath.StartsWith("/api/", StringComparison.Ordinal))
+                    {
+                        apiHits++;
+                        WriteResponse(ctx.Response, 500, "API should not be called when static manifest succeeds");
+                        return 0;
+                    }
+                    staticHits++;
+                    WriteResponse(ctx.Response, 200, servedManifest, "application/json");
+                    return 0;
+                };
+
+                var normalUpd = new LaneUpdater(new LaneUpdater.UpdaterConfig(), client, allowLoopbackUrls: true,
+                    utcNowProvider: () => virtualNow, overrideGameDir: Path.Combine(tempRoot, "game_norm"),
+                    overrideCurrentVersion: "v0.2.9", overrideEndpoints: TestEndpoints());
+                RunCoroutineSync(normalUpd.CheckForUpdatesCoroutine());
+                if (!normalUpd.UpdateAvailable || normalUpd.LatestTag != "v0.2.10" || normalUpd.LatestSha256 != validSha ||
+                    staticHits != 1 || apiHits != 0 || normalUpd.ShowBrowserFallback)
+                {
+                    throw new InvalidOperationException($"Scenario 1 (update available) failed: avail={normalUpd.UpdateAvailable}, tag={normalUpd.LatestTag}, staticHits={staticHits}, apiHits={apiHits}");
+                }
+
+                // Up-to-date check after debounce window
+                virtualNow = virtualNow.AddSeconds(5);
+                servedManifest = BuildManifestJson("v0.2.9", $"{baseUrl}/download/v0.2.9/WoodlandLane-Windows.zip",
+                    $"{baseUrl}/releases/tag/v0.2.9", validZipBytes.Length, validSha);
+                RunCoroutineSync(normalUpd.CheckForUpdatesCoroutine());
+                if (normalUpd.UpdateAvailable || normalUpd.Status.IndexOf("Up to date", StringComparison.OrdinalIgnoreCase) < 0 || apiHits != 0)
+                {
+                    throw new InvalidOperationException($"Scenario 1 (up to date) failed: status='{normalUpd.Status}'");
+                }
+
+                // Scenario 2: GitHub API 403 rate-limit exhaustion + reset header + cooldown anti-spam + recovery after reset
+                int totalHitsBeforeRateLimit = 0;
+                long resetEpoch = new DateTimeOffset(virtualNow.AddSeconds(120)).ToUnixTimeSeconds();
+                handler = ctx =>
+                {
+                    totalHitsBeforeRateLimit++;
+                    if (ctx.Request.Url.AbsolutePath.StartsWith("/api/", StringComparison.Ordinal))
+                    {
+                        ctx.Response.Headers["X-RateLimit-Remaining"] = "0";
+                        ctx.Response.Headers["X-RateLimit-Reset"] = resetEpoch.ToString();
+                        WriteResponse(ctx.Response, 403, "{\"message\":\"API rate limit exceeded\"}", "application/json");
+                        return 0;
+                    }
+                    WriteResponse(ctx.Response, 404, "Not Found");
+                    return 0;
+                };
+
+                var rateUpd = new LaneUpdater(new LaneUpdater.UpdaterConfig(), client, allowLoopbackUrls: true,
+                    utcNowProvider: () => virtualNow, overrideGameDir: Path.Combine(tempRoot, "game_rate"),
+                    overrideCurrentVersion: "v0.2.5", overrideEndpoints: TestEndpoints());
+                RunCoroutineSync(rateUpd.CheckForUpdatesCoroutine());
+                if (rateUpd.LastErrorKind != UpdateErrorKind.RateLimited || !rateUpd.ShowBrowserFallback || !rateUpd.IsInCooldown ||
+                    rateUpd.Status.IndexOf("rate limit", StringComparison.OrdinalIgnoreCase) < 0 ||
+                    rateUpd.GetCooldownRemainingSeconds() < 110)
+                {
+                    throw new InvalidOperationException($"Scenario 2 (403 rate limit) failed: kind={rateUpd.LastErrorKind}, status='{rateUpd.Status}'");
+                }
+
+                int hitsDuringCooldown = totalHitsBeforeRateLimit;
+                RunCoroutineSync(rateUpd.CheckForUpdatesCoroutine());
+                if (totalHitsBeforeRateLimit != hitsDuringCooldown || rateUpd.Status.IndexOf("paused", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    throw new InvalidOperationException("Scenario 2 cooldown failed to suppress repeat HTTP requests.");
+                }
+
+                // Advance clock past reset -> HTTP 429 Retry-After test, then clean recovery
+                virtualNow = virtualNow.AddSeconds(125);
+                handler = ctx =>
+                {
+                    ctx.Response.Headers["Retry-After"] = "45";
+                    WriteResponse(ctx.Response, 429, "Too Many Requests");
+                    return 0;
+                };
+                RunCoroutineSync(rateUpd.CheckForUpdatesCoroutine());
+                if (rateUpd.LastErrorKind != UpdateErrorKind.RateLimited || rateUpd.GetCooldownRemainingSeconds() < 40)
+                {
+                    throw new InvalidOperationException($"Scenario 2 (429 Retry-After) failed: kind={rateUpd.LastErrorKind}, rem={rateUpd.GetCooldownRemainingSeconds()}");
+                }
+
+                virtualNow = virtualNow.AddSeconds(50);
+                handler = ctx =>
+                {
+                    WriteResponse(ctx.Response, 200, servedManifest, "application/json");
+                    return 0;
+                };
+                RunCoroutineSync(rateUpd.CheckForUpdatesCoroutine());
+                if (!rateUpd.UpdateAvailable || rateUpd.LastErrorKind != UpdateErrorKind.None || rateUpd.ShowBrowserFallback)
+                {
+                    throw new InvalidOperationException($"Scenario 2 recovery after reset failed: status='{rateUpd.Status}'");
+                }
+
+                // Scenario 3: Unavailable (404), malformed JSON, untrusted URL in manifest, and unreachable port
+                var badCases = new[]
+                {
+                    "{ broken json !!!",
+                    "{\"schemaVersion\":1,\"version\":\"not-a-semver\",\"downloadUrl\":\"https://github.com/a/b.zip\"}",
+                    "{\"schemaVersion\":1,\"version\":\"v0.2.9\",\"downloadUrl\":\"https://evil.example.com/WoodlandLane-Windows.zip\"}",
+                };
+                for (int c = 0; c < badCases.Length; c++)
+                {
+                    string badPayload = badCases[c];
+                    handler = ctx => { WriteResponse(ctx.Response, 200, badPayload, "application/json"); return 0; };
+                    var malUpd = new LaneUpdater(new LaneUpdater.UpdaterConfig(), client, allowLoopbackUrls: true,
+                        utcNowProvider: () => virtualNow, overrideGameDir: Path.Combine(tempRoot, "game_mal"),
+                        overrideCurrentVersion: "v0.2.8", overrideEndpoints: TestEndpoints());
+                    RunCoroutineSync(malUpd.CheckForUpdatesCoroutine());
+                    if (malUpd.UpdateAvailable || malUpd.LastErrorKind != UpdateErrorKind.MalformedManifest || !malUpd.ShowBrowserFallback)
+                    {
+                        throw new InvalidOperationException($"Scenario 3 malformed case {c} not handled cleanly: kind={malUpd.LastErrorKind}, status='{malUpd.Status}'");
+                    }
+                }
+
+                handler = ctx => { WriteResponse(ctx.Response, 404, "missing"); return 0; };
+                var unavailUpd = new LaneUpdater(new LaneUpdater.UpdaterConfig(), client, allowLoopbackUrls: true,
+                    utcNowProvider: () => virtualNow, overrideGameDir: Path.Combine(tempRoot, "game_404"),
+                    overrideCurrentVersion: "v0.2.8", overrideEndpoints: TestEndpoints(includeApiFallback: false));
+                RunCoroutineSync(unavailUpd.CheckForUpdatesCoroutine());
+                if (unavailUpd.LastErrorKind != UpdateErrorKind.Unavailable || !unavailUpd.ShowBrowserFallback || !unavailUpd.IsInCooldown)
+                {
+                    throw new InvalidOperationException($"Scenario 3 unavailable 404 check failed: kind={unavailUpd.LastErrorKind}");
+                }
+
+                int deadPort = FindFreeTcpPort();
+                var deadUpd = new LaneUpdater(new LaneUpdater.UpdaterConfig(), client, allowLoopbackUrls: true,
+                    utcNowProvider: () => virtualNow, overrideGameDir: Path.Combine(tempRoot, "game_net"),
+                    overrideCurrentVersion: "v0.2.8",
+                    overrideEndpoints: new[] { new LaneUpdater.CheckEndpoint($"http://127.0.0.1:{deadPort}/latest.json", false) });
+                RunCoroutineSync(deadUpd.CheckForUpdatesCoroutine());
+                if (deadUpd.LastErrorKind != UpdateErrorKind.Network || !deadUpd.ShowBrowserFallback)
+                {
+                    throw new InvalidOperationException($"Scenario 3 unreachable port failed: kind={deadUpd.LastErrorKind}, status='{deadUpd.Status}'");
+                }
+
+                // Scenario 4: Interrupted / truncated / wrong SHA / corrupt ZIP downloads leave game directory untouched
+                string dlGameDir = Path.Combine(tempRoot, "game_dl");
+                Directory.CreateDirectory(dlGameDir);
+                string exeMarkerPath = Path.Combine(dlGameDir, "WoodlandLane.exe");
+                File.WriteAllText(exeMarkerPath, "ORIGINAL_V025_BINARY");
+                File.WriteAllText(Path.Combine(dlGameDir, "version.txt"), "v0.2.5");
+
+                // 4a: HTTP error interrupting download
+                string dlUrl = $"{baseUrl}/download/v0.2.9/WoodlandLane-Windows.zip";
+                string dlManifest = BuildManifestJson("v0.2.9", dlUrl, $"{baseUrl}/releases/tag/v0.2.9", validZipBytes.Length, validSha);
+                handler = ctx =>
+                {
+                    if (ctx.Request.Url.AbsolutePath.EndsWith("latest.json", StringComparison.Ordinal))
+                        WriteResponse(ctx.Response, 200, dlManifest, "application/json");
+                    else
+                        WriteResponse(ctx.Response, 503, "CDN Reset");
+                    return 0;
+                };
+                var dlUpd = new LaneUpdater(new LaneUpdater.UpdaterConfig(), client, allowLoopbackUrls: true,
+                    utcNowProvider: () => virtualNow, overrideGameDir: dlGameDir,
+                    overrideCurrentVersion: "v0.2.5", overrideEndpoints: TestEndpoints());
+                RunCoroutineSync(dlUpd.CheckForUpdatesCoroutine());
+                RunCoroutineSync(dlUpd.DownloadAndApplyCoroutine());
+                if (dlUpd.LastErrorKind != UpdateErrorKind.DownloadFailed || !dlUpd.UpdateAvailable || !dlUpd.ShowBrowserFallback ||
+                    File.Exists(Path.Combine(dlGameDir, "_update_staging", "update.zip.part")) ||
+                    File.ReadAllText(exeMarkerPath) != "ORIGINAL_V025_BINARY")
+                {
+                    throw new InvalidOperationException($"Scenario 4a (interrupted download) failed: kind={dlUpd.LastErrorKind}, status='{dlUpd.Status}'");
+                }
+
+                // 4b: Truncated ZIP bytes
+                byte[] truncatedZip = new byte[Math.Min(1600, Math.Max(1100, validZipBytes.Length / 2))];
+                Array.Copy(validZipBytes, truncatedZip, truncatedZip.Length);
+                handler = ctx =>
+                {
+                    WriteBinaryResponse(ctx.Response, 200, truncatedZip);
+                    return 0;
+                };
+                RunCoroutineSync(dlUpd.DownloadAndApplyCoroutine());
+                if (dlUpd.LastErrorKind != UpdateErrorKind.VerificationFailed || !dlUpd.UpdateAvailable ||
+                    File.ReadAllText(exeMarkerPath) != "ORIGINAL_V025_BINARY")
+                {
+                    throw new InvalidOperationException($"Scenario 4b (truncated zip) failed: kind={dlUpd.LastErrorKind}");
+                }
+
+                // 4c: Wrong SHA-256 even when ZIP itself is readable
+                string wrongSha = new string('a', 64);
+                string wrongShaManifest = BuildManifestJson("v0.2.9", dlUrl, $"{baseUrl}/releases/tag/v0.2.9", validZipBytes.Length, wrongSha);
+                virtualNow = virtualNow.AddSeconds(10);
+                handler = ctx =>
+                {
+                    if (ctx.Request.Url.AbsolutePath.EndsWith("latest.json", StringComparison.Ordinal))
+                        WriteResponse(ctx.Response, 200, wrongShaManifest, "application/json");
+                    else
+                        WriteBinaryResponse(ctx.Response, 200, validZipBytes);
+                    return 0;
+                };
+                RunCoroutineSync(dlUpd.CheckForUpdatesCoroutine());
+                RunCoroutineSync(dlUpd.DownloadAndApplyCoroutine());
+                if (dlUpd.LastErrorKind != UpdateErrorKind.VerificationFailed || dlUpd.Status.IndexOf("SHA-256", StringComparison.OrdinalIgnoreCase) < 0 ||
+                    File.ReadAllText(exeMarkerPath) != "ORIGINAL_V025_BINARY")
+                {
+                    throw new InvalidOperationException($"Scenario 4c (wrong SHA-256) failed: status='{dlUpd.Status}'");
+                }
+
+                // 4d: Corrupt member entry inside ZIP passes sizeBytes & SHA but fails full entry CRC read
+                string corruptZipPath = Path.Combine(tempRoot, "server_corrupt.zip");
+                CreateTestBuildZip(corruptZipPath, "v0.2.9", corruptEntry: true);
+                byte[] corruptBytes = File.ReadAllBytes(corruptZipPath);
+                string corruptSha = LaneUpdater.ComputeFileSha256(corruptZipPath);
+                if (LaneUpdater.ValidateDownloadedZip(corruptZipPath, corruptBytes.Length, corruptSha, out _))
+                {
+                    throw new InvalidOperationException("ValidateDownloadedZip must reject internally corrupted ZIP member.");
+                }
+
+                // Scenario 5 & 6: Successful update from v0.2.5 -> v0.2.9 preserving separate personal_settings.json
+                string persistentDir = Path.Combine(tempRoot, "persistent_v025");
+                Directory.CreateDirectory(persistentDir);
+                string settingsPath = Path.Combine(persistentDir, PlayerSettingsStore.DefaultFileName);
+                var settingsStore = new PlayerSettingsStore(settingsPath, persistToDisk: true);
+                settingsStore.SetOptionalRtsEnabled(true);
+                settingsStore.TrySetBinding(ControlCommand.Stop, KeyCode.G, ConflictResolutionMode.SwapWithConflicting, out _);
+                settingsStore.SetExtraPref("v025_migrated", "yes");
+
+                virtualNow = virtualNow.AddSeconds(10);
+                handler = ctx =>
+                {
+                    if (ctx.Request.Url.AbsolutePath.EndsWith("latest.json", StringComparison.Ordinal))
+                        WriteResponse(ctx.Response, 200, dlManifest, "application/json");
+                    else
+                        WriteBinaryResponse(ctx.Response, 200, validZipBytes);
+                    return 0;
+                };
+                RunCoroutineSync(dlUpd.CheckForUpdatesCoroutine());
+                RunCoroutineSync(dlUpd.DownloadAndApplyCoroutine());
+                string stagedZip = Path.Combine(dlGameDir, "_update_staging", "update.zip");
+                string stagedScript = Path.Combine(dlGameDir, "_update_staging", "apply_update.ps1");
+                if (!dlUpd.ApplyScriptLaunchedForTest || !File.Exists(stagedZip) || !File.Exists(stagedScript))
+                {
+                    throw new InvalidOperationException($"Scenario 5 staging failed: launched={dlUpd.ApplyScriptLaunchedForTest}, status='{dlUpd.Status}'");
+                }
+
+                // Extract staged zip cleanly as apply_update.ps1 does and verify target install + settings survival
+                string extractDir = Path.Combine(dlGameDir, "_update_staging", "extracted");
+                ZipFileExtractSafe(stagedZip, extractDir);
+                foreach (string srcFile in Directory.GetFiles(extractDir))
+                {
+                    File.Copy(srcFile, Path.Combine(dlGameDir, Path.GetFileName(srcFile)), overwrite: true);
+                }
+                if (File.ReadAllText(Path.Combine(dlGameDir, "version.txt")).Trim() != "v0.2.9")
+                {
+                    throw new InvalidOperationException("Scenario 5 updated version.txt mismatch.");
+                }
+                var postUpgradeSettings = new PlayerSettingsStore(settingsPath, persistToDisk: false);
+                postUpgradeSettings.Load();
+                if (!postUpgradeSettings.Data.enableOptionalRtsControls ||
+                    postUpgradeSettings.GetKey(ControlCommand.Stop) != KeyCode.G ||
+                    postUpgradeSettings.GetExtraPref("v025_migrated") != "yes")
+                {
+                    throw new InvalidOperationException("Scenario 6 personal settings did not survive v0.2.5 -> v0.2.9 upgrade.");
+                }
+
+                // Scenario 7: Recovery from unsuccessful apply attempt + subsequent clean check
+                string recGameDir = Path.Combine(tempRoot, "game_recover");
+                string recStaging = Path.Combine(recGameDir, "_update_staging");
+                Directory.CreateDirectory(recStaging);
+                File.WriteAllText(Path.Combine(recGameDir, "WoodlandLane.exe"), "PRESERVED_BUILD");
+                File.WriteAllText(Path.Combine(recStaging, "last_update_error.txt"), "Access denied to WoodlandLane.exe");
+
+                var recUpd = new LaneUpdater(new LaneUpdater.UpdaterConfig(), client, allowLoopbackUrls: true,
+                    utcNowProvider: () => virtualNow, overrideGameDir: recGameDir,
+                    overrideCurrentVersion: "v0.2.8", overrideEndpoints: TestEndpoints());
+                recUpd.RecoverFromPreviousUpdateIfNeeded(forceInTest: true);
+                if (recUpd.LastErrorKind != UpdateErrorKind.ApplyFailed || !recUpd.ShowBrowserFallback ||
+                    recUpd.Status.IndexOf("Previous update did not complete", StringComparison.OrdinalIgnoreCase) < 0 ||
+                    Directory.Exists(recStaging) ||
+                    File.ReadAllText(Path.Combine(recGameDir, "WoodlandLane.exe")) != "PRESERVED_BUILD")
+                {
+                    throw new InvalidOperationException($"Scenario 7 recovery failed: kind={recUpd.LastErrorKind}, status='{recUpd.Status}'");
+                }
+
+                // Subsequent normal check succeeds after recovery and settings remain intact
+                RunCoroutineSync(recUpd.CheckForUpdatesCoroutine());
+                if (!recUpd.UpdateAvailable || recUpd.LatestTag != "v0.2.9" || recUpd.ShowBrowserFallback)
+                {
+                    throw new InvalidOperationException($"Scenario 7 subsequent check failed: status='{recUpd.Status}'");
+                }
+                postUpgradeSettings.Load();
+                if (postUpgradeSettings.GetKey(ControlCommand.Stop) != KeyCode.G)
+                {
+                    throw new InvalidOperationException("Settings corrupted during recovery check.");
+                }
+            }
+
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+
+        private static string BuildManifestJson(string version, string downloadUrl, string releaseUrl, long sizeBytes, string sha256)
+        {
+            return $"{{\"schemaVersion\":1,\"version\":\"{version}\",\"assetName\":\"WoodlandLane-Windows.zip\"," +
+                   $"\"downloadUrl\":\"{downloadUrl}\",\"releaseUrl\":\"{releaseUrl}\"," +
+                   $"\"sizeBytes\":{sizeBytes},\"sha256\":\"{sha256}\",\"publishedAtUtc\":\"2026-11-25T20:00:00Z\",\"notes\":\"Test {version}\"}}";
+        }
+
+        private static void CreateTestBuildZip(string zipPath, string version, bool corruptEntry)
+        {
+            if (File.Exists(zipPath)) File.Delete(zipPath);
+            using (FileStream fs = File.Create(zipPath))
+            using (var za = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: false))
+            {
+                var pseudoExe = new byte[4096];
+                for (int i = 0; i < pseudoExe.Length; i++)
+                {
+                    pseudoExe[i] = (byte)(((i * 73 + 19) ^ (i >> 3) ^ (i * i)) & 0xFF);
+                }
+                WriteZipEntry(za, "WoodlandLane.exe", pseudoExe);
+                WriteZipEntry(za, "version.txt", Encoding.UTF8.GetBytes(version));
+                WriteZipEntry(za, "updater_config.json", Encoding.UTF8.GetBytes(JsonUtility.ToJson(new LaneUpdater.UpdaterConfig(), true)));
+            }
+
+            if (corruptEntry)
+            {
+                // Corrupt DEFLATE stream payload inside the first entry without altering total length
+                byte[] raw = File.ReadAllBytes(zipPath);
+                for (int k = 55; k < Math.Min(raw.Length - 4, 95); k++)
+                {
+                    raw[k] ^= 0xFF;
+                }
+                File.WriteAllBytes(zipPath, raw);
+            }
+        }
+
+        private static void WriteZipEntry(ZipArchive za, string name, byte[] bytes)
+        {
+            ZipArchiveEntry e = za.CreateEntry(name, System.IO.Compression.CompressionLevel.Optimal);
+            using (Stream s = e.Open()) s.Write(bytes, 0, bytes.Length);
+        }
+
+        private static void ZipFileExtractSafe(string zipPath, string extractDir)
+        {
+            if (Directory.Exists(extractDir)) Directory.Delete(extractDir, recursive: true);
+            Directory.CreateDirectory(extractDir);
+            using (FileStream fs = File.OpenRead(zipPath))
+            using (var za = new ZipArchive(fs, ZipArchiveMode.Read))
+            {
+                for (int i = 0; i < za.Entries.Count; i++)
+                {
+                    ZipArchiveEntry e = za.Entries[i];
+                    string outPath = Path.Combine(extractDir, e.FullName);
+                    string dir = Path.GetDirectoryName(outPath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                    if (!e.FullName.EndsWith("/", StringComparison.Ordinal))
+                    {
+                        using (Stream src = e.Open())
+                        using (FileStream dst = File.Create(outPath))
+                        {
+                            src.CopyTo(dst);
+                        }
+                    }
+                }
+            }
+        }
+
+        private static void RunCoroutineSync(IEnumerator routine)
+        {
+            while (routine != null && routine.MoveNext())
+            {
+                Thread.Sleep(5);
+            }
+        }
+
+        private static int FindFreeTcpPort()
+        {
+            var l = new TcpListener(IPAddress.Loopback, 0);
+            l.Start();
+            int port = ((IPEndPoint)l.LocalEndpoint).Port;
+            l.Stop();
+            return port;
+        }
+
+        private static void WriteResponse(HttpListenerResponse resp, int statusCode, string body, string contentType = "text/plain")
+        {
+            byte[] data = Encoding.UTF8.GetBytes(body ?? string.Empty);
+            resp.StatusCode = statusCode;
+            resp.ContentType = contentType;
+            resp.ContentLength64 = data.Length;
+            resp.OutputStream.Write(data, 0, data.Length);
+            resp.OutputStream.Close();
+        }
+
+        private static void WriteBinaryResponse(HttpListenerResponse resp, int statusCode, byte[] data)
+        {
+            resp.StatusCode = statusCode;
+            resp.ContentType = "application/zip";
+            resp.ContentLength64 = data.Length;
+            resp.OutputStream.Write(data, 0, data.Length);
+            resp.OutputStream.Close();
+        }
+
+        private sealed class LocalHttpTestServer : IDisposable
+        {
+            private readonly HttpListener listener;
+            private readonly Thread thread;
+            private volatile bool running = true;
+
+            public LocalHttpTestServer(int port, Func<HttpListenerContext, int> handler)
+            {
+                listener = new HttpListener();
+                listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+                listener.Start();
+                thread = new Thread(() =>
+                {
+                    while (running)
+                    {
+                        try
+                        {
+                            HttpListenerContext ctx = listener.GetContext();
+                            handler?.Invoke(ctx);
+                        }
+                        catch
+                        {
+                            if (!running) break;
+                        }
+                    }
+                }) { IsBackground = true };
+                thread.Start();
+            }
+
+            public void Dispose()
+            {
+                running = false;
+                try { listener.Stop(); } catch { }
+                try { listener.Close(); } catch { }
+            }
+        }
+
+        private sealed class TestLoopbackHttpClient : IUpdateHttpClient
+        {
+            private sealed class LoopbackOp : IUpdateHttpOp
+            {
+                public bool IsDone { get; private set; }
+                public bool IsSuccess { get; private set; }
+                public bool IsNetworkError { get; private set; }
+                public long StatusCode { get; private set; }
+                public string Error { get; private set; } = string.Empty;
+                public string Text { get; private set; } = string.Empty;
+                public float Progress { get; private set; }
+                public IDictionary<string, string> ResponseHeaders { get; private set; }
+
+                public LoopbackOp(string url, string destinationPath)
+                {
+                    var t = new Thread(() => Execute(url, destinationPath)) { IsBackground = true };
+                    t.Start();
+                }
+
+                private void Execute(string url, string destinationPath)
+                {
+                    try
+                    {
+                        var req = (HttpWebRequest)WebRequest.Create(url);
+                        req.Method = "GET";
+                        req.Timeout = 5000;
+                        req.ReadWriteTimeout = 5000;
+                        using (var resp = (HttpWebResponse)req.GetResponse())
+                        {
+                            StatusCode = (long)resp.StatusCode;
+                            ResponseHeaders = CopyHeaders(resp.Headers);
+                            if (destinationPath == null)
+                            {
+                                using (var sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                                {
+                                    Text = sr.ReadToEnd();
+                                }
+                            }
+                            else
+                            {
+                                using (Stream rs = resp.GetResponseStream())
+                                using (FileStream fs = File.Create(destinationPath))
+                                {
+                                    rs.CopyTo(fs);
+                                }
+                            }
+                            Progress = 1f;
+                            IsSuccess = true;
+                        }
+                    }
+                    catch (WebException wex)
+                    {
+                        if (wex.Response is HttpWebResponse errResp)
+                        {
+                            StatusCode = (long)errResp.StatusCode;
+                            ResponseHeaders = CopyHeaders(errResp.Headers);
+                            try
+                            {
+                                using (var sr = new StreamReader(errResp.GetResponseStream(), Encoding.UTF8))
+                                {
+                                    Text = sr.ReadToEnd();
+                                }
+                            }
+                            catch { }
+                            Error = errResp.StatusDescription ?? wex.Message;
+                            errResp.Close();
+                        }
+                        else
+                        {
+                            IsNetworkError = true;
+                            Error = wex.Message;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        IsNetworkError = true;
+                        Error = ex.Message;
+                    }
+                    finally
+                    {
+                        IsDone = true;
+                    }
+                }
+
+                private static Dictionary<string, string> CopyHeaders(WebHeaderCollection headers)
+                {
+                    var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    if (headers == null) return d;
+                    for (int i = 0; i < headers.Count; i++) d[headers.GetKey(i)] = headers.Get(i);
+                    return d;
+                }
+
+                public void Dispose() { }
+            }
+
+            public IUpdateHttpOp GetText(string url) => new LoopbackOp(url, null);
+            public IUpdateHttpOp DownloadFile(string url, string destinationPath) => new LoopbackOp(url, destinationPath);
         }
 
         private static void CheckSettingsSurviveSimulatedUpdate()
         {
-            if (LaneUpdater.BuildVersion != "v0.2.8")
+            if (LaneUpdater.BuildVersion != "v0.2.9")
             {
-                throw new InvalidOperationException($"Expected BuildVersion v0.2.8, got {LaneUpdater.BuildVersion}");
+                throw new InvalidOperationException($"Expected BuildVersion v0.2.9, got {LaneUpdater.BuildVersion}");
             }
             var updaterCfg = new LaneUpdater.UpdaterConfig();
             if (updaterCfg.assetName != "WoodlandLane-Windows.zip")
@@ -328,7 +930,7 @@ namespace Moba.LaneSlice
                 store.SetExtraPref("update_check_marker", "survives_overwrite");
 
                 // Simulate old install overwritten by new update ZIP contents inside gameDir
-                File.WriteAllText(Path.Combine(gameDir, "version.txt"), "v0.2.7");
+                File.WriteAllText(Path.Combine(gameDir, "version.txt"), "v0.2.8");
                 File.WriteAllText(Path.Combine(gameDir, "WoodlandLane.exe"), "old-exe");
                 File.WriteAllText(Path.Combine(stagingExtracted, "version.txt"), LaneUpdater.BuildVersion);
                 File.WriteAllText(Path.Combine(stagingExtracted, "WoodlandLane.exe"), "new-exe");

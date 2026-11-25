@@ -25,7 +25,7 @@ This document was prepared for **independent architectural and game-design revie
 | IMGUI lobby, HUD, Ability Cards launcher, Fountain Shop, Settings & Keybind UI | `prototype/Assets/LaneSlice/Runtime/LaneHud.cs`, `LaneHud.Settings.cs` |
 | Data-driven Ability Cards with curve classification & `[Show Math]` formulas | `prototype/Assets/LaneSlice/Runtime/LaneHeroSheet.cs` |
 | Unity Transport + Relay (`MOBA-LANE/1` codec) + Direct TCP fallback | `prototype/Assets/LaneSlice/Runtime/LaneNet.cs` |
-| GitHub Releases one-click Windows updater (`WoodlandLane-Windows.zip`) | `prototype/Assets/LaneSlice/Runtime/LaneUpdater.cs` |
+| GitHub static-manifest Windows updater (`latest.json`, rate-limit cooldown, SHA-256 + `ZipArchive` check, rollback recovery, browser fallback) | `prototype/Assets/LaneSlice/Runtime/LaneUpdater.cs` |
 | Sparring Bot AI, builds & dynamic E radius | `prototype/Assets/LaneSlice/Runtime/LaneBot.cs` |
 | Automated unit/net checks & Windows build script | `prototype/Assets/LaneSlice/Editor/LaneMatchChecks.cs`, `LaneNetChecks.cs`, `LaneEditor.cs` |
 | **Reusable automated balancing & stress-test harness (`RunBalanceExperiments`)** | `prototype/Assets/LaneSlice/Editor/LaneBalanceHarness.cs` |

@@ -1,0 +1,161 @@
+name: Publish Static Update Manifest
+
+on:
+  release:
+    types: [published, edited]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to verify and publish (leave blank for latest non-draft release)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-publish-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify published ZIP asset & generate latest.json
+        id: verify
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, sys, urllib.request, zipfile
+
+          repo = os.environ["REPO"]
+          token = os.environ["GH_TOKEN"]
+          tag = (os.environ.get("EVENT_TAG") or os.environ.get("INPUT_TAG") or "").strip()
+          asset_name = "WoodlandLane-Windows.zip"
+
+          if tag:
+              api_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+          else:
+              api_url = f"https://api.github.com/repos/{repo}/releases/latest"
+
+          req = urllib.request.Request(
+              api_url,
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json",
+                  "User-Agent": "UltimateFreeMOBA-ReleaseWorkflow",
+              },
+          )
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              rel = json.loads(resp.read().decode("utf-8"))
+
+          if rel.get("draft"):
+              raise SystemExit(f"Refusing to publish manifest for draft release '{rel.get('tag_name')}'.")
+          if rel.get("prerelease"):
+              raise SystemExit(f"Refusing to publish manifest for prerelease '{rel.get('tag_name')}'.")
+
+          tag_name = (rel.get("tag_name") or "").strip()
+          if not tag_name:
+              raise SystemExit("Release is missing tag_name.")
+
+          target_asset = None
+          for a in rel.get("assets", []):
+              if (a.get("name") or "").lower() == asset_name.lower():
+                  target_asset = a
+                  break
+          if not target_asset:
+              raise SystemExit(f"Release {tag_name} does not contain asset '{asset_name}'.")
+
+          public_url = target_asset["browser_download_url"]
+          expected_size = int(target_asset["size"])
+          if not public_url.startswith("https://github.com/"):
+              raise SystemExit(f"Unexpected asset URL: {public_url}")
+
+          out_dir = pathlib.Path("_manifest_out")
+          out_dir.mkdir(parents=True, exist_ok=True)
+          zip_path = out_dir / asset_name
+
+          # Download WITHOUT any auth headers to verify anonymous players can download cleanly.
+          dl_req = urllib.request.Request(public_url, headers={"User-Agent": "UltimateFreeMOBA-ReleaseVerifier"})
+          with urllib.request.urlopen(dl_req, timeout=180) as r, open(zip_path, "wb") as f:
+              while True:
+                  chunk = r.read(1024 * 256)
+                  if not chunk:
+                      break
+                  f.write(chunk)
+
+          actual_size = zip_path.stat().st_size
+          if actual_size != expected_size:
+              raise SystemExit(f"Public download size mismatch: got {actual_size}, expected {expected_size}.")
+
+          h = hashlib.sha256()
+          with open(zip_path, "rb") as f:
+              for chunk in iter(lambda: f.read(1024 * 256), b""):
+                  h.update(chunk)
+          sha256 = h.hexdigest().lower()
+
+          with zipfile.ZipFile(zip_path, "r") as zf:
+              bad = zf.testzip()
+              if bad is not None:
+                  raise SystemExit(f"ZIP integrity failure on member: {bad}")
+              names = set(zf.namelist())
+              if "WoodlandLane.exe" not in names:
+                  raise SystemExit("ZIP root missing 'WoodlandLane.exe'.")
+              if "version.txt" not in names:
+                  raise SystemExit("ZIP root missing 'version.txt'.")
+              embedded_ver = zf.read("version.txt").decode("utf-8").strip()
+              if embedded_ver != tag_name:
+                  raise SystemExit(f"version.txt inside ZIP ('{embedded_ver}') does not match release tag '{tag_name}'.")
+
+          manifest = {
+              "schemaVersion": 1,
+              "version": tag_name,
+              "assetName": asset_name,
+              "downloadUrl": public_url,
+              "releaseUrl": rel.get("html_url") or f"https://github.com/{repo}/releases/tag/{tag_name}",
+              "sizeBytes": actual_size,
+              "sha256": sha256,
+              "publishedAtUtc": rel.get("published_at") or "",
+              "notes": f"Ultimate Free MOBA {tag_name}",
+          }
+          (out_dir / "latest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+          html = (
+              "<!doctype html><html><head><meta charset='utf-8'>"
+              "<title>Ultimate Free MOBA — Latest Build</title></head><body>"
+              f"<h1>Ultimate Free MOBA ({tag_name})</h1>"
+              f"<p><a href='{public_url}'>Download {asset_name} ({actual_size / (1024*1024):.2f} MB)</a></p>"
+              "<p>Manifest: <a href='latest.json'>latest.json</a></p>"
+              "</body></html>\n"
+          )
+          (out_dir / "index.html").write_text(html, encoding="utf-8")
+
+          zip_path.unlink(missing_ok=True)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as go:
+              go.write(f"tag_name={tag_name}\n")
+          print(f"Verified {tag_name} ({actual_size} bytes, sha256={sha256}).")
+          PY
+
+      - name: Upload latest.json asset to GitHub Release (primary CDN manifest)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.verify.outputs.tag_name }}
+        run: |
+          gh release upload "$TAG" _manifest_out/latest.json --repo "$REPO" --clobber
+
+      - name: Publish latest.json to static branch update-manifest (secondary CDN + Pages)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.verify.outputs.tag_name }}
+        run: |
+          cd _manifest_out
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b update-manifest
+          git add latest.json index.html
+          git commit -m "Publish update manifest for ${TAG}"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          git push origin update-manifest --force

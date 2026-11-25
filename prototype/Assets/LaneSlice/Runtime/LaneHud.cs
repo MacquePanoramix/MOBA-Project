@@ -331,9 +331,12 @@ namespace Moba.LaneSlice
             GUILayout.FlexibleSpace();
             GUILayout.BeginHorizontal("box");
             LaneUpdater upd = scene.Updater;
-            GUILayout.Label($"<b>Build:</b> {LaneUpdater.BuildVersion}", GUILayout.Width(100));
+            GUILayout.Label($"<b>Build:</b> {LaneUpdater.BuildVersion}", GUILayout.Width(92));
+            int cdRem = upd != null ? upd.GetCooldownRemainingSeconds() : 0;
+            bool inErrorCooldown = cdRem > 0 && upd.LastErrorKind != UpdateErrorKind.None;
             GUI.enabled = upd != null && !upd.IsBusy;
-            if (GUILayout.Button("Check for Updates", GUILayout.Width(145), GUILayout.Height(24)))
+            string checkLabel = inErrorCooldown ? $"Wait ({cdRem}s)" : "Check for Updates";
+            if (GUILayout.Button(checkLabel, GUILayout.Width(145), GUILayout.Height(24)))
             {
                 scene.CheckForUpdates();
             }
@@ -341,13 +344,25 @@ namespace Moba.LaneSlice
             {
                 GUI.backgroundColor = new Color(0.35f, 0.85f, 0.48f);
                 string sizeTag = upd.LatestSizeBytes > 0 ? $" ({upd.LatestSizeBytes / (1024f * 1024f):0.0} MB)" : string.Empty;
-                if (GUILayout.Button($"Update to {upd.LatestTag}{sizeTag}", GUILayout.Width(195), GUILayout.Height(24)))
+                if (GUILayout.Button($"Update to {upd.LatestTag}{sizeTag}", GUILayout.Width(185), GUILayout.Height(24)))
                 {
                     scene.DownloadAndApplyUpdate();
                 }
                 GUI.backgroundColor = Color.white;
             }
             GUI.enabled = true;
+            if (upd != null)
+            {
+                bool emphasizeFallback = upd.ShowBrowserFallback;
+                if (emphasizeFallback) GUI.backgroundColor = new Color(0.95f, 0.78f, 0.35f);
+                string browserBtn = emphasizeFallback ? "Open Download Page" : "Releases";
+                float browserW = emphasizeFallback ? 148f : 76f;
+                if (GUILayout.Button(browserBtn, GUILayout.Width(browserW), GUILayout.Height(24)))
+                {
+                    scene.OpenReleasesInBrowser();
+                }
+                GUI.backgroundColor = Color.white;
+            }
             if (upd != null && !string.IsNullOrEmpty(upd.Status))
             {
                 GUILayout.Label(upd.Status);

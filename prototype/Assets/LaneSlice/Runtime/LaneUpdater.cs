@@ -49,7 +49,7 @@ namespace Moba.LaneSlice
     /// </summary>
     public sealed class LaneUpdater
     {
-        public const string BuildVersion = "v0.2.10";
+        public const string BuildVersion = "v0.2.11";
         public const int ExpectedSchemaVersion = 1;
         private const string StagingDirName = "_update_staging";
         private const string ErrorMarkerFileName = "last_update_error.txt";

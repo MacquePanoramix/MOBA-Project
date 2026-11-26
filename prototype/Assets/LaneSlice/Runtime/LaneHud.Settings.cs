@@ -333,6 +333,20 @@ namespace Moba.LaneSlice
 
             GUILayout.Space(6);
             GUILayout.BeginVertical(cardBoxStyle);
+            GUILayout.Label("<b>HERO GUIDE & ABILITY DEMONSTRATIONS</b>", cardHeaderStyle);
+            GUILayout.Label($"<color={LaneHeroSheet.ColMuted}>Controls animated in-engine ability previews inside the Hero Guide ([C]). Disabling stops background preview simulation and rendering completely without affecting other players.</color>", sheetTextStyle);
+            GUILayout.Space(3);
+            bool prevDemos = store.Data.enableAbilityDemos;
+            bool nextDemos = GUILayout.Toggle(prevDemos, " Enable animated visual ability previews in Hero Guide");
+            if (nextDemos != prevDemos)
+            {
+                store.SetAbilityDemosEnabled(nextDemos);
+                settingsNotice = nextDemos ? "Ability demonstrations enabled." : "Ability demonstrations disabled.";
+            }
+            GUILayout.EndVertical();
+
+            GUILayout.Space(6);
+            GUILayout.BeginVertical(cardBoxStyle);
             GUILayout.Label($"<b>ACTIVE HERO CONTROL PROFILE — {profile.DisplayName.ToUpperInvariant()}</b>", cardHeaderStyle);
             GUILayout.Label($"Primary Context: <b>{ControlCommandCatalog.FormatContextLabel(profile.PrimaryContext)}</b>  •  RTS Mode: <b>{profile.RtsSupport}</b>  •  Effective RTS Now: <b>{(profile.IsRtsEnabled(store.Data) ? "ON" : "OFF")}</b>", sheetTextStyle);
             GUILayout.Label($"Movement Model: {profile.MovementSummary}", sheetTextStyle);

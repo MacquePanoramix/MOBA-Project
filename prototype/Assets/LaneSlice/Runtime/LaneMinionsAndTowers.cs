@@ -302,9 +302,10 @@ namespace Moba.LaneSlice
                 }
 
                 m.attackCooldown = Mathf.Max(0f, m.attackCooldown - dt);
-                if (m.stunTimer > 0f)
+                if (m.stunTimer > 0f || m.isPreviewDummy)
                 {
                     m.windingUp = false;
+                    m.motor.Stop();
                     continue;
                 }
 

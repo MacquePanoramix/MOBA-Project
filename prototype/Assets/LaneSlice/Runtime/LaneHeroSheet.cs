@@ -324,6 +324,24 @@ namespace Moba.LaneSlice
             card.StatLines.Add(bullet);
         }
 
+        public static HeroSnap EvaluatePreviewHeroSnap(LaneHeroId hero, LaneTuning t, PreviewStatOverrides ov)
+        {
+            LaneTuning safeTuning = t ?? new LaneTuning
+            {
+                waveFirstSpawnDelay = 99999f,
+                passiveGoldPerSecond = 0f,
+                startingGold = 0,
+            };
+            var previewSim = new LaneMatch(hero, LaneHeroId.Swordsman, safeTuning);
+            previewSim.SetPreviewStatOverrides(LaneTeam.Blue, ov);
+            LaneSnapshot snap = previewSim.Snapshot();
+            for (int i = 0; i < snap.heroes.Count; i++)
+            {
+                if (snap.heroes[i].team == LaneTeam.Blue) return snap.heroes[i];
+            }
+            return null;
+        }
+
         public static HeroGuideData BuildHeroGuide(LaneHeroId hero, LaneTuning t, HeroSnap liveSelf = null)
         {
             HeroSnap live = (liveSelf != null && liveSelf.heroId == hero) ? liveSelf : null;

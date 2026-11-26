@@ -205,6 +205,7 @@ namespace Moba.LaneSlice
             public float healReceivedMult = 1f;
             public int laserStacks;
             public float laserStackTimer;
+            public bool isPreviewDummy;
         }
 
         private sealed class IllusionState
@@ -224,6 +225,7 @@ namespace Moba.LaneSlice
             public float decoyRadius;
             public int laserStacks;
             public float laserStackTimer;
+            public bool isPreviewDummy;
         }
 
         private sealed class ProjectileState
@@ -276,6 +278,7 @@ namespace Moba.LaneSlice
         private readonly List<VisualEventSnap> events = new List<VisualEventSnap>();
         private readonly List<LaserBeamSnap> laserBeams = new List<LaserBeamSnap>();
         private readonly List<Vector2> scratchRoute = new List<Vector2>();
+        private readonly Dictionary<LaneTeam, PreviewStatOverrides> previewOverrides = new Dictionary<LaneTeam, PreviewStatOverrides>();
 
         private int nextEntityId = 100;
         private int tickCount;
@@ -329,6 +332,100 @@ namespace Moba.LaneSlice
         private HeroState GetHero(LaneTeam team) => heroes[team == LaneTeam.Blue ? 0 : 1];
         private HeroState GetEnemyHero(LaneTeam team) => heroes[team == LaneTeam.Blue ? 1 : 0];
         private TowerState GetEnemyTower(LaneTeam team) => towers[team == LaneTeam.Blue ? 1 : 0];
+
+        public void SetPreviewStatOverrides(LaneTeam team, PreviewStatOverrides overrides)
+        {
+            previewOverrides[team] = overrides;
+            HeroState h = GetHero(team);
+            if (overrides.enabled)
+            {
+                h.level = Mathf.Clamp(overrides.level > 0 ? overrides.level : 1, 1, tuning.maxLevel);
+                int maxBasicRank = Mathf.Clamp(overrides.abilityRank > 0 ? overrides.abilityRank : 1, 1, 3);
+                h.rankQ = maxBasicRank;
+                h.rankW = maxBasicRank;
+                h.rankE = maxBasicRank;
+                h.rankR = Mathf.Clamp(overrides.abilityRank > 0 ? overrides.abilityRank : 1, 1, 2);
+            }
+            RecalcHeroStats(h, preserveHpRatio: true);
+        }
+
+        public void DisableTowersForPreview()
+        {
+            towers[0].alive = false;
+            towers[0].hp = 0f;
+            towers[1].alive = false;
+            towers[1].hp = 0f;
+        }
+
+        public int ConfigurePreviewHero(LaneTeam team, Vector2 pos, float headingDeg, float hpFraction = 1f)
+        {
+            HeroState h = GetHero(team);
+            Vector2 safe = map.ClampInsideLane(pos);
+            h.motor = new MovementMotor(safe, headingDeg);
+            h.prevMotorPos = safe;
+            h.phase = LanePhase.Idle;
+            h.activeSlot = LaneAbilitySlot.None;
+            h.phaseTimer = 0f;
+            h.phaseDuration = 0f;
+            h.cdQ = 0f;
+            h.cdW = 0f;
+            h.cdE = 0f;
+            h.cdR = 0f;
+            h.stunTimer = 0f;
+            h.slowTimer = 0f;
+            h.slowAmount = 0f;
+            h.curseTimer = 0f;
+            h.curseStacks = 0;
+            h.wardTimer = 0f;
+            h.invisible = false;
+            h.invisTimer = 0f;
+            h.swordStacks = 0;
+            h.swordDebuffStacks = 0;
+            h.laserStacks = 0;
+            h.rQueue.Clear();
+            h.rStrikeIndex = 0;
+            h.twinSecondPending = false;
+            ClearAttackAndRoute(h);
+            RecalcHeroStats(h, preserveHpRatio: false);
+            h.hp = Mathf.Clamp(h.maxHp * Mathf.Clamp01(hpFraction), 1f, h.maxHp);
+            return h.id;
+        }
+
+        public int SpawnPreviewDummyMinion(LaneTeam team, Vector2 pos, bool ranged = false, float maxHp = 800f, float hpFraction = 1f)
+        {
+            Vector2 safe = map.ClampInsideLane(pos);
+            float hp = Mathf.Clamp(maxHp * Mathf.Clamp01(hpFraction), 1f, maxHp);
+            var m = new MinionState
+            {
+                id = AllocId(),
+                team = team,
+                ranged = ranged,
+                motor = new MovementMotor(safe, team == LaneTeam.Blue ? 90f : 270f),
+                hp = hp,
+                maxHp = maxHp,
+                isPreviewDummy = true,
+            };
+            minions.Add(m);
+            return m.id;
+        }
+
+        public int SpawnPreviewOrb(LaneTeam team, Vector2 pos)
+        {
+            HeroState owner = GetHero(team);
+            Vector2 safe = map.ClampInsideLane(pos);
+            int id = AllocId();
+            orbs.Add(new OrbState
+            {
+                id = id,
+                ownerTeam = team,
+                ownerHeroId = owner.id,
+                pos = safe,
+                timeLeft = tuning.luisOrbDuration,
+                duration = tuning.luisOrbDuration,
+            });
+            PushEvent(LaneEventKind.LuisOrbSpawn, team, safe, Vector2.up, tuning.luisOrbPickupRadius, 0f, string.Empty);
+            return id;
+        }
 
         public static float ResistanceFactor(float resistance)
         {

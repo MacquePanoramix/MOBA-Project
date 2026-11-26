@@ -11,6 +11,8 @@ namespace Moba.LaneSlice
     public sealed partial class LaneWorld
     {
         private readonly Transform root;
+        private readonly Vector3 worldOffset;
+        private readonly bool enableAudio;
         private readonly Material vertexMat;
         private readonly Mesh meleeMinionMesh;
         private readonly Mesh rangedMinionMesh;
@@ -20,6 +22,9 @@ namespace Moba.LaneSlice
         private readonly Mesh quadMesh;
         private readonly Mesh ogreWConeMesh;
         private readonly Mesh swordQConeMesh;
+        private readonly List<Mesh> ownedMeshes = new List<Mesh>();
+        private readonly List<Material> ownedMaterials = new List<Material>();
+        private readonly List<AudioClip> ownedClips = new List<AudioClip>();
 
         private readonly Dictionary<int, EntityVisual> heroVisuals = new Dictionary<int, EntityVisual>();
         private readonly Dictionary<int, HeroTelegraph> heroTelegraphs = new Dictionary<int, HeroTelegraph>();
@@ -135,11 +140,22 @@ namespace Moba.LaneSlice
             set => cameraLocked = value;
         }
 
-        public LaneWorld(LaneMap map)
+        public Vector3 WorldOffset => worldOffset;
+
+        private Vector3 ToWorld(float x, float z, float y = 0f) => worldOffset + new Vector3(x, y, z);
+
+        public LaneWorld(LaneMap map) : this(map, Vector3.zero, buildEnvironment: true, enableAudio: true)
         {
-            root = new GameObject("LaneWorldRoot").transform;
+        }
+
+        public LaneWorld(LaneMap map, Vector3 worldOffset, bool buildEnvironment = true, bool enableAudio = true)
+        {
+            this.worldOffset = worldOffset;
+            this.enableAudio = enableAudio;
+            root = new GameObject(buildEnvironment ? "LaneWorldRoot" : "LanePreviewWorldRoot").transform;
             Shader fieldShader = Resources.Load<Shader>("DuelField") ?? Shader.Find("Sprites/Default");
             vertexMat = new Material(fieldShader);
+            ownedMaterials.Add(vertexMat);
 
             meleeMinionMesh = BuildMinionMesh(ranged: false);
             rangedMinionMesh = BuildMinionMesh(ranged: true);
@@ -149,9 +165,24 @@ namespace Moba.LaneSlice
             quadMesh = BuildForwardBeamMesh();
             ogreWConeMesh = BuildConeMesh(0.15f, 16);
             swordQConeMesh = BuildConeMesh(0.35f, 14);
+            ownedMeshes.Add(meleeMinionMesh);
+            ownedMeshes.Add(rangedMinionMesh);
+            ownedMeshes.Add(orbMesh);
+            ownedMeshes.Add(projectileMesh);
+            ownedMeshes.Add(ringMesh);
+            ownedMeshes.Add(quadMesh);
+            ownedMeshes.Add(ogreWConeMesh);
+            ownedMeshes.Add(swordQConeMesh);
 
-            BuildEnvironment(map);
-            BuildTowers(map);
+            if (buildEnvironment)
+            {
+                BuildEnvironment(map);
+                BuildTowers(map);
+            }
+            else
+            {
+                BuildPreviewFloor();
+            }
 
             hoverRing = CreateUnlitMesh("HoverRing", ringMesh, new Color(1f, 0.92f, 0.35f, 0.92f));
             hoverRing.SetActive(false);
@@ -159,7 +190,7 @@ namespace Moba.LaneSlice
             swordMarkRing = CreateUnlitMesh("SwordMarkRing", ringMesh, new Color(0.95f, 0.22f, 0.25f, 0.90f));
             swordMarkRing.SetActive(false);
 
-            if (!Application.isBatchMode)
+            if (enableAudio && !Application.isBatchMode)
             {
                 sfxSource = root.gameObject.AddComponent<AudioSource>();
                 sfxSource.spatialBlend = 0f;
@@ -168,7 +199,23 @@ namespace Moba.LaneSlice
                 sfxSwordHeavy = BuildToneClip("SwordHeavySfx", 210f, 95f, 0.24f, isImpactNoise: true);
                 sfxOgreCentral = BuildToneClip("OgreCentralSfx", 115f, 44f, 0.30f, isImpactNoise: true);
                 sfxOgreShockwave = BuildToneClip("OgreShockwaveSfx", 260f, 120f, 0.22f, isImpactNoise: false);
+                ownedClips.Add(sfxSwordLight);
+                ownedClips.Add(sfxSwordHeavy);
+                ownedClips.Add(sfxOgreCentral);
+                ownedClips.Add(sfxOgreShockwave);
             }
+        }
+
+        public void Dispose()
+        {
+            ResetVisuals();
+            if (root != null) Object.Destroy(root.gameObject);
+            for (int i = 0; i < ownedMeshes.Count; i++) if (ownedMeshes[i]) Object.Destroy(ownedMeshes[i]);
+            for (int i = 0; i < ownedMaterials.Count; i++) if (ownedMaterials[i]) Object.Destroy(ownedMaterials[i]);
+            for (int i = 0; i < ownedClips.Count; i++) if (ownedClips[i]) Object.Destroy(ownedClips[i]);
+            ownedMeshes.Clear();
+            ownedMaterials.Clear();
+            ownedClips.Clear();
         }
 
         private static AudioClip BuildToneClip(string name, float freqStart, float freqEnd, float seconds, bool isImpactNoise)
@@ -274,7 +321,7 @@ namespace Moba.LaneSlice
 
                 bool hiddenEnemy = h.invisible && h.team != localTeam;
                 vis.go.SetActive(h.phase != LanePhase.Dead && !hiddenEnemy);
-                vis.targetPos = new Vector3(h.x, 0f, h.y);
+                vis.targetPos = ToWorld(h.x, h.y);
                 vis.targetYaw = h.headingDeg;
                 vis.scale = Mathf.Max(0.85f, h.scale);
 
@@ -331,7 +378,7 @@ namespace Moba.LaneSlice
                     illusionVisuals[ill.id] = vis;
                 }
                 vis.go.SetActive(true);
-                vis.targetPos = new Vector3(ill.x, 0f, ill.y);
+                vis.targetPos = ToWorld(ill.x, ill.y);
                 vis.targetYaw = ill.headingDeg;
                 vis.simSpeed = ill.speed;
                 Color illTint = ill.isLaserDecoy
@@ -359,7 +406,7 @@ namespace Moba.LaneSlice
                     minionVisuals[m.id] = vis;
                 }
                 vis.go.SetActive(true);
-                vis.targetPos = new Vector3(m.x, 0f, m.y);
+                vis.targetPos = ToWorld(m.x, m.y);
                 vis.targetYaw = m.headingDeg;
                 Color c = m.team == LaneTeam.Blue ? new Color(0.62f, 0.84f, 1f, 1f) : new Color(1f, 0.64f, 0.60f, 1f);
                 vis.mpb.SetColor("_Color", c);
@@ -389,7 +436,7 @@ namespace Moba.LaneSlice
                     go.transform.localScale = Vector3.one * s;
                     projVisuals[p.id] = go;
                 }
-                go.transform.position = new Vector3(p.x, 0.85f, p.y);
+                go.transform.position = ToWorld(p.x, p.y, 0.85f);
             }
             var rmProj = new List<int>();
             foreach (var kv in projVisuals) if (!activeProjs.Contains(kv.Key)) rmProj.Add(kv.Key);
@@ -407,7 +454,7 @@ namespace Moba.LaneSlice
                     go = CreateUnlitMesh($"Orb_{o.id}", orbMesh, c);
                     orbVisuals[o.id] = go;
                 }
-                go.transform.position = new Vector3(o.x, 0.55f + Mathf.Sin(Time.time * 3.5f) * 0.14f, o.y);
+                go.transform.position = ToWorld(o.x, o.y, 0.55f + Mathf.Sin(Time.time * 3.5f) * 0.14f);
                 go.transform.Rotate(0f, 65f * Time.deltaTime, 0f);
             }
             var rmOrb = new List<int>();
@@ -426,7 +473,7 @@ namespace Moba.LaneSlice
                 if (active)
                 {
                     ZoneSnap z = snap.zones[i];
-                    zoneVisuals[i].transform.position = new Vector3(z.x, 0.08f, z.y);
+                    zoneVisuals[i].transform.position = ToWorld(z.x, z.y, 0.08f);
                     zoneVisuals[i].transform.localScale = new Vector3(z.radius, 1f, z.radius);
                 }
             }
@@ -460,7 +507,7 @@ namespace Moba.LaneSlice
                             tv.aggroBeam.endWidth = 0.04f;
                         }
                     }
-                    tv.aggroBeam.SetPosition(0, new Vector3(t.x, 3.25f, t.y));
+                    tv.aggroBeam.SetPosition(0, ToWorld(t.x, t.y, 3.25f));
                     tv.aggroBeam.SetPosition(1, tp + Vector3.up * 0.65f);
                 }
             }
@@ -469,7 +516,7 @@ namespace Moba.LaneSlice
             if (hoveredEntityId > 0 && TryFindEntityPos(snap, hoveredEntityId, out Vector3 hoverPos))
             {
                 hoverRing.SetActive(true);
-                hoverRing.transform.position = new Vector3(hoverPos.x, 0.06f, hoverPos.z);
+                hoverRing.transform.position = hoverPos + new Vector3(0f, 0.06f, 0f);
                 hoverRing.transform.localScale = Vector3.one * 0.95f;
             }
             else
@@ -480,7 +527,7 @@ namespace Moba.LaneSlice
             if (markSource != null && TryFindEntityPos(snap, markSource.swordMarkedTargetId, out Vector3 markPos))
             {
                 swordMarkRing.SetActive(true);
-                swordMarkRing.transform.position = new Vector3(markPos.x, 0.08f, markPos.z);
+                swordMarkRing.transform.position = markPos + new Vector3(0f, 0.08f, 0f);
                 swordMarkRing.transform.localScale = Vector3.one * (0.85f + Mathf.Sin(Time.time * 6f) * 0.08f);
             }
             else
@@ -595,7 +642,7 @@ namespace Moba.LaneSlice
                     }
                     GameObject ringGo = selectionRings[activeSelRingCount];
                     ringGo.SetActive(true);
-                    ringGo.transform.position = new Vector3(selPos.x, 0.055f, selPos.z);
+                    ringGo.transform.position = selPos + new Vector3(0f, 0.055f, 0f);
                     ringGo.transform.localScale = Vector3.one * (0.94f + Mathf.Sin(Time.time * 5f) * 0.04f);
                     activeSelRingCount++;
                 }
@@ -702,7 +749,7 @@ namespace Moba.LaneSlice
 
             if (visibleToLocal && tuning != null)
             {
-                Vector3 pos = new Vector3(h.x, 0.05f, h.y);
+                Vector3 pos = ToWorld(h.x, h.y, 0.05f);
                 float aimDeg = Mathf.Atan2(h.aimDirX, h.aimDirY) * Mathf.Rad2Deg;
                 Quaternion aimRot = Quaternion.Euler(0f, aimDeg, 0f);
                 float hScale = Mathf.Max(0.85f, h.scale);
@@ -767,7 +814,7 @@ namespace Moba.LaneSlice
                 else if (h.heroId == LaneHeroId.LaserShooter && (h.phase == LanePhase.Casting || h.phase == LanePhase.Channeling) && h.activeSlot == LaneAbilitySlot.R)
                 {
                     showLaserBeam = true;
-                    tel.laserBeam.transform.position = new Vector3(h.x, 0.08f, h.y);
+                    tel.laserBeam.transform.position = ToWorld(h.x, h.y, 0.08f);
                     tel.laserBeam.transform.rotation = aimRot;
                     float widthPulse = h.phase == LanePhase.Channeling ? 1f + 0.08f * Mathf.Sin(Time.time * 24f) : 0.75f;
                     tel.laserBeam.transform.localScale = new Vector3(tuning.laserRHalfWidth * 2f * widthPulse, 1f, tuning.laserRRange);
@@ -776,7 +823,7 @@ namespace Moba.LaneSlice
                 showCoward = h.cowardShieldBonus > 0.5f || h.cowardShieldState > 0;
                 if (showCoward)
                 {
-                    tel.cowardHalo.transform.position = new Vector3(h.x, 0.09f, h.y);
+                    tel.cowardHalo.transform.position = ToWorld(h.x, h.y, 0.09f);
                     float f = Mathf.Clamp01(h.cowardShieldFactor);
                     float haloScale = h.cowardShieldState == 1 ? 0.76f + 0.24f * f
                         : (h.cowardShieldState == 2 ? 1.00f + 0.05f * Mathf.Sin(Time.time * 6f) : 0.78f + 0.18f * f);
@@ -795,14 +842,14 @@ namespace Moba.LaneSlice
                 if (showAura)
                 {
                     float aRad = h.miravelAuraRadius > 1f ? h.miravelAuraRadius : tuning.luisAuraRadiusFormula.Evaluate(1, h.intelligence);
-                    tel.auraRing.transform.position = new Vector3(h.x, 0.03f, h.y);
+                    tel.auraRing.transform.position = ToWorld(h.x, h.y, 0.03f);
                     tel.auraRing.transform.localScale = new Vector3(aRad, 1f, aRad);
                 }
 
                 showDrain = h.miravelDrainAura > 0.05f;
                 if (showDrain)
                 {
-                    tel.drainRing.transform.position = new Vector3(h.x, 0.055f, h.y);
+                    tel.drainRing.transform.position = ToWorld(h.x, h.y, 0.055f);
                     float pulse = 0.95f + 0.12f * Mathf.Sin(Time.time * 5.5f);
                     tel.drainRing.transform.localScale = Vector3.one * pulse;
                 }
@@ -810,14 +857,14 @@ namespace Moba.LaneSlice
                 showWard = h.wardTimer > 0f;
                 if (showWard)
                 {
-                    tel.wardRing.transform.position = new Vector3(h.x, 0.07f, h.y);
+                    tel.wardRing.transform.position = ToWorld(h.x, h.y, 0.07f);
                     tel.wardRing.transform.localScale = Vector3.one * (1.14f + 0.05f * Mathf.Sin(Time.time * 5f));
                 }
 
                 showCurse = h.curseTimer > 0f;
                 if (showCurse)
                 {
-                    tel.curseRing.transform.position = new Vector3(h.x, 0.08f, h.y);
+                    tel.curseRing.transform.position = ToWorld(h.x, h.y, 0.08f);
                     float cs = 0.90f + 0.08f * h.curseStacks + 0.06f * Mathf.Sin(Time.time * 8f);
                     tel.curseRing.transform.localScale = Vector3.one * cs;
                 }
@@ -825,7 +872,7 @@ namespace Moba.LaneSlice
                 showShield = h.shieldHp > 1f;
                 if (showShield)
                 {
-                    tel.shieldRing.transform.position = new Vector3(h.x, 0.06f, h.y);
+                    tel.shieldRing.transform.position = ToWorld(h.x, h.y, 0.06f);
                     tel.shieldRing.transform.localScale = Vector3.one * 1.04f;
                 }
             }
@@ -1133,13 +1180,13 @@ namespace Moba.LaneSlice
             }
         }
 
-        private static bool TryFindEntityPos(LaneSnapshot snap, int id, out Vector3 pos)
+        private bool TryFindEntityPos(LaneSnapshot snap, int id, out Vector3 pos)
         {
             for (int i = 0; i < snap.heroes.Count; i++)
             {
                 if (snap.heroes[i].id == id && snap.heroes[i].phase != LanePhase.Dead)
                 {
-                    pos = new Vector3(snap.heroes[i].x, 0f, snap.heroes[i].y);
+                    pos = ToWorld(snap.heroes[i].x, snap.heroes[i].y);
                     return true;
                 }
             }
@@ -1147,7 +1194,7 @@ namespace Moba.LaneSlice
             {
                 if (snap.minions[i].id == id)
                 {
-                    pos = new Vector3(snap.minions[i].x, 0f, snap.minions[i].y);
+                    pos = ToWorld(snap.minions[i].x, snap.minions[i].y);
                     return true;
                 }
             }
@@ -1155,7 +1202,7 @@ namespace Moba.LaneSlice
             {
                 if (snap.illusions[i].id == id)
                 {
-                    pos = new Vector3(snap.illusions[i].x, 0f, snap.illusions[i].y);
+                    pos = ToWorld(snap.illusions[i].x, snap.illusions[i].y);
                     return true;
                 }
             }
@@ -1163,7 +1210,7 @@ namespace Moba.LaneSlice
             {
                 if (snap.towers[i].id == id && snap.towers[i].alive)
                 {
-                    pos = new Vector3(snap.towers[i].x, 0f, snap.towers[i].y);
+                    pos = ToWorld(snap.towers[i].x, snap.towers[i].y);
                     return true;
                 }
             }
@@ -1274,7 +1321,7 @@ namespace Moba.LaneSlice
             mat.color = c;
             var go = new GameObject($"Burst_{ev.kind}");
             go.transform.SetParent(root, false);
-            go.transform.position = new Vector3(ev.x, 0.12f, ev.y);
+            go.transform.position = ToWorld(ev.x, ev.y, 0.12f);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             go.AddComponent<MeshRenderer>().sharedMaterial = mat;
 
@@ -1306,8 +1353,8 @@ namespace Moba.LaneSlice
             lr.sharedMaterial = mat;
             lr.useWorldSpace = true;
             lr.positionCount = 2;
-            lr.SetPosition(0, new Vector3(b.x0, 0.92f, b.y0));
-            lr.SetPosition(1, new Vector3(b.x1, 0.92f, b.y1));
+            lr.SetPosition(0, ToWorld(b.x0, b.y0, 0.92f));
+            lr.SetPosition(1, ToWorld(b.x1, b.y1, 0.92f));
             float w = Mathf.Max(0.08f, b.width);
             lr.startWidth = w;
             lr.endWidth = w * 0.72f;
@@ -1350,6 +1397,7 @@ namespace Moba.LaneSlice
             var mr = go.AddComponent<MeshRenderer>();
             var mat = new Material(Shader.Find("Sprites/Default"));
             mat.color = color;
+            ownedMaterials.Add(mat);
             mr.sharedMaterial = mat;
             return go;
         }

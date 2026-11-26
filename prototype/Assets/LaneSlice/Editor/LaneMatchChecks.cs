@@ -29,8 +29,9 @@ namespace Moba.LaneSlice
             CheckStopCommandAndHeroControlProfiles();
             CheckOptionalRtsSelectionControlGroupsAndOwnership();
             CheckPersonalSettingsKeybindingsConflictsAndPersistence();
+            CheckAbilityPreviewsAndInteractiveSandbox();
             CheckBotVsBotBalanceDiagnostic();
-            Debug.Log("[LaneMatchChecks] All 20 deterministic checks passed.");
+            Debug.Log("[LaneMatchChecks] All 21 deterministic checks passed.");
         }
 
         private static void CheckZeroInherentAttributeBonuses()
@@ -985,6 +986,98 @@ namespace Moba.LaneSlice
                     Assert(card.KeyFacts.Count >= 1 && card.ScalingRows.Count >= 1 && card.MathLines.Count >= 1 && !string.IsNullOrEmpty(card.PracticalTip),
                         $"{hid} {card.KeyBadge} missing KeyFacts, ScalingRows, MathLines, or PracticalTip.");
                 }
+            }
+        }
+
+        private static void CheckAbilityPreviewsAndInteractiveSandbox()
+        {
+            var t = new LaneTuning { startingGold = 1200, passiveGoldPerSecond = 0f };
+            var liveMatch = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t);
+            HeroSnap liveBefore = GetHero(liveMatch.Snapshot(), LaneTeam.Blue);
+
+            using (var preview = new LaneAbilityPreview(t, enableRenderVisuals: false))
+            {
+                LaneHeroId[] heroes = { LaneHeroId.Ogre, LaneHeroId.Miravel, LaneHeroId.Swordsman, LaneHeroId.LaserShooter };
+                LaneAbilitySlot[] slots = { LaneAbilitySlot.None, LaneAbilitySlot.Q, LaneAbilitySlot.W, LaneAbilitySlot.E, LaneAbilitySlot.R };
+
+                foreach (LaneHeroId hero in heroes)
+                {
+                    foreach (LaneAbilitySlot slot in slots)
+                    {
+                        string[] exNames = LaneAbilityPreview.GetExampleNames(hero, slot);
+                        for (int ex = 0; ex < exNames.Length; ex++)
+                        {
+                            preview.Select(hero, slot, ex);
+                            Assert(!string.IsNullOrEmpty(preview.ScenarioCaption), $"Preview caption missing for {hero} {slot} ex {ex}");
+
+                            int steps = Mathf.CeilToInt((preview.LoopDuration + 0.25f) * 30f);
+                            for (int i = 0; i < steps; i++)
+                            {
+                                preview.Tick(1f / 30f, shouldRun: true);
+                            }
+
+                            LaneSnapshot pSnap = preview.LatestPreviewSnapshot;
+                            Assert(pSnap != null && pSnap.heroes.Count == 2, $"Preview snapshot invalid for {hero} {slot}");
+                            for (int hi = 0; hi < pSnap.heroes.Count; hi++)
+                            {
+                                HeroSnap hs = pSnap.heroes[hi];
+                                Assert(!float.IsNaN(hs.hp) && !float.IsNaN(hs.x) && !float.IsNaN(hs.y), $"Preview NaN in {hero} {slot}");
+                            }
+                        }
+                    }
+                }
+
+                // Interactive stat override reflects real formulas without touching live match state
+                preview.Select(LaneHeroId.Ogre, LaneAbilitySlot.E, 0);
+                PreviewStatOverrides ov = LaneAbilityPreview.DefaultOverrides(LaneAbilitySlot.E);
+                ov.bonusStrength = 60f;
+                ov.bonusAttackDamage = 40f;
+                preview.ApplyLiveOverrides(ov);
+                preview.Tick(1f / 30f, shouldRun: true);
+
+                HeroSnap previewSnap = LaneHeroSheet.EvaluatePreviewHeroSnap(LaneHeroId.Ogre, t, ov);
+                AssertClose(previewSnap.strength, 60f, "Preview hero snap applies bonus STR");
+                AssertClose(previewSnap.attackDamage, liveBefore.attackDamage + 40f, "Preview hero snap applies bonus AD");
+
+                HeroSnap liveAfter = GetHero(liveMatch.Snapshot(), LaneTeam.Blue);
+                AssertClose(liveAfter.strength, liveBefore.strength, "Preview overrides must never mutate separate active live match");
+                AssertClose(liveAfter.hp, liveBefore.hp, "Preview stepping must never mutate separate active live match HP");
+
+                // Only relevant sliders should be shown per ability
+                List<PreviewSliderSpec> mirWSliders = LaneAbilityPreview.GetRelevantSliders(LaneHeroId.Miravel, LaneAbilitySlot.W);
+                Assert(mirWSliders.Count == 1 && mirWSliders[0].Field == PreviewStatField.AbilityHaste,
+                    "Miravel W preview sliders must expose only Ability Haste (no irrelevant AD/STR)");
+
+                // Deactivating halts simulation ticks completely
+                int ticksBeforeOff = preview.SimulationTickCount;
+                Assert(ticksBeforeOff > 0, "Preview should advance ticks while active");
+                preview.Tick(0.05f, shouldRun: false);
+                preview.Tick(0.05f, shouldRun: false);
+                Assert(!preview.IsActive && preview.SimulationTickCount == ticksBeforeOff,
+                    "Disabling/closing preview must immediately halt preview simulation work");
+
+                preview.ResetOverrides();
+                AssertClose(preview.Overrides.bonusStrength, 0f, "ResetOverrides clears bonus stats");
+            }
+
+            // Personal preference persistence for enableAbilityDemos
+            string tempSettingsPath = Path.Combine(Path.GetTempPath(), "moba_preview_pref_" + Guid.NewGuid().ToString("N") + ".json");
+            try
+            {
+                var store = new PlayerSettingsStore(tempSettingsPath, persistToDisk: true);
+                Assert(store.Data.enableAbilityDemos, "Ability demos enabled by default");
+                store.SetAbilityDemosEnabled(false);
+
+                var reloaded = new PlayerSettingsStore(tempSettingsPath, persistToDisk: true);
+                reloaded.Load();
+                Assert(!reloaded.Data.enableAbilityDemos, "Ability demos disable setting must persist locally");
+
+                reloaded.RestoreDefaults();
+                Assert(reloaded.Data.enableAbilityDemos, "RestoreDefaults re-enables ability demos");
+            }
+            finally
+            {
+                if (File.Exists(tempSettingsPath)) File.Delete(tempSettingsPath);
             }
         }
 

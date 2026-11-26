@@ -66,10 +66,47 @@ namespace Moba.LaneSlice
                 AddPineTree(geo, new Vector3(t.x, 0f, t.y), (i % 3) * 0.15f);
             }
 
+            Mesh envMesh = geo.Bake("LaneEnvMesh");
+            ownedMeshes.Add(envMesh);
             var envObj = new GameObject("LaneEnvironment");
             envObj.transform.SetParent(root, false);
-            envObj.AddComponent<MeshFilter>().sharedMesh = geo.Bake("LaneEnvMesh");
+            envObj.transform.localPosition = worldOffset;
+            envObj.AddComponent<MeshFilter>().sharedMesh = envMesh;
             envObj.AddComponent<MeshRenderer>().sharedMaterial = vertexMat;
+        }
+
+        private void BuildPreviewFloor()
+        {
+            var geo = new DuelGeometry();
+            Color baseFloor = new Color(0.11f, 0.14f, 0.16f);
+            Color centerPad = new Color(0.17f, 0.21f, 0.23f);
+            geo.Quad(
+                new Vector3(-11f, 0f, -7f),
+                new Vector3(-11f, 0f, 7f),
+                new Vector3(11f, 0f, 7f),
+                new Vector3(11f, 0f, -7f),
+                Vector3.up, baseFloor);
+            geo.Quad(
+                new Vector3(-9f, 0.01f, -5.2f),
+                new Vector3(-9f, 0.01f, 5.2f),
+                new Vector3(9f, 0.01f, 5.2f),
+                new Vector3(9f, 0.01f, -5.2f),
+                Vector3.up, centerPad);
+
+            Mesh floorMesh = geo.Bake("LanePreviewFloorMesh");
+            ownedMeshes.Add(floorMesh);
+            var floorObj = new GameObject("PreviewFloor");
+            floorObj.transform.SetParent(root, false);
+            floorObj.transform.localPosition = worldOffset;
+            floorObj.AddComponent<MeshFilter>().sharedMesh = floorMesh;
+            floorObj.AddComponent<MeshRenderer>().sharedMaterial = vertexMat;
+
+            foreach (float rad in new[] { 2f, 4f, 6f })
+            {
+                GameObject r = CreateUnlitMesh($"PreviewRange_{rad}", ringMesh, new Color(0.32f, 0.44f, 0.54f, 0.28f));
+                r.transform.position = worldOffset + new Vector3(0f, 0.02f, 0f);
+                r.transform.localScale = new Vector3(rad, 1f, rad);
+            }
         }
 
         private void BuildTowers(LaneMap map)
@@ -86,26 +123,32 @@ namespace Moba.LaneSlice
             aliveGeo.Column(new Vector3(0f, 0.55f, 0f), 2.15f, new Vector2(0.72f, 0.72f), new Vector2(0.56f, 0.56f), 8, stone);
             aliveGeo.Column(new Vector3(0f, 2.70f, 0f), 0.35f, new Vector2(0.82f, 0.82f), new Vector2(0.65f, 0.65f), 8, teamColor);
 
+            Mesh aliveMesh = aliveGeo.Bake($"TowerAlive_{team}");
+            ownedMeshes.Add(aliveMesh);
             var aliveObj = new GameObject($"Tower_{team}");
             aliveObj.transform.SetParent(root, false);
-            aliveObj.transform.position = new Vector3(pos.x, 0f, pos.y);
-            aliveObj.AddComponent<MeshFilter>().sharedMesh = aliveGeo.Bake($"TowerAlive_{team}");
+            aliveObj.transform.position = ToWorld(pos.x, pos.y);
+            aliveObj.AddComponent<MeshFilter>().sharedMesh = aliveMesh;
             aliveObj.AddComponent<MeshRenderer>().sharedMaterial = vertexMat;
 
             var cryGeo = new DuelGeometry();
             cryGeo.Column(new Vector3(0f, -0.35f, 0f), 0.70f, new Vector2(0.32f, 0.32f), new Vector2(0.05f, 0.05f), 6, teamColor * 1.15f);
+            Mesh cryMesh = cryGeo.Bake($"TowerCrystal_{team}");
+            ownedMeshes.Add(cryMesh);
             var crystalObj = new GameObject("Crystal");
             crystalObj.transform.SetParent(aliveObj.transform, false);
             crystalObj.transform.localPosition = new Vector3(0f, 3.45f, 0f);
-            crystalObj.AddComponent<MeshFilter>().sharedMesh = cryGeo.Bake($"TowerCrystal_{team}");
+            crystalObj.AddComponent<MeshFilter>().sharedMesh = cryMesh;
             crystalObj.AddComponent<MeshRenderer>().sharedMaterial = vertexMat;
 
             var ruinGeo = new DuelGeometry();
             ruinGeo.Column(Vector3.zero, 0.32f, new Vector2(1.05f, 1.05f), new Vector2(0.75f, 0.75f), 8, new Color(0.28f, 0.27f, 0.27f));
+            Mesh ruinMesh = ruinGeo.Bake($"TowerRuin_{team}");
+            ownedMeshes.Add(ruinMesh);
             var ruinObj = new GameObject($"TowerRuin_{team}");
             ruinObj.transform.SetParent(root, false);
-            ruinObj.transform.position = new Vector3(pos.x, 0f, pos.y);
-            ruinObj.AddComponent<MeshFilter>().sharedMesh = ruinGeo.Bake($"TowerRuin_{team}");
+            ruinObj.transform.position = ToWorld(pos.x, pos.y);
+            ruinObj.AddComponent<MeshFilter>().sharedMesh = ruinMesh;
             ruinObj.AddComponent<MeshRenderer>().sharedMaterial = vertexMat;
             ruinObj.SetActive(false);
 
@@ -114,6 +157,7 @@ namespace Moba.LaneSlice
             lr.startWidth = 0.09f;
             lr.endWidth = 0.04f;
             var mat = new Material(Shader.Find("Sprites/Default"));
+            ownedMaterials.Add(mat);
             mat.color = teamColor;
             lr.sharedMaterial = mat;
             lr.enabled = false;

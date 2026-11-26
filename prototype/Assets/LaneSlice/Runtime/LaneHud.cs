@@ -36,6 +36,9 @@ namespace Moba.LaneSlice
         private GUIStyle tooltipStyle;
         private bool showExactMath;
         private readonly HashSet<int> expandedMathCards = new HashSet<int>();
+        private LaneAbilitySlot previewSlot = LaneAbilitySlot.Q;
+        private bool previewSandboxMode;
+        private Vector2 previewPaneScroll;
         private int shopTierFilter = -1; // -1=All, 0=Starter, 1=Core, 2=Capstone
         private string hoverTooltipText;
         private Rect hoverTooltipAnchor;
@@ -53,6 +56,9 @@ namespace Moba.LaneSlice
             HeroSheetOpen = true;
             SettingsOpen = false;
             heroSheetScroll = Vector2.zero;
+            previewPaneScroll = Vector2.zero;
+            previewSlot = LaneAbilitySlot.Q;
+            scene.AbilityPreview?.Select(hero, previewSlot, 0);
         }
 
         public void OpenSettings()
@@ -879,22 +885,33 @@ namespace Moba.LaneSlice
         private void DrawHeroSheetDrawer(HeroSnap liveSelf, bool inMatch)
         {
             EnsureStyles();
+            LaneAbilityPreview preview = scene.AbilityPreview;
+            bool demosOn = scene.Settings == null || scene.Settings.Data.enableAbilityDemos;
+            if (preview != null && preview.SelectedHero != inspectedHero)
+            {
+                preview.Select(inspectedHero, previewSlot, 0);
+            }
+
             float w = inMatch
-                ? Mathf.Min(Screen.width - 24f, Mathf.Clamp(Screen.width * 0.72f, 700f, 1020f))
-                : Mathf.Min(Screen.width - 24f, Mathf.Clamp(Screen.width * 0.76f, 760f, 1120f));
+                ? Mathf.Min(Screen.width - 20f, Mathf.Clamp(Screen.width * 0.84f, 760f, 1180f))
+                : Mathf.Min(Screen.width - 20f, Mathf.Clamp(Screen.width * 0.88f, 780f, 1260f));
             float h = inMatch
-                ? Mathf.Min(Screen.height - 170f, Mathf.Clamp(Screen.height * 0.78f, 440f, 720f))
-                : Mathf.Min(Screen.height - 30f, Mathf.Clamp(Screen.height * 0.84f, 520f, 800f));
+                ? Mathf.Min(Screen.height - 164f, Mathf.Clamp(Screen.height * 0.82f, 460f, 760f))
+                : Mathf.Min(Screen.height - 24f, Mathf.Clamp(Screen.height * 0.88f, 540f, 840f));
             var r = inMatch
-                ? new Rect(12f, 52f, w, h)
+                ? new Rect(10f, 52f, w, h)
                 : new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
             TrackPointer(r);
             DrawBox(r, new Color(0.08f, 0.10f, 0.13f, 0.98f));
 
-            float contentW = Mathf.Max(420f, r.width - 54f);
-            GUILayout.BeginArea(new Rect(r.x + 14f, r.y + 12f, r.width - 28f, r.height - 24f));
+            float innerW = r.width - 28f;
+            float leftW = Mathf.Floor((innerW - 12f) * 0.56f);
+            float rightW = Mathf.Max(280f, innerW - leftW - 12f);
+            float leftContentW = Mathf.Max(300f, leftW - 34f);
+
+            GUILayout.BeginArea(new Rect(r.x + 14f, r.y + 12f, innerW, r.height - 24f));
             GUILayout.BeginHorizontal();
-            GUILayout.Label($"<color={LaneHeroSheet.ColText}><b><size=15>HERO GUIDE & SCALING</size></b></color>");
+            GUILayout.Label($"<color={LaneHeroSheet.ColText}><b><size=15>HERO GUIDE, PREVIEW & SCALING SANDBOX</size></b></color>");
             GUILayout.FlexibleSpace();
             foreach (LaneHeroId id in new[] { LaneHeroId.Ogre, LaneHeroId.Miravel, LaneHeroId.Swordsman, LaneHeroId.LaserShooter })
             {
@@ -904,6 +921,8 @@ namespace Moba.LaneSlice
                 {
                     inspectedHero = id;
                     heroSheetScroll = Vector2.zero;
+                    previewPaneScroll = Vector2.zero;
+                    preview?.Select(id, previewSlot, 0);
                 }
             }
             GUI.backgroundColor = showExactMath ? new Color(0.34f, 0.60f, 0.94f) : new Color(0.75f, 0.80f, 0.88f);
@@ -915,16 +934,29 @@ namespace Moba.LaneSlice
             if (GUILayout.Button("X", GUILayout.Width(28f), GUILayout.Height(25f)))
             {
                 HeroSheetOpen = false;
+                preview?.Deactivate();
             }
             GUILayout.EndHorizontal();
             GUILayout.Space(6);
 
-            LaneHeroSheet.HeroGuideData guide = LaneHeroSheet.BuildHeroGuide(inspectedHero, tuning, liveSelf);
-            heroSheetScroll = GUILayout.BeginScrollView(heroSheetScroll);
+            bool hasLiveMatchHero = liveSelf != null && liveSelf.heroId == inspectedHero;
+            bool usingSandbox = !hasLiveMatchHero || previewSandboxMode;
+            HeroSnap displayedSnap = hasLiveMatchHero && !usingSandbox
+                ? liveSelf
+                : (preview != null ? LaneHeroSheet.EvaluatePreviewHeroSnap(inspectedHero, tuning, preview.Overrides) : null);
 
-            // Hero Header Card
+            LaneHeroSheet.HeroGuideData guide = LaneHeroSheet.BuildHeroGuide(inspectedHero, tuning, displayedSnap);
+
+            GUILayout.BeginHorizontal();
+
+            // LEFT PANE: Structured Ability Guide Cards
+            heroSheetScroll = GUILayout.BeginScrollView(heroSheetScroll, GUILayout.Width(leftW));
+
             GUILayout.BeginVertical(cardBoxStyle);
-            GUILayout.Label($"<color={LaneHeroSheet.ColText}><b><size=16>{guide.Title}</size></b></color>  <color={LaneHeroSheet.ColMuted}>— {guide.IdentitySummary}</color>", cardHeaderStyle);
+            string snapBadge = (hasLiveMatchHero && !usingSandbox)
+                ? $"<color={LaneHeroSheet.ColLive}><b>[LIVE MATCH]</b></color>"
+                : $"<color={LaneHeroSheet.ColInt}><b>[SANDBOX Lv {(preview != null ? preview.Overrides.level : 1)}]</b></color>";
+            GUILayout.Label($"<color={LaneHeroSheet.ColText}><b><size=16>{guide.Title}</size></b></color> {snapBadge}  <color={LaneHeroSheet.ColMuted}>— {guide.IdentitySummary}</color>", cardHeaderStyle);
             GUILayout.Space(3);
             GUILayout.Label(guide.BaseStatsLine, sheetTextStyle);
             if (!string.IsNullOrEmpty(guide.LiveStatsLine))
@@ -938,23 +970,31 @@ namespace Moba.LaneSlice
                 LaneHeroSheet.AbilityCardData card = guide.Cards[i];
                 int mathKey = ((int)inspectedHero * 32) + i;
                 bool cardMathOpen = showExactMath || expandedMathCards.Contains(mathKey);
+                bool isPreviewed = card.Slot == previewSlot;
 
                 GUILayout.Space(7);
+                GUI.backgroundColor = isPreviewed ? new Color(0.84f, 0.96f, 0.90f) : Color.white;
                 GUILayout.BeginVertical(cardBoxStyle);
+                GUI.backgroundColor = Color.white;
 
-                // Card Title + Per-Card Math Toggle
                 GUILayout.BeginHorizontal();
                 GUILayout.Label($"<color={LaneHeroSheet.ColCc}><b>[{card.KeyBadge}]</b></color> <color={LaneHeroSheet.ColText}><b>{card.Name}</b></color>", cardHeaderStyle);
                 GUILayout.FlexibleSpace();
                 if (!string.IsNullOrEmpty(card.MetaRight))
                 {
                     GUILayout.Label($"<color={LaneHeroSheet.ColMuted}>{card.MetaRight}</color>", sheetTextStyle);
-                    GUILayout.Space(6);
+                    GUILayout.Space(4);
+                }
+                GUI.backgroundColor = isPreviewed ? new Color(0.32f, 0.78f, 0.56f) : new Color(0.56f, 0.64f, 0.74f);
+                if (GUILayout.Button(isPreviewed ? "Previewing" : "Preview", GUILayout.Width(76f), GUILayout.Height(21f)))
+                {
+                    previewSlot = card.Slot;
+                    preview?.Select(inspectedHero, previewSlot, 0);
                 }
                 if (card.MathLines.Count > 0)
                 {
                     GUI.backgroundColor = cardMathOpen ? new Color(0.36f, 0.62f, 0.94f) : new Color(0.66f, 0.72f, 0.80f);
-                    if (GUILayout.Button(cardMathOpen ? "Hide Math" : "Show Math", GUILayout.Width(76f), GUILayout.Height(21f)))
+                    if (GUILayout.Button(cardMathOpen ? "Hide Math" : "Show Math", GUILayout.Width(74f), GUILayout.Height(21f)))
                     {
                         if (showExactMath)
                         {
@@ -966,18 +1006,16 @@ namespace Moba.LaneSlice
                             expandedMathCards.Add(mathKey);
                         }
                     }
-                    GUI.backgroundColor = Color.white;
                 }
+                GUI.backgroundColor = Color.white;
                 GUILayout.EndHorizontal();
 
-                // A. Plain-Language Description
                 if (!string.IsNullOrEmpty(card.PlainDescription))
                 {
                     GUILayout.Space(3);
                     GUILayout.Label(card.PlainDescription, sheetBodyStyle);
                 }
 
-                // B. Important Gameplay Info Pills (wrapping cleanly)
                 if (card.KeyFacts.Count > 0)
                 {
                     GUILayout.Space(4);
@@ -987,8 +1025,8 @@ namespace Moba.LaneSlice
                     {
                         LaneHeroSheet.KeyFactPill kf = card.KeyFacts[k];
                         string pillMarkup = $"<color={LaneHeroSheet.ColMuted}>{kf.Label}:</color> <color={kf.ColorHex}><b>{kf.Value}</b></color>";
-                        float pillW = Mathf.Min(contentW - 12f, sheetFactPillStyle.CalcSize(new GUIContent(pillMarkup)).x + 12f);
-                        if (usedW > 0f && usedW + pillW > contentW - 12f)
+                        float pillW = Mathf.Min(leftContentW - 12f, sheetFactPillStyle.CalcSize(new GUIContent(pillMarkup)).x + 12f);
+                        if (usedW > 0f && usedW + pillW > leftContentW - 12f)
                         {
                             GUILayout.FlexibleSpace();
                             GUILayout.EndHorizontal();
@@ -1004,7 +1042,6 @@ namespace Moba.LaneSlice
                     GUILayout.EndHorizontal();
                 }
 
-                // C. What Scales?
                 if (card.ScalingRows.Count > 0)
                 {
                     GUILayout.Space(5);
@@ -1027,7 +1064,6 @@ namespace Moba.LaneSlice
                     GUILayout.Label(card.LiveLine, sheetTextStyle);
                 }
 
-                // D. Detailed Mathematics (Expandable)
                 if (cardMathOpen && card.MathLines.Count > 0)
                 {
                     GUILayout.Space(4);
@@ -1040,7 +1076,6 @@ namespace Moba.LaneSlice
                     GUILayout.EndVertical();
                 }
 
-                // E. Practical Ability Tip
                 if (!string.IsNullOrEmpty(card.PracticalTip))
                 {
                     GUILayout.Space(4);
@@ -1058,8 +1093,183 @@ namespace Moba.LaneSlice
                 GUILayout.Label($"• {guide.RuleLines[i]}", sheetTextStyle);
             }
             GUILayout.EndVertical();
-
             GUILayout.EndScrollView();
+
+            GUILayout.Space(10);
+
+            // RIGHT PANE: Isolated Ability Demonstration & Interactive Scaling Sandbox
+            GUILayout.BeginVertical(cardBoxStyle, GUILayout.Width(rightW));
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"<color={LaneHeroSheet.ColText}><b>ABILITY DEMO & SANDBOX</b></color>", cardHeaderStyle);
+            GUILayout.FlexibleSpace();
+            GUI.backgroundColor = demosOn ? new Color(0.32f, 0.76f, 0.52f) : new Color(0.65f, 0.45f, 0.45f);
+            if (GUILayout.Button(demosOn ? "Demos: ON" : "Demos: OFF", GUILayout.Width(94f), GUILayout.Height(22f)))
+            {
+                bool nextDemos = !demosOn;
+                scene.Settings?.SetAbilityDemosEnabled(nextDemos);
+                if (!nextDemos) preview?.Deactivate();
+                demosOn = nextDemos;
+            }
+            GUI.backgroundColor = Color.white;
+            GUILayout.EndHorizontal();
+            GUILayout.Space(4);
+
+            // Slot Selector Row
+            GUILayout.BeginHorizontal();
+            foreach (LaneAbilitySlot slotOpt in new[] { LaneAbilitySlot.None, LaneAbilitySlot.Q, LaneAbilitySlot.W, LaneAbilitySlot.E, LaneAbilitySlot.R })
+            {
+                string lbl = slotOpt == LaneAbilitySlot.None ? "Passive" : slotOpt.ToString();
+                GUI.backgroundColor = previewSlot == slotOpt ? new Color(0.34f, 0.64f, 0.94f) : new Color(0.72f, 0.78f, 0.85f);
+                if (GUILayout.Button(lbl, GUILayout.Height(22f)))
+                {
+                    previewSlot = slotOpt;
+                    preview?.Select(inspectedHero, previewSlot, 0);
+                }
+            }
+            GUI.backgroundColor = Color.white;
+            GUILayout.EndHorizontal();
+
+            // Multi-example switcher if available
+            string[] examples = LaneAbilityPreview.GetExampleNames(inspectedHero, previewSlot);
+            if (examples.Length > 1 && preview != null)
+            {
+                GUILayout.Space(3);
+                GUILayout.BeginHorizontal();
+                for (int e = 0; e < examples.Length; e++)
+                {
+                    GUI.backgroundColor = preview.ExampleIndex == e ? new Color(0.32f, 0.76f, 0.52f) : new Color(0.72f, 0.78f, 0.85f);
+                    if (GUILayout.Button(examples[e], GUILayout.Height(21f)))
+                    {
+                        preview.Select(inspectedHero, previewSlot, e);
+                    }
+                }
+                GUI.backgroundColor = Color.white;
+                GUILayout.EndHorizontal();
+            }
+
+            GUILayout.Space(4);
+            float boxW = Mathf.Max(240f, rightW - 22f);
+            float boxH = Mathf.Clamp(boxW * 0.56f, 150f, 224f);
+            Rect texRect = GUILayoutUtility.GetRect(boxW, boxH);
+            DrawBox(texRect, new Color(0.05f, 0.07f, 0.10f, 1f));
+            if (demosOn && preview != null && preview.PreviewTexture != null)
+            {
+                GUI.DrawTexture(texRect, preview.PreviewTexture, ScaleMode.ScaleToFit, false);
+                preview.DrawOverlayBars(texRect, sheetSectionStyle);
+            }
+            else
+            {
+                GUI.Label(
+                    new Rect(texRect.x + 12f, texRect.y + texRect.height * 0.34f, texRect.width - 24f, 64f),
+                    $"<color={LaneHeroSheet.ColMuted}>Animated ability demonstrations are paused/disabled.\nSliders and scaling previews below remain live.</color>",
+                    sheetTextStyle);
+            }
+
+            if (preview != null)
+            {
+                GUILayout.Space(3);
+                GUILayout.BeginHorizontal();
+                GUI.backgroundColor = preview.IsPaused ? new Color(0.84f, 0.68f, 0.30f) : new Color(0.32f, 0.76f, 0.52f);
+                if (GUILayout.Button(preview.IsPaused ? "Play" : "Pause", GUILayout.Width(64f), GUILayout.Height(21f)))
+                {
+                    preview.IsPaused = !preview.IsPaused;
+                }
+                GUI.backgroundColor = Color.white;
+                if (GUILayout.Button("Replay", GUILayout.Width(64f), GUILayout.Height(21f)))
+                {
+                    preview.IsPaused = false;
+                    preview.RestartScenario();
+                }
+                GUILayout.FlexibleSpace();
+                GUILayout.Label($"<color={LaneHeroSheet.ColMuted}>Loop {preview.ElapsedInLoop:0.0}s / {preview.LoopDuration:0.0}s</color>", sheetSectionStyle);
+                GUILayout.EndHorizontal();
+
+                if (!string.IsNullOrEmpty(preview.ScenarioCaption))
+                {
+                    GUILayout.Label($"<color=#dce7cf>{preview.ScenarioCaption}</color>", sheetTextStyle);
+                }
+
+                GUILayout.Space(4);
+                previewPaneScroll = GUILayout.BeginScrollView(previewPaneScroll);
+
+                if (hasLiveMatchHero)
+                {
+                    GUILayout.BeginHorizontal();
+                    GUI.backgroundColor = !previewSandboxMode ? new Color(0.32f, 0.76f, 0.52f) : new Color(0.68f, 0.74f, 0.80f);
+                    if (GUILayout.Button("Live Match Stats", GUILayout.Height(21f))) previewSandboxMode = false;
+                    GUI.backgroundColor = previewSandboxMode ? new Color(0.34f, 0.64f, 0.94f) : new Color(0.68f, 0.74f, 0.80f);
+                    if (GUILayout.Button("Sandbox Sliders", GUILayout.Height(21f))) previewSandboxMode = true;
+                    GUI.backgroundColor = Color.white;
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(3);
+                }
+
+                PreviewStatOverrides ov = preview.Overrides;
+                int maxRank = previewSlot == LaneAbilitySlot.R ? 2 : 3;
+                GUILayout.BeginHorizontal();
+                GUILayout.Label($"<color={LaneHeroSheet.ColText}><b>Lv {ov.level}</b></color>", sheetTextStyle, GUILayout.Width(42f));
+                if (GUILayout.Button("-", GUILayout.Width(24f), GUILayout.Height(20f)) && ov.level > 1)
+                {
+                    ov.level--;
+                    previewSandboxMode = true;
+                    preview.ApplyLiveOverrides(ov);
+                }
+                if (GUILayout.Button("+", GUILayout.Width(24f), GUILayout.Height(20f)) && ov.level < tuning.maxLevel)
+                {
+                    ov.level++;
+                    previewSandboxMode = true;
+                    preview.ApplyLiveOverrides(ov);
+                }
+                if (previewSlot != LaneAbilitySlot.None)
+                {
+                    GUILayout.Space(8);
+                    GUILayout.Label($"<color={LaneHeroSheet.ColText}><b>Rk {Mathf.Clamp(ov.abilityRank, 1, maxRank)}</b></color>", sheetTextStyle, GUILayout.Width(42f));
+                    if (GUILayout.Button("-", GUILayout.Width(24f), GUILayout.Height(20f)) && ov.abilityRank > 1)
+                    {
+                        ov.abilityRank--;
+                        previewSandboxMode = true;
+                        preview.ApplyLiveOverrides(ov);
+                    }
+                    if (GUILayout.Button("+", GUILayout.Width(24f), GUILayout.Height(20f)) && ov.abilityRank < maxRank)
+                    {
+                        ov.abilityRank++;
+                        previewSandboxMode = true;
+                        preview.ApplyLiveOverrides(ov);
+                    }
+                }
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("Reset", GUILayout.Width(58f), GUILayout.Height(20f)))
+                {
+                    preview.ResetOverrides();
+                    previewSandboxMode = !hasLiveMatchHero;
+                }
+                GUILayout.EndHorizontal();
+
+                List<PreviewSliderSpec> sliders = LaneAbilityPreview.GetRelevantSliders(inspectedHero, previewSlot);
+                for (int si = 0; si < sliders.Count; si++)
+                {
+                    PreviewSliderSpec spec = sliders[si];
+                    float cur = LaneAbilityPreview.GetOverrideValue(in ov, spec.Field);
+                    string valText = spec.AsPercent ? $"+{cur * 100f:0}%" : $"+{cur:0}";
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label($"<color={spec.ColorHex}><b>{spec.Label}</b></color>", sheetTextStyle, GUILayout.Width(124f));
+                    float raw = GUILayout.HorizontalSlider(cur, spec.Min, spec.Max);
+                    float snapped = Mathf.Clamp(Mathf.Round(raw / spec.Step) * spec.Step, spec.Min, spec.Max);
+                    GUILayout.Label($"<b>{valText}</b>", sheetTextStyle, GUILayout.Width(46f));
+                    GUILayout.EndHorizontal();
+                    if (Mathf.Abs(snapped - cur) > 0.0001f)
+                    {
+                        LaneAbilityPreview.SetOverrideValue(ref ov, spec.Field, snapped);
+                        previewSandboxMode = true;
+                        preview.ApplyLiveOverrides(ov);
+                    }
+                }
+
+                GUILayout.EndScrollView();
+            }
+
+            GUILayout.EndVertical();
+            GUILayout.EndHorizontal();
             GUILayout.EndArea();
         }
 

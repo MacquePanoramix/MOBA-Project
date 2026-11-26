@@ -690,6 +690,29 @@ namespace Moba.LaneSlice
         public int[] unitIds;
     }
 
+    /// <summary>
+    /// Isolated local-only stat override payload used exclusively inside the interactive
+    /// Hero Guide preview sandbox. Never transmitted over networking or applied to real matches.
+    /// </summary>
+    [Serializable]
+    public struct PreviewStatOverrides
+    {
+        public bool enabled;
+        public int level;
+        public int abilityRank;
+        public float bonusStrength;
+        public float bonusAgility;
+        public float bonusIntelligence;
+        public float bonusAttackDamage;
+        public float bonusAttackSpeed;
+        public float bonusAbilityHaste;
+        public float bonusHealPower;
+        public float bonusMaxHp;
+        public float bonusMaxMana;
+        public float bonusManaRegen;
+        public float bonusResourceCostReduction;
+    }
+
     [Serializable]
     public sealed class LaneQueuedStrikeSnap
     {

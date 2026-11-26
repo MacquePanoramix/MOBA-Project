@@ -100,6 +100,19 @@ namespace Moba.LaneSlice
             }
 
             int lvlOffset = h.level - 1;
+            float ovMaxHp = 0f, ovAd = 0f, ovAs = 0f, ovAh = 0f, ovHeal = 0f;
+            if (previewOverrides.TryGetValue(h.team, out PreviewStatOverrides ov) && ov.enabled)
+            {
+                itemStr += Mathf.Max(0f, ov.bonusStrength);
+                itemAgi += Mathf.Max(0f, ov.bonusAgility);
+                itemInt += Mathf.Max(0f, ov.bonusIntelligence);
+                ovAd = ov.bonusAttackDamage;
+                ovAs = ov.bonusAttackSpeed;
+                ovAh = ov.bonusAbilityHaste;
+                ovHeal = ov.bonusHealPower;
+                ovMaxHp = ov.bonusMaxHp;
+            }
+
             // Core rule (01_CORE_SYSTEMS): Str/Agi/Int start at 0 (LoL AP model) and confer ZERO inherent universal stats.
             h.strength = itemStr;
             h.agility = itemAgi;
@@ -141,17 +154,17 @@ namespace Moba.LaneSlice
             float swordBonus = h.swordStacks * (tuning.swordsmanWStackGain + 2f * Mathf.Max(0, h.rankW - 1));
             float swordShred = h.swordDebuffStacks * tuning.swordsmanWStackShred;
 
-            h.maxHp = baseHp + hpPerLvl * lvlOffset + itemHp;
-            h.attackDamage = baseAd + adPerLvl * lvlOffset + itemAd;
-            h.bonusAttackSpeed = Mathf.Max(0f, itemAs);
+            h.maxHp = Mathf.Max(100f, baseHp + hpPerLvl * lvlOffset + itemHp + ovMaxHp);
+            h.attackDamage = Mathf.Max(1f, baseAd + adPerLvl * lvlOffset + itemAd + ovAd);
+            h.bonusAttackSpeed = Mathf.Max(0f, itemAs + ovAs);
             // v0.2.8 Global unbounded diminishing Attack Speed: EffectiveAS = sqrt(1 + k * BonusAS)
             h.attackSpeed = LaneTuning.EffectiveAttackSpeed(h.bonusAttackSpeed, tuning.attackSpeedCurveK);
-            h.abilityHaste = Mathf.Max(0f, itemAh);
+            h.abilityHaste = Mathf.Max(0f, itemAh + ovAh);
             h.cooldownReduction = h.abilityHaste / (100f + h.abilityHaste);
             h.armor = baseArmor + itemArmor + swordBonus - swordShred + h.cowardShieldBonus;
             h.magicResist = baseMr + itemMr + swordBonus - swordShred + h.cowardShieldBonus;
             h.regenRate = baseRegen + itemRegen;
-            h.healPower = 1f + itemHeal + h.takedownHealBonus;
+            h.healPower = Mathf.Max(0.1f, 1f + itemHeal + ovHeal + h.takedownHealBonus);
             h.itemAlliedAuraRegen = itemAuraRegen;
             h.moveSpeed = baseSpeed + itemSpeed + h.momentumBonus;
             h.turnRate = turnRate;

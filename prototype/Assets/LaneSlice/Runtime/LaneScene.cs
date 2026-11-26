@@ -32,6 +32,7 @@ namespace Moba.LaneSlice
         private LaneWorld world;
         private LaneHud hud;
         private LaneUpdater updater;
+        private LaneAbilityPreview abilityPreview;
         private LaneSnapshot latestSnap;
         private Camera mainCam;
 
@@ -78,6 +79,7 @@ namespace Moba.LaneSlice
         public bool IsHostOrPractice => mode == SessionMode.Practice || mode == SessionMode.Host;
         public ILaneLink ActiveLink => link;
         public LaneUpdater Updater => updater;
+        public LaneAbilityPreview AbilityPreview => abilityPreview;
         public string StatusBanner => link != null ? link.StatusText : cliStatus;
 
         private void Start()
@@ -102,6 +104,10 @@ namespace Moba.LaneSlice
             var map = new LaneMap(tuning);
             world = new LaneWorld(map);
             hud = new LaneHud(this, tuning);
+            if (!headlessMode)
+            {
+                abilityPreview = new LaneAbilityPreview(tuning, enableRenderVisuals: true);
+            }
 
             ParseCliArgs();
         }
@@ -430,6 +436,13 @@ namespace Moba.LaneSlice
                 }
                 world.TickFrame(mainCam, Time.deltaTime);
                 hud.TickPopups(Time.deltaTime);
+            }
+
+            if (abilityPreview != null)
+            {
+                bool runPreview = !headlessMode && hud != null && hud.HeroSheetOpen && !hud.SettingsOpen &&
+                                  (settingsStore == null || settingsStore.Data.enableAbilityDemos);
+                abilityPreview.Tick(Time.deltaTime, runPreview);
             }
         }
 
@@ -866,6 +879,8 @@ namespace Moba.LaneSlice
 
         private void OnDestroy()
         {
+            abilityPreview?.Dispose();
+            abilityPreview = null;
             CleanupLink();
         }
     }

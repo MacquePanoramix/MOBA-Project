@@ -32,6 +32,7 @@ namespace Moba.LaneSlice
         public bool enableOptionalRtsControls = false;
         public bool rtsDoubleTapGroupCentersCamera = true;
         public bool rtsAutoSelectSummons = false;
+        public bool enableAbilityDemos = true;
         public List<KeybindingEntry> keybindings = new List<KeybindingEntry>();
         public List<ExtraPrefEntry> extraPrefs = new List<ExtraPrefEntry>();
     }
@@ -203,6 +204,12 @@ namespace Moba.LaneSlice
         public void SetAutoSelectSummons(bool enabled)
         {
             data.rtsAutoSelectSummons = enabled;
+            Save();
+        }
+
+        public void SetAbilityDemosEnabled(bool enabled)
+        {
+            data.enableAbilityDemos = enabled;
             Save();
         }
 

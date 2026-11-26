@@ -105,7 +105,7 @@ namespace Moba.LaneSlice
                 {
                     float dmg = baseDamage * LaserStackMultiplier(shooter, enemy.laserStacks);
                     DealDamageToHero(enemy, dmg, isMagic: false, isTrueDamage: false, shooter.id, shooter.team,
-                        triggerMiravelWard: true, isBasicOrMinion: isBasicAttack, allowSpellweaverProc: isBasicAttack);
+                        triggerMiravelWard: true, flags: isBasicAttack ? (DamageFlags.BasicOrMinion | DamageFlags.OnHit) : DamageFlags.None);
                     ApplyLaserStackHero(enemy);
                     return;
                 }
@@ -129,7 +129,7 @@ namespace Moba.LaneSlice
                     if (m.id == targetId && m.team != shooter.team && m.hp > 0f)
                     {
                         float dmg = baseDamage * LaserStackMultiplier(shooter, m.laserStacks);
-                        DealDamageToMinion(m, dmg, false, shooter.id, shooter.team);
+                        DealDamageToMinion(m, dmg, false, shooter.id, shooter.team, isOnHit: isBasicAttack);
                         ApplyLaserStackMinion(m);
                         return;
                     }

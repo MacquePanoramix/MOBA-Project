@@ -376,8 +376,8 @@ namespace Moba.LaneSlice
             g.RuleLines.Add($"<color={ColInt}><b>Zero Free Attribute Stats:</b></color> <color={ColStr}>STR</color>, <color={ColAgi}>AGI</color>, and <color={ColInt}>INT</color> start at <b>0</b> and only affect abilities or items that explicitly scale with them.");
             g.RuleLines.Add($"<color={ColMana}><b>Shared Hero Resource System (Mana vs Resourceless):</b></color> Miravel & Chain Laser spend <b>Mana</b> (natural regen stays active inside & outside combat; <b>Resource Cost Reduction</b> uses Bounded diminishing returns strictly below 100%). Ogre & Old Man Swordsman are intentionally <b>Resourceless</b>.");
             g.RuleLines.Add($"<color={ColAgi}><b>Global Attack Speed (Unbounded diminishing → Inverse duration):</b></color> Effective AS = <b>sqrt(1 + {F(t.attackSpeedCurveK, "0.##")} × Bonus AS)</b> (+30% AS → {F(LaneTuning.EffectiveAttackSpeed(0.30f, t.attackSpeedCurveK), "0.00")}x, +120% → {F(LaneTuning.EffectiveAttackSpeed(1.20f, t.attackSpeedCurveK), "0.00")}x, no hard cap). Governs basic attacks, Swordsman strikes, Ogre ability recovery, & Chain Laser [R] procs.");
-            g.RuleLines.Add($"<color={ColAgi}><b>The Coward's Shield (450g):</b></color> +15 Arm/MR, +12 AGI • Sustained retreat velocity away from a recent hero attacker ({F(t.cowardShieldMemorySeconds, "0.0")}s) builds {FormatPrettyFormula(t.cowardShieldResistFormula, ColCc, "AGI", ColAgi, " Arm/MR", maxRanks: 1)}; {F(t.cowardShieldGraceSeconds, "0.00")}s grace holds on brief stops/stuns; fades in {F(t.cowardShieldStopDecaySeconds, "0.0")}s stopped or {F(t.cowardShieldPursuitDecaySeconds, "0.00")}s pursuing.");
-            g.RuleLines.Add($"<color={ColHeal}><b>Kindred Charm (325g) & Colossus Pauldron (625g):</b></color> Kindred Charm emits +{F(1.6f, "0.0")} × HealPower HP/s within {F(t.kindredAuraRadius, "0.0")}u for allies on <b>any</b> hero; Colossus triggers when its owner inflicts Stun/Knockback or drops <45% HP.");
+            g.RuleLines.Add($"<color={ColAgi}><b>The Coward's Shield (1200g):</b></color> +46 Arm, +28 MR, +28 AGI • Sustained retreat velocity away from a recent hero attacker ({F(t.cowardShieldMemorySeconds, "0.0")}s) builds {FormatPrettyFormula(t.cowardShieldResistFormula, ColCc, "AGI", ColAgi, " Arm/MR", maxRanks: 1)}; {F(t.cowardShieldGraceSeconds, "0.00")}s grace holds on brief stops/stuns; fades in {F(t.cowardShieldStopDecaySeconds, "0.0")}s stopped or {F(t.cowardShieldPursuitDecaySeconds, "0.00")}s pursuing.");
+            g.RuleLines.Add($"<color={ColHeal}><b>Kindred Censer (720g) & Colossus Pauldron (1360g):</b></color> Kindred Censer emits +{F(2.2f, "0.0")} × HealPower HP/s within {F(t.kindredAuraRadius, "0.0")}u for allies on <b>any</b> hero; Colossus triggers when its owner inflicts Stun/Knockback or drops <45% HP.");
             g.RuleLines.Add($"<color={ColMuted}><b>Curve Guide:</b></color> <b>Linear</b> = steady gain per point; <b>Bounded diminishing</b> = approaches a soft asymptote; <b>Unbounded diminishing</b> = keeps growing without a hard limit via square root; <b>Inverse duration</b> = faster speed shrinks time by dividing (Base / Speed). Armor/MR use 100/(100+R) above 0 and 2 - 100/(100-R) below 0; Ability Haste uses Base × 100/(100+AH).");
             return g;
         }
@@ -392,13 +392,41 @@ namespace Moba.LaneSlice
             return null;
         }
 
-        public static string BuildItemTooltip(LaneItemDef item, bool canSellNow)
+        public static string BuildItemTooltip(LaneItemDef item, bool canSellNow, int remainingCost = -1)
         {
             var sb = new StringBuilder();
-            string tierCol = item.Tier == LaneItemTier.Starter ? ColMuted
-                : (item.Tier == LaneItemTier.Capstone ? ColCc : ColInt);
-            sb.AppendLine($"<b><size=14>{item.Name}</size></b>  <color={tierCol}>[{item.Tier}]</color>  <color=#ffdf5c>{item.Cost}g</color>");
+            string tierCol = item.Category == LaneItemCategory.Starter ? ColMuted
+                : ((item.Category == LaneItemCategory.Advanced || item.Category == LaneItemCategory.ProvisionalAdvanced) ? ColCc : ColInt);
+            string tag = item.IsApproved ? LaneItems.CategoryLabel(item.Category) : $"{LaneItems.CategoryLabel(item.Category)} • Provisional";
+            string costStr = remainingCost >= 0 && remainingCost < item.Cost
+                ? $"<color=#ffdf5c>{remainingCost}g remaining</color> <color={ColMuted}>({item.Cost}g total)</color>"
+                : $"<color=#ffdf5c>{item.Cost}g</color>";
+            sb.AppendLine($"<b><size=14>{item.Name}</size></b>  <color={tierCol}>[{tag}]</color>  {costStr}");
+            if (!string.IsNullOrEmpty(item.Fantasy)) sb.AppendLine($"<i><color={ColMuted}>{item.Fantasy}</color></i>");
             sb.AppendLine(item.Summary);
+            if (item.Passives != null && item.Passives.Length > 0)
+            {
+                for (int p = 0; p < item.Passives.Length; p++)
+                {
+                    ItemPassiveDoc doc = item.Passives[p];
+                    sb.AppendLine($"<color={ColCc}><b>{doc.Name}:</b></color> {doc.PlainSummary}");
+                    for (int s = 0; s < doc.ScalingArrows.Length; s++)
+                    {
+                        sb.AppendLine($"  • {doc.ScalingArrows[s]}");
+                    }
+                }
+            }
+            if (item.Recipe != null && item.Recipe.Length > 0)
+            {
+                sb.Append("Recipe: ");
+                for (int r = 0; r < item.Recipe.Length; r++)
+                {
+                    if (r > 0) sb.Append(" + ");
+                    string ingName = LaneItems.TryGet(item.Recipe[r].ItemId, out LaneItemDef ingDef) ? ingDef.Name : $"#{item.Recipe[r].ItemId}";
+                    sb.Append(item.Recipe[r].Quantity > 1 ? $"{item.Recipe[r].Quantity}× {ingName}" : ingName);
+                }
+                sb.AppendLine();
+            }
             int refund = LaneItems.SellRefund(item.Cost);
             sb.AppendLine(canSellNow
                 ? $"<color={ColLive}>Sell refund: +{refund}g (70%) — use Sell button in [B] Shop</color>"

@@ -1311,6 +1311,9 @@ namespace Moba.LaneSlice
                     c = new Color(1f, 0.86f, 0.24f, 0.94f);
                     startS = 0.55f; endS = 1.65f; rise = 1.5f; duration = 0.55f;
                     break;
+                case LaneEventKind.BananaCrescent:
+                    SpawnBananaCrescentVisual(ev);
+                    return;
                 default:
                     c = new Color(0.90f, 0.95f, 1f, 0.72f);
                     startS = 0.45f; endS = 1.1f;
@@ -1369,6 +1372,55 @@ namespace Moba.LaneSlice
                 mat = mat,
                 age = 0f,
                 duration = b.isUlt ? 0.22f : 0.24f,
+                startWidth = w,
+                baseColor = c,
+            });
+        }
+
+        private void SpawnBananaCrescentVisual(VisualEventSnap ev)
+        {
+            Vector2 fwd = new Vector2(ev.dirX, ev.dirY);
+            if (fwd.sqrMagnitude < 0.0001f) fwd = Vector2.right;
+            else fwd.Normalize();
+            Vector2 right = new Vector2(-fwd.y, fwd.x);
+            float outerR = Mathf.Max(1.4f, ev.radius);
+            Vector2 primary = new Vector2(ev.x, ev.y);
+            Vector2 center = primary + fwd * (outerR * 0.28f);
+            float arcRadius = outerR * 0.88f;
+
+            const int segs = 14;
+            Color c = new Color(1f, 0.88f, 0.28f, 0.96f);
+            var mat = new Material(Shader.Find("Sprites/Default"));
+            mat.color = c;
+
+            var go = new GameObject("BananaCrescentFX");
+            go.transform.SetParent(root, false);
+            var lr = go.AddComponent<LineRenderer>();
+            lr.sharedMaterial = mat;
+            lr.useWorldSpace = true;
+            lr.positionCount = segs + 1;
+            for (int i = 0; i <= segs; i++)
+            {
+                float t = (float)i / segs;
+                float angle = Mathf.Lerp(-1.35f, 1.35f, t);
+                Vector2 dir = fwd * Mathf.Cos(angle) + right * Mathf.Sin(angle);
+                Vector2 p = center + dir * arcRadius;
+                lr.SetPosition(i, ToWorld(p.x, p.y, 0.65f));
+            }
+            float w = 0.26f;
+            lr.startWidth = w * 0.35f;
+            lr.endWidth = w * 0.35f;
+            lr.numCapVertices = 2;
+            lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            lr.receiveShadows = false;
+
+            transientBeams.Add(new TransientBeam
+            {
+                go = go,
+                lr = lr,
+                mat = mat,
+                age = 0f,
+                duration = 0.28f,
                 startWidth = w,
                 baseColor = c,
             });

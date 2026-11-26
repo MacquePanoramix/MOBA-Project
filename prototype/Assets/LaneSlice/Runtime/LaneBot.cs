@@ -10,10 +10,10 @@ namespace Moba.LaneSlice
     /// </summary>
     public sealed class LaneBot
     {
-        private static readonly int[] OgreBuild = { 15, 1, 2, 9, 8, 18 };         // Buckler, Iron Greatsword, Quickstep Dagger, Zephyr Feather (AGI windup), Titan's Knuckle (STR), Colossus Pauldron
-        private static readonly int[] MiravelBuild = { 14, 11, 10, 19, 12, 17 }; // Woodland Salve, Kindred Charm (HealPower), Arcane Lens (INT), Spellweaver's Hourglass, Coward's Shield, Momentum Greaves
-        private static readonly int[] SwordsmanBuild = { 13, 1, 2, 16, 18, 20 }; // Miner's Hatchet, Iron Greatsword, Quickstep Dagger, Blighted Thorn, Colossus Pauldron, Executioner's Grudge
-        private static readonly int[] LaserBuild = { 13, 1, 2, 10, 17, 20 };     // Miner's Hatchet, Iron Greatsword, Quickstep Dagger, Arcane Lens, Momentum Greaves, Executioner's Grudge
+        private static readonly int[] OgreBuild = { LaneItemIds.BrawlersBuckler, LaneItemIds.SteelSword, LaneItemIds.IronDagger, LaneItemIds.Windfeather, LaneItemIds.Titanstone, LaneItemIds.ColossusPauldron };
+        private static readonly int[] MiravelBuild = { LaneItemIds.WoodlandSalve, LaneItemIds.KindredCenser, LaneItemIds.SagesEye, LaneItemIds.ClockworkPin, LaneItemIds.CowardsShield, LaneItemIds.ChaliceOfLife };
+        private static readonly int[] SwordsmanBuild = { LaneItemIds.MinersHatchet, LaneItemIds.SteelSword, LaneItemIds.IronDagger, LaneItemIds.BlightedThorn, LaneItemIds.DraconicBlade, LaneItemIds.ExecutionersAxe };
+        private static readonly int[] LaserBuild = { LaneItemIds.MinersHatchet, LaneItemIds.SteelSword, LaneItemIds.IronDagger, LaneItemIds.SagesEye, LaneItemIds.BananaBlade, LaneItemIds.ExecutionersAxe };
 
         private readonly LaneTeam team;
         private float decideAccum;

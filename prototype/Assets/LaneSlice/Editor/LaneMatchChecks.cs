@@ -72,28 +72,28 @@ namespace Moba.LaneSlice
             var mStr = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t1);
             var mAs = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t1);
 
-            Assert(mAd.TryBuyItem(LaneTeam.Blue, 1, out _), "Ogre buys Iron Greatsword (+AD)");
-            Assert(mAgi.TryBuyItem(LaneTeam.Blue, 9, out _), "Ogre buys Zephyr Feather (+25 AGI)");
-            Assert(mStr.TryBuyItem(LaneTeam.Blue, 8, out _), "Ogre buys Titan's Knuckle (+25 STR)");
-            Assert(mAs.TryBuyItem(LaneTeam.Blue, 2, out _), "Ogre buys Quickstep Dagger (+30% AS)");
+            Assert(mAd.TryBuyItem(LaneTeam.Blue, LaneItemIds.SteelSword, out _), "Ogre buys Steel Sword (+AD)");
+            Assert(mAgi.TryBuyItem(LaneTeam.Blue, LaneItemIds.Windfeather, out _), "Ogre buys Windfeather (+25 AGI)");
+            Assert(mStr.TryBuyItem(LaneTeam.Blue, LaneItemIds.Titanstone, out _), "Ogre buys Titanstone (+25 STR)");
+            Assert(mAs.TryBuyItem(LaneTeam.Blue, LaneItemIds.IronDagger, out _), "Ogre buys Iron Dagger (+28% AS)");
 
             HeroSnap agi25 = GetHero(mAgi.Snapshot(), LaneTeam.Blue);
             float expectedAgi25 = t1.ogreWindupSpeedFormula.Evaluate(1, 25f);
             AssertClose(agi25.ogreWindupSpeed, expectedAgi25, "25 AGI must set unbounded sqrt Ogre Windup speed");
             AssertClose(agi25.ogreRecoverSpeed, 1.0f, "AGI must NOT alter Ogre Recovery speed");
 
-            HeroSnap as30 = GetHero(mAs.Snapshot(), LaneTeam.Blue);
-            float expectedAs30 = LaneTuning.EffectiveAttackSpeed(0.30f, t1.attackSpeedCurveK);
-            AssertClose(as30.ogreWindupSpeed, 1.0f, "Attack Speed must NOT alter Ogre Windup speed");
-            AssertClose(as30.ogreRecoverSpeed, expectedAs30, "Attack Speed must set global sqrt Ogre Recovery speed");
+            HeroSnap as28 = GetHero(mAs.Snapshot(), LaneTeam.Blue);
+            float expectedAs28 = LaneTuning.EffectiveAttackSpeed(0.28f, t1.attackSpeedCurveK);
+            AssertClose(as28.ogreWindupSpeed, 1.0f, "Attack Speed must NOT alter Ogre Windup speed");
+            AssertClose(as28.ogreRecoverSpeed, expectedAs28, "Attack Speed must set global sqrt Ogre Recovery speed");
 
             // Combined AS + AGI affect their respective phases independently
             var mAsAgi = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, t1);
-            Assert(mAsAgi.TryBuyItem(LaneTeam.Blue, 2, out _) && mAsAgi.TryBuyItem(LaneTeam.Blue, 9, out _),
-                "Ogre buys Quickstep Dagger + Zephyr Feather");
+            Assert(mAsAgi.TryBuyItem(LaneTeam.Blue, LaneItemIds.IronDagger, out _) && mAsAgi.TryBuyItem(LaneTeam.Blue, LaneItemIds.Windfeather, out _),
+                "Ogre buys Iron Dagger + Windfeather");
             HeroSnap bothSnap = GetHero(mAsAgi.Snapshot(), LaneTeam.Blue);
             AssertClose(bothSnap.ogreWindupSpeed, expectedAgi25, "Combined build windup uses AGI only");
-            AssertClose(bothSnap.ogreRecoverSpeed, expectedAs30, "Combined build recovery uses AS only");
+            AssertClose(bothSnap.ogreRecoverSpeed, expectedAs28, "Combined build recovery uses AS only");
 
             // Unbounded diminishing returns on AGI wind-up & STR stun/knockback
             float w0 = t1.ogreQWindup / t1.ogreWindupSpeedFormula.Evaluate(1, 0f);
@@ -269,9 +269,9 @@ namespace Moba.LaneSlice
             mc1.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(-18f, 0f) });
             Step(mc1, 1.90f);
             HeroSnap sustained = GetHero(mc1.Snapshot(), LaneTeam.Blue);
-            float expectedCap12 = t.cowardShieldResistFormula.Evaluate(1, 12f);
-            Assert(sustained.cowardShieldBonus >= expectedCap12 * 0.95f && sustained.cowardShieldState == 2,
-                $"Case 1: Sustained retreat must reach full bonus (got {sustained.cowardShieldBonus:0.0} vs {expectedCap12:0.0}, state={sustained.cowardShieldState})");
+            float expectedCap28 = t.cowardShieldResistFormula.Evaluate(1, 28f);
+            Assert(sustained.cowardShieldBonus >= expectedCap28 * 0.95f && sustained.cowardShieldState == 2,
+                $"Case 1: Sustained retreat must reach full bonus (got {sustained.cowardShieldBonus:0.0} vs {expectedCap28:0.0}, state={sustained.cowardShieldState})");
 
             // Verify AGI still scales shield magnitude (linear) without bypassing buildup timing
             LaneMatch mcHiAgi = SetupCowardScenario(extraAgi: true);
@@ -306,7 +306,7 @@ namespace Moba.LaneSlice
             mcGrace.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(-18f, 0f) });
             Step(mcGrace, 1.00f); // partial buildup (~0.55) + earns grace
             float bonusBeforeStop = GetHero(mcGrace.Snapshot(), LaneTeam.Blue).cowardShieldBonus;
-            Assert(bonusBeforeStop > 10f && bonusBeforeStop < expectedCap12 * 0.85f, $"Partial genuine buildup ready ({bonusBeforeStop:0.0})");
+            Assert(bonusBeforeStop > 10f && bonusBeforeStop < expectedCap28 * 0.85f, $"Partial genuine buildup ready ({bonusBeforeStop:0.0})");
             mcGrace.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
             Step(mcGrace, 0.40f); // inside 0.75s grace!
             HeroSnap pausedSnap = GetHero(mcGrace.Snapshot(), LaneTeam.Blue);
@@ -617,7 +617,11 @@ namespace Moba.LaneSlice
             Assert(beforeDrainFinish.phase != LanePhase.Dead && beforeDrainFinish.hp > 0f,
                 $"Target must survive attack chip so negative regen delivers the lethal tick (hp={beforeDrainFinish.hp:0.0})");
             float mirHealBeforeKill = GetHero(mNeg.Snapshot(), LaneTeam.Blue).healPower;
-            Step(mNeg, 24.0f); // Stand in aura while passive negative regen finishes remaining HP cleanly
+            for (int tick = 0; tick < 900; tick++)
+            {
+                mNeg.Tick(1f / 30f);
+                if (GetHero(mNeg.Snapshot(), LaneTeam.Red).phase == LanePhase.Dead) break;
+            }
             HeroSnap laserKilled = GetHero(mNeg.Snapshot(), LaneTeam.Red);
             HeroSnap mirAfterKill = GetHero(mNeg.Snapshot(), LaneTeam.Blue);
             Assert(laserKilled.phase == LanePhase.Dead && mirAfterKill.kills >= 1 && mirAfterKill.healPower > mirHealBeforeKill + 0.05f,
@@ -798,9 +802,9 @@ namespace Moba.LaneSlice
 
             // Shop rejected mid-lane, allowed inside Fountain
             MovePairTo(m, new Vector2(0f, 0f), new Vector2(18f, 0f));
-            Assert(!m.TryBuyItem(LaneTeam.Blue, 1, out string midErr), $"Mid-lane purchase must fail (got: {midErr})");
+            Assert(!m.TryBuyItem(LaneTeam.Blue, LaneItemIds.ShortSword, out string midErr), $"Mid-lane purchase must fail (got: {midErr})");
             MovePairTo(m, t.blueFountainPos, new Vector2(18f, 0f));
-            Assert(m.TryBuyItem(LaneTeam.Blue, 1, out _), "Fountain purchase must succeed");
+            Assert(m.TryBuyItem(LaneTeam.Blue, LaneItemIds.ShortSword, out _), "Fountain purchase must succeed");
 
             // Waves spawn & tower prioritizes minions before hero
             Step(m, 0.4f);
@@ -912,7 +916,7 @@ namespace Moba.LaneSlice
 
         private static void CheckHeroSheetCoversAllHeroesAndLiveScaling()
         {
-            var t = new LaneTuning { startingGold = 1200, passiveGoldPerSecond = 0f };
+            var t = new LaneTuning { startingGold = 1500, passiveGoldPerSecond = 0f };
             string ogreSpec = LaneHeroSheet.BuildHeroSheet(LaneHeroId.Ogre, t, null);
             string miravelSpec = LaneHeroSheet.BuildHeroSheet(LaneHeroId.Miravel, t, null);
             string swordsmanSpec = LaneHeroSheet.BuildHeroSheet(LaneHeroId.Swordsman, t, null);
@@ -924,8 +928,8 @@ namespace Moba.LaneSlice
                 "Ogre hero sheet must list explicit AD/AGI(sqrt)/AS(sqrt)/STR curves, dual-zone Q & breakpoints without opaque hard caps");
             Assert(HasNoHardCapFormulaText(miravelSpec) && miravelSpec.Contains("INT") && miravelSpec.Contains("/ 10 INT") &&
                    miravelSpec.Contains("@ 25") && miravelSpec.Contains("Ability Haste") && miravelSpec.Contains("Coward's Shield") &&
-                   miravelSpec.Contains("starts 100%") && miravelSpec.Contains("NEGATIVE") && miravelSpec.Contains("Kindred Charm"),
-                "Miravel hero sheet must list explicit HealPower/INT curves, negative-regen passive, Kindred Charm, Ability Haste, and Coward's Shield rules");
+                   miravelSpec.Contains("starts 100%") && miravelSpec.Contains("NEGATIVE") && miravelSpec.Contains("Kindred Censer"),
+                "Miravel hero sheet must list explicit HealPower/INT curves, negative-regen passive, Kindred Censer, Ability Haste, and Coward's Shield rules");
             Assert(HasNoHardCapFormulaText(swordsmanSpec) && swordsmanSpec.Contains("[W (1ST HIT)] Stance Temper") &&
                    swordsmanSpec.Contains("[E (2ND HIT)] Vital Draw") && swordsmanSpec.Contains("STR") &&
                    swordsmanSpec.Contains("/ 10 STR") && swordsmanSpec.Contains("@ 25") && swordsmanSpec.Contains("AD") &&
@@ -950,10 +954,10 @@ namespace Moba.LaneSlice
             Assert(liveBefore.Contains("Wind 1.00x / Rec 1.00x") && liveBefore.Contains("0.88s/0.36s"),
                 $"Ogre live level-1 sheet should show 1.00x windup/recover speeds and 0.88s/0.36s Q timing");
 
-            Assert(match.TryBuyItem(LaneTeam.Blue, 1, out _), "Buy Iron Greatsword (+26 AD)");
-            Assert(match.TryBuyItem(LaneTeam.Blue, 2, out _), "Buy Quickstep Dagger (+30% AS)");
-            Assert(match.TryBuyItem(LaneTeam.Blue, 8, out _), "Buy Titan's Knuckle (+25 STR)");
-            Assert(match.TryBuyItem(LaneTeam.Blue, 9, out _), "Buy Zephyr Feather (+25 AGI)");
+            Assert(match.TryBuyItem(LaneTeam.Blue, LaneItemIds.SteelSword, out _), "Buy Steel Sword (+26 AD)");
+            Assert(match.TryBuyItem(LaneTeam.Blue, LaneItemIds.IronDagger, out _), "Buy Iron Dagger (+28% AS)");
+            Assert(match.TryBuyItem(LaneTeam.Blue, LaneItemIds.Titanstone, out _), "Buy Titanstone (+25 STR)");
+            Assert(match.TryBuyItem(LaneTeam.Blue, LaneItemIds.Windfeather, out _), "Buy Windfeather (+25 AGI)");
 
             HeroSnap after = GetHero(match.Snapshot(), LaneTeam.Blue);
             string liveAfter = LaneHeroSheet.BuildHeroSheet(LaneHeroId.Ogre, t, after);
@@ -1147,14 +1151,14 @@ namespace Moba.LaneSlice
         {
             var t = new LaneTuning
             {
-                startingGold = 500,
+                startingGold = 600,
                 waveFirstSpawnDelay = 0.05f,
                 minionMaxHpMelee = 280f,
                 minionMaxHpRanged = 180f,
             };
             var m = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Miravel, t);
-            Assert(m.TryBuyItem(LaneTeam.Blue, 13, out _), "Buy Hatchet for wave clear");
-            Assert(m.TryBuyItem(LaneTeam.Blue, 1, out _), "Buy Iron Greatsword");
+            Assert(m.TryBuyItem(LaneTeam.Blue, LaneItemIds.MinersHatchet, out _), "Buy Hatchet for wave clear");
+            Assert(m.TryBuyItem(LaneTeam.Blue, LaneItemIds.SteelSword, out _), "Buy Steel Sword");
             Assert(m.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q), "Swordsman Q for tower aggro trigger");
             MovePairTo(m, new Vector2(1.0f, 0f), new Vector2(18f, 0f));
 
@@ -1405,39 +1409,17 @@ namespace Moba.LaneSlice
             Assert(afterAbsorb.shieldHp < shBeforeHit && afterAbsorb.hp >= hpBeforeHit - 5f,
                 $"Colossus shield must absorb damage before HP drops (sh {shBeforeHit:0}->{afterAbsorb.shieldHp:0}, hp {hpBeforeHit:0}->{afterAbsorb.hp:0})");
 
-            // 7. Spellweaver's Hourglass (Arcane Echo burst after cast)
-            var mSw = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
-            Assert(mSw.TryBuyItem(LaneTeam.Blue, 19, out _), "Buy Spellweaver's Hourglass");
-            Assert(mSw.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.E), "Level E");
-            MovePairTo(mSw, new Vector2(-2f, 0f), new Vector2(2f, 0f));
-            mSw.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastE, point = Vector2.zero });
-            Step(mSw, 0.05f);
-            Assert(GetHero(mSw.Snapshot(), LaneTeam.Blue).spellweaverReady, "Spellweaver must arm after casting E");
-            mSw.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
-            bool sawArcaneEcho = false;
-            for (int i = 0; i < 40; i++)
-            {
-                mSw.Tick(dt);
-                LaneSnapshot ss = mSw.Snapshot();
-                for (int e = 0; e < ss.events.Count; e++)
-                {
-                    if (ss.events[e].kind == LaneEventKind.LuisCurseProc && ss.events[e].label.Contains("ARCANE"))
-                    {
-                        sawArcaneEcho = true;
-                    }
-                }
-            }
-            Assert(sawArcaneEcho && !GetHero(mSw.Snapshot(), LaneTeam.Blue).spellweaverReady,
-                "Spellweaver's Hourglass must fire ARCANE echo magic burst on next hero hit and consume buff");
+            // 7. Retired Spellweaver's Hourglass (legacy ID 19 must not resolve; no Forgotten Hourglass)
+            Assert(!LaneItems.TryGet(19, out _), "Legacy ID 19 (Spellweaver's Hourglass) must be retired with no Forgotten Hourglass");
 
-            // 8. Executioner's Grudge (+18% vs <40% HP)
+            // 8. Executioner's Axe (Final Judgment scales linearly with target missing HP)
             var mEx = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, new LaneTuning
             {
-                startingGold = 2000,
+                startingGold = 3000,
                 passiveGoldPerSecond = 0f,
                 waveFirstSpawnDelay = 999f,
             });
-            Assert(mEx.TryBuyItem(LaneTeam.Blue, 20, out _), "Buy Executioner's Grudge");
+            Assert(mEx.TryBuyItem(LaneTeam.Blue, LaneItemIds.ExecutionersAxe, out _), "Buy Executioner's Axe");
             MovePairTo(mEx, new Vector2(-3f, 0f), new Vector2(1f, 0f));
             mEx.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
             float dmgHigh = 0f;
@@ -1451,15 +1433,15 @@ namespace Moba.LaneSlice
                 if (drop > 20f)
                 {
                     if (dmgHigh == 0f && ogBefore.hp / ogBefore.maxHp > 0.70f) dmgHigh = drop;
-                    if (ogBefore.hp / ogBefore.maxHp < 0.38f)
+                    if (ogBefore.hp / ogBefore.maxHp < 0.35f)
                     {
                         dmgLow = drop;
                         break;
                     }
                 }
             }
-            Assert(dmgHigh > 0f && dmgLow > dmgHigh * 1.15f,
-                $"Executioner's Grudge must amp dmg by ~18% below 40% HP (low={dmgLow:0.0} vs high={dmgHigh:0.0})");
+            Assert(dmgHigh > 0f && dmgLow > dmgHigh * 1.14f,
+                $"Executioner's Axe Final Judgment must deal higher damage at low enemy HP (low={dmgLow:0.0} vs high={dmgHigh:0.0})");
         }
 
         private static void CheckRepeatedAttackMoveSwordsmanBotAndOgreERadius()

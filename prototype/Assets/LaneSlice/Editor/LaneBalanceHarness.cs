@@ -123,7 +123,7 @@ namespace Moba.LaneSlice
                     new BuildSpec { Label = "Early(600g: Salve+Kindred)", Items = new[] { 14, 11 }, TargetGoldBudget = 600 },
                     new BuildSpec { Label = "Mid-HealPwr(1500g: 3xKindred+Lens)", Items = new[] { 11, 11, 11, 10 }, TargetGoldBudget = 1500 },
                     new BuildSpec { Label = "Mid-INT/AH(1500g: 3xLens+2xBand)", Items = new[] { 10, 10, 10, 6, 6 }, TargetGoldBudget = 1500 },
-                    new BuildSpec { Label = "Late-Hybrid(2400g: Salve+2xKindred+Lens+Spellweaver+Shield)", Items = new[] { 14, 11, 11, 10, 19, 12 }, TargetGoldBudget = 2400 },
+                    new BuildSpec { Label = "Late-Hybrid(2400g: Salve+2xCenser+Eye+Coward)", Items = new[] { LaneItemIds.WoodlandSalve, LaneItemIds.KindredCenser, LaneItemIds.KindredCenser, LaneItemIds.SagesEye, LaneItemIds.CowardsShield }, TargetGoldBudget = 2400 },
                     new BuildSpec { Label = "Extreme-HealPwr(6xKindred 1950g)", Items = new[] { 11, 11, 11, 11, 11, 11 }, TargetGoldBudget = 1950 },
                 },
                 [LaneHeroId.Swordsman] = new[]
@@ -362,11 +362,11 @@ namespace Moba.LaneSlice
             int[] densities = { 4, 12, 20 };
             for (int i = 0; i < densities.Length; i++)
             {
-                var ml = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Ogre, new LaneTuning { ultMinLevel = 1, waveFirstSpawnDelay = 999f, startingGold = 4000, passiveGoldPerSecond = 0f });
-                ml.TryBuyItem(LaneTeam.Blue, 1, out _); // +26 AD
-                ml.TryBuyItem(LaneTeam.Blue, 10, out _); // +25 INT
-                ml.TryBuyItem(LaneTeam.Blue, 2, out _); // +30% AS
-                for (int hpIt = 0; hpIt < 6; hpIt++) ml.TryBuyItem(LaneTeam.Red, 18, out _); // +1320 HP +120 Arm on target dummy so Ogre survives to measure full 3.2s chain stacking
+                var ml = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Ogre, new LaneTuning { ultMinLevel = 1, waveFirstSpawnDelay = 999f, startingGold = 10000, passiveGoldPerSecond = 0f });
+                ml.TryBuyItem(LaneTeam.Blue, LaneItemIds.SteelSword, out _);
+                ml.TryBuyItem(LaneTeam.Blue, LaneItemIds.SagesEye, out _);
+                ml.TryBuyItem(LaneTeam.Blue, LaneItemIds.IronDagger, out _);
+                for (int hpIt = 0; hpIt < 6; hpIt++) ml.TryBuyItem(LaneTeam.Red, LaneItemIds.ColossusPauldron, out _); // +2700 HP +168 Arm on target dummy so Ogre survives to measure full 3.2s chain stacking
                 ml.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R);
                 PlacePair(ml, new Vector2(-3.5f, 0f), new Vector2(1.5f, 0f));
                 for (int u = 0; u < densities[i]; u++)

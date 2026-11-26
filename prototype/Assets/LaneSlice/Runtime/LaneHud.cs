@@ -25,6 +25,9 @@ namespace Moba.LaneSlice
         private LaneHeroId inspectedHero = LaneHeroId.Ogre;
         private Vector2 heroSheetScroll;
         private Vector2 shopScroll;
+        private Vector2 shopDetailScroll;
+        private int selectedShopItemId = LaneItemIds.ExecutionersAxe;
+        private bool showShopMath;
         private GUIStyle sheetTextStyle;
         private GUIStyle sheetBodyStyle;
         private GUIStyle sheetSectionStyle;
@@ -39,7 +42,7 @@ namespace Moba.LaneSlice
         private LaneAbilitySlot previewSlot = LaneAbilitySlot.Q;
         private bool previewSandboxMode;
         private Vector2 previewPaneScroll;
-        private int shopTierFilter = -1; // -1=All, 0=Starter, 1=Core, 2=Capstone
+        private int shopTierFilter = -1; // -1=All, 0=Starter, 1=Components, 2=Specialized, 3=Advanced, 4=Provisional
         private string hoverTooltipText;
         private Rect hoverTooltipAnchor;
 
@@ -420,6 +423,14 @@ namespace Moba.LaneSlice
                 Color fill = h.team == LaneTeam.Blue ? new Color(0.26f, 0.72f, 1f) : new Color(0.95f, 0.34f, 0.30f);
                 float hpPct = h.hp / Mathf.Max(1f, h.maxHp);
                 DrawBar(new Rect(x, y, 84f, 9f), hpPct, fill);
+                if (h.deferredDamageTotal > 1f)
+                {
+                    // Readable amber segment on tail of HP showing outstanding Ancient Vitality deferred debt
+                    float defPct = Mathf.Clamp01(h.deferredDamageTotal / Mathf.Max(1f, h.maxHp));
+                    float filledW = Mathf.Clamp01(hpPct) * 84f;
+                    float defW = Mathf.Min(filledW, Mathf.Max(3f, defPct * 84f));
+                    DrawBox(new Rect(x + filledW - defW, y, defW, 9f), new Color(0.98f, 0.68f, 0.16f, 0.94f));
+                }
                 if (h.shieldHp > 1f)
                 {
                     float shPct = Mathf.Clamp01(h.shieldHp / Mathf.Max(1f, h.maxHp));
@@ -443,12 +454,17 @@ namespace Moba.LaneSlice
                 else if (h.curseTimer > 0f) tag += $" [CURSE x{h.curseStacks}]";
                 else if (h.wardTimer > 0f) tag += " [WARD]";
                 if (h.laserStacks > 0) tag += $" [LASER x{h.laserStacks}]";
+                if (h.heatStacks > 0) tag += $" [HEAT x{h.heatStacks}]";
+                if (h.adaptiveScalesStacks > 0) tag += $" [SCALES x{h.adaptiveScalesStacks}]";
+                if (h.deferredDamageTotal >= 1f) tag += $" [DEFER {Mathf.RoundToInt(h.deferredDamageTotal)}]";
+                if (h.firstStrikeReady) tag += " [1ST]";
+                if (h.slipperyBonus > 0.05f) tag += " [SLIP]";
                 if (h.miravelDrainAura > 0.05f) tag += " [DRAIN]";
                 if (h.grievousTimer > 0f) tag += " [ANTI-HEAL]";
                 if (h.shieldHp > 1f) tag += $" [SHIELD {Mathf.RoundToInt(h.shieldHp)}]";
                 else if (h.cowardShieldBonus > 1f) tag += $" [COWARD +{Mathf.RoundToInt(h.cowardShieldBonus)}]";
 
-                GUI.Label(new Rect(x - 42f, labelY, 184f, 18f), tag);
+                GUI.Label(new Rect(x - 42f, labelY, 220f, 18f), tag);
             }
 
             // Illusions & Laser Decoys
@@ -767,15 +783,15 @@ namespace Moba.LaneSlice
         private void DrawShopDrawer(HeroSnap h)
         {
             EnsureStyles();
-            float sw = 520f;
-            float sh = Mathf.Min(580f, Screen.height - 170f);
+            float sw = Mathf.Min(780f, Screen.width - 24f);
+            float sh = Mathf.Min(600f, Screen.height - 170f);
             var r = new Rect(Screen.width - sw - 12f, 52f, sw, sh);
             TrackPointer(r);
             DrawBox(r, new Color(0.11f, 0.13f, 0.16f, 0.97f));
 
             GUILayout.BeginArea(new Rect(r.x + 12, r.y + 10, r.width - 24, r.height - 20));
             GUILayout.BeginHorizontal();
-            GUILayout.Label($"<b>FOUNTAIN SHOP</b> — Gold: <color=#ffdf5c>{h.gold}g</color>");
+            GUILayout.Label($"<b>FOUNTAIN SHOP</b> — Gold: <color=#ffdf5c>{h.gold}g</color>", sheetTextStyle);
             GUILayout.FlexibleSpace();
             if (GUILayout.Button("X", GUILayout.Width(26))) ShopOpen = false;
             GUILayout.EndHorizontal();
@@ -784,18 +800,20 @@ namespace Moba.LaneSlice
                 (new Vector2(h.x, h.y) - (localTeam == LaneTeam.Blue ? tuning.blueFountainPos : tuning.redFountainPos)).magnitude <= tuning.fountainRadius;
             if (!canShopHere)
             {
-                GUILayout.Label("<color=#ffaa66>Move inside your Fountain (or buy/sell while Respawning).</color>");
+                GUILayout.Label("<color=#ffaa66>Move inside your Fountain (or buy/sell while Respawning).</color>", sheetTextStyle);
             }
             if (!string.IsNullOrEmpty(shopFeedback))
             {
-                GUILayout.Label($"<b>{shopFeedback}</b>");
+                GUILayout.Label($"<b>{shopFeedback}</b>", sheetTextStyle);
             }
 
             GUILayout.BeginHorizontal();
             DrawShopTierTab("All", -1);
-            DrawShopTierTab("Starter", (int)LaneItemTier.Starter);
-            DrawShopTierTab("Core", (int)LaneItemTier.Core);
-            DrawShopTierTab("Capstone", (int)LaneItemTier.Capstone);
+            DrawShopTierTab("Starter", 0);
+            DrawShopTierTab("Components", 1);
+            DrawShopTierTab("Specialized", 2);
+            DrawShopTierTab("Advanced", 3);
+            DrawShopTierTab("Provisional", 4);
             GUILayout.EndHorizontal();
 
             int ownedCount = 0;
@@ -805,52 +823,72 @@ namespace Moba.LaneSlice
             }
             if (ownedCount > 0)
             {
-                GUILayout.Label($"<b>Owned Items — Sell ({Mathf.RoundToInt(LaneItems.SellRefundRatio * 100f)}% refund):</b>");
-                int drawn = 0;
+                GUILayout.Label($"<b>Owned Items ({ownedCount}/{LaneItems.MaxSlots}) — Sell ({Mathf.RoundToInt(LaneItems.SellRefundRatio * 100f)}%):</b>", sheetTextStyle);
+                GUILayout.BeginHorizontal();
                 for (int s = 0; s < h.items.Length; s++)
                 {
                     int ownedId = h.items[s];
                     if (ownedId <= 0 || !LaneItems.TryGet(ownedId, out LaneItemDef ownedDef)) continue;
-                    if (drawn % 2 == 0) GUILayout.BeginHorizontal();
                     int refund = LaneItems.SellRefund(ownedDef.Cost);
-                    GUILayout.BeginHorizontal(cardBoxStyle, GUILayout.Width(240f));
-                    GUILayout.Label($"{ownedDef.Name}", sheetTextStyle, GUILayout.Width(134f));
+                    GUILayout.BeginVertical(cardBoxStyle, GUILayout.Width(118f));
+                    if (GUILayout.Button(ownedDef.Name, GUILayout.Height(20f)))
+                    {
+                        selectedShopItemId = ownedDef.Id;
+                    }
                     GUI.enabled = canShopHere;
-                    if (GUILayout.Button($"Sell +{refund}g", GUILayout.Width(82f)))
+                    if (GUILayout.Button($"Sell +{refund}g", GUILayout.Height(20f)))
                     {
                         scene.SendLocalSellItem(s);
                         shopFeedback = $"Sold {ownedDef.Name} (+{refund}g)";
                         shopFeedbackTimer = 2.0f;
                     }
                     GUI.enabled = true;
-                    GUILayout.EndHorizontal();
+                    GUILayout.EndVertical();
                     Rect ownedRect = GUILayoutUtility.GetLastRect();
                     if (Event.current.type == EventType.Repaint && ownedRect.Contains(Event.current.mousePosition))
                     {
                         SetHoverTooltip(LaneHeroSheet.BuildItemTooltip(ownedDef, canShopHere), GUIUtility.GUIToScreenPoint(ownedRect.position), ownedRect.size);
                     }
-                    drawn++;
-                    if (drawn % 2 == 0) GUILayout.EndHorizontal();
                 }
-                if (drawn % 2 != 0) GUILayout.EndHorizontal();
+                GUILayout.EndHorizontal();
             }
 
             GUILayout.Space(4);
+            GUILayout.BeginHorizontal();
+
+            // Left pane: scrollable catalog with live Remaining Cost (via ResolvePurchase)
+            GUILayout.BeginVertical(GUILayout.Width(370f));
             shopScroll = GUILayout.BeginScrollView(shopScroll);
             for (int i = 0; i < LaneItems.Catalog.Length; i++)
             {
                 LaneItemDef item = LaneItems.Catalog[i];
-                if (shopTierFilter >= 0 && (int)item.Tier != shopTierFilter) continue;
-                string tierCol = item.Tier == LaneItemTier.Starter ? LaneHeroSheet.ColMuted
-                    : (item.Tier == LaneItemTier.Capstone ? LaneHeroSheet.ColCc : LaneHeroSheet.ColInt);
+                if (!MatchesShopFilter(item, shopTierFilter)) continue;
 
+                PurchasePlan plan = LaneItems.ResolvePurchase(item.Id, h.items, h.gold);
+                string tierCol = item.IsApproved
+                    ? (item.IsAdvancedOrCapstone ? LaneHeroSheet.ColCc : LaneHeroSheet.ColInt)
+                    : LaneHeroSheet.ColMuted;
+                string badge = item.IsApproved ? LaneItems.CategoryLabel(item.Category) : "Provisional";
+                string priceLabel = plan.RemainingCost < item.Cost
+                    ? $"<color=#63e6be>→{plan.RemainingCost}g</color> <color=#99a4b0>({item.Cost}g)</color>"
+                    : $"<color=#ffdf5c>{item.Cost}g</color>";
+                bool isSel = selectedShopItemId == item.Id;
+
+                GUI.backgroundColor = isSel ? new Color(0.28f, 0.45f, 0.62f) : Color.white;
                 GUILayout.BeginHorizontal(cardBoxStyle);
-                GUILayout.Label($"<color={tierCol}>[{item.Tier}]</color> <b>{item.Name}</b> <color=#ffdf5c>({item.Cost}g)</color> — {item.Summary}", sheetTextStyle, GUILayout.Width(400f));
-                GUI.enabled = canShopHere && h.gold >= item.Cost;
-                if (GUILayout.Button("Buy", GUILayout.Width(56f), GUILayout.Height(26f)))
+                GUI.backgroundColor = Color.white;
+                if (GUILayout.Button($"<color={tierCol}>[{badge}]</color> <b>{item.Name}</b> {priceLabel}", sheetTextStyle, GUILayout.Width(286f)))
+                {
+                    selectedShopItemId = item.Id;
+                }
+                GUI.enabled = canShopHere && plan.CanPurchase;
+                if (GUILayout.Button(plan.RemainingCost < item.Cost ? $"Upgr {plan.RemainingCost}g" : "Buy", GUILayout.Width(66f), GUILayout.Height(24f)))
                 {
                     scene.SendLocalBuyItem(item.Id);
-                    shopFeedback = $"Ordered {item.Name}";
+                    selectedShopItemId = item.Id;
+                    shopFeedback = plan.RemainingCost < item.Cost
+                        ? $"Upgraded {item.Name} ({plan.RemainingCost}g)"
+                        : $"Ordered {item.Name}";
                     shopFeedbackTimer = 2.0f;
                 }
                 GUI.enabled = true;
@@ -859,11 +897,169 @@ namespace Moba.LaneSlice
                 Rect itemRect = GUILayoutUtility.GetLastRect();
                 if (Event.current.type == EventType.Repaint && itemRect.Contains(Event.current.mousePosition))
                 {
-                    SetHoverTooltip(LaneHeroSheet.BuildItemTooltip(item, canShopHere), GUIUtility.GUIToScreenPoint(itemRect.position), itemRect.size);
+                    SetHoverTooltip(LaneHeroSheet.BuildItemTooltip(item, canShopHere, plan.RemainingCost), GUIUtility.GUIToScreenPoint(itemRect.position), itemRect.size);
                 }
             }
             GUILayout.EndScrollView();
+            GUILayout.EndVertical();
+
+            // Right pane: readable item inspector (fantasy, stats, named passives + What Scales, Show Math, Builds From, Builds Into)
+            GUILayout.BeginVertical(cardBoxStyle);
+            shopDetailScroll = GUILayout.BeginScrollView(shopDetailScroll);
+            if (!LaneItems.TryGet(selectedShopItemId, out LaneItemDef sel))
+            {
+                sel = LaneItems.Catalog[0];
+                selectedShopItemId = sel.Id;
+            }
+            PurchasePlan selPlan = LaneItems.ResolvePurchase(sel.Id, h.items, h.gold);
+            string selApproval = sel.IsApproved
+                ? $"<color={LaneHeroSheet.ColLive}>[Approved • {LaneItems.CategoryLabel(sel.Category)}]</color>"
+                : $"<color={LaneHeroSheet.ColMuted}>[Provisional • {LaneItems.CategoryLabel(sel.Category)}]</color>";
+            GUILayout.Label($"<size=15><b>{sel.Name}</b></size>  {selApproval}", sheetTextStyle);
+            if (!string.IsNullOrEmpty(sel.Fantasy))
+            {
+                GUILayout.Label($"<i><color=#b9c4d0>{sel.Fantasy}</color></i>", sheetBodyStyle);
+            }
+
+            string upgradeInfo = selPlan.RemainingCost < sel.Cost
+                ? $"Remaining Cost: <color=#63e6be><b>{selPlan.RemainingCost}g</b></color> (Total {sel.Cost}g • Owns {selPlan.ConsumedValue}g of ingredients)"
+                : $"Cost: <color=#ffdf5c><b>{sel.Cost}g</b></color>";
+            GUILayout.Label(upgradeInfo, sheetTextStyle);
+
+            GUILayout.BeginHorizontal();
+            GUI.enabled = canShopHere && selPlan.CanPurchase;
+            if (GUILayout.Button(selPlan.RemainingCost < sel.Cost ? $"Upgrade ({selPlan.RemainingCost}g)" : $"Buy ({sel.Cost}g)", GUILayout.Height(26f)))
+            {
+                scene.SendLocalBuyItem(sel.Id);
+                shopFeedback = $"Purchased {sel.Name} ({selPlan.RemainingCost}g)";
+                shopFeedbackTimer = 2.0f;
+            }
+            GUI.enabled = true;
+            if (GUILayout.Button(showShopMath ? "Hide Math" : "Show Math", GUILayout.Width(92f), GUILayout.Height(26f)))
+            {
+                showShopMath = !showShopMath;
+            }
+            GUILayout.EndHorizontal();
+
+            if (!selPlan.CanPurchase && canShopHere)
+            {
+                GUILayout.Label($"<color=#ff9e7d>{selPlan.Reason}</color>", sheetTextStyle);
+            }
+
+            string directStats = FormatDirectStatsLine(sel);
+            if (!string.IsNullOrEmpty(directStats))
+            {
+                GUILayout.Space(4);
+                GUILayout.Label($"<b>Direct Stats:</b> {directStats}", sheetBodyStyle);
+            }
+
+            if (sel.Passives != null && sel.Passives.Length > 0)
+            {
+                GUILayout.Space(4);
+                for (int p = 0; p < sel.Passives.Length; p++)
+                {
+                    ItemPassiveDoc pd = sel.Passives[p];
+                    GUILayout.BeginVertical(sheetFactPillStyle);
+                    GUILayout.Label($"<color={LaneHeroSheet.ColCc}><b>Passive — {pd.Name}</b></color>", sheetTextStyle);
+                    GUILayout.Label(pd.PlainSummary, sheetBodyStyle);
+                    for (int sa = 0; sa < pd.ScalingArrows.Length; sa++)
+                    {
+                        GUILayout.Label($"  • {pd.ScalingArrows[sa]}", sheetBodyStyle);
+                    }
+                    if (showShopMath && !string.IsNullOrEmpty(pd.MathLine))
+                    {
+                        GUILayout.BeginVertical(sheetMathBoxStyle);
+                        GUILayout.Label($"<color=#a9b4c2>{pd.MathLine}</color>", sheetBodyStyle);
+                        GUILayout.EndVertical();
+                    }
+                    GUILayout.EndVertical();
+                }
+            }
+
+            if (sel.Recipe != null && sel.Recipe.Length > 0)
+            {
+                GUILayout.Space(6);
+                GUILayout.Label("<b>Builds From:</b>", sheetTextStyle);
+                for (int ing = 0; ing < sel.Recipe.Length; ing++)
+                {
+                    RecipeIngredient req = sel.Recipe[ing];
+                    if (!LaneItems.TryGet(req.ItemId, out LaneItemDef ingDef)) continue;
+                    int ownedQty = CountOwnedDirect(h.items, ingDef.Id);
+                    string col = ownedQty >= req.Quantity ? LaneHeroSheet.ColLive : "#dce3ec";
+                    if (GUILayout.Button($"  <color={col}>{ownedQty}/{req.Quantity} × {ingDef.Name} ({ingDef.Cost}g)</color>", sheetTextStyle))
+                    {
+                        selectedShopItemId = ingDef.Id;
+                    }
+                }
+            }
+
+            List<LaneItemDef> upgrades = LaneItems.GetUpgradesInto(sel.Id);
+            if (upgrades.Count > 0)
+            {
+                GUILayout.Space(6);
+                GUILayout.Label("<b>Builds Into:</b>", sheetTextStyle);
+                for (int u = 0; u < upgrades.Count; u++)
+                {
+                    LaneItemDef up = upgrades[u];
+                    PurchasePlan upPlan = LaneItems.ResolvePurchase(up.Id, h.items, h.gold);
+                    if (GUILayout.Button($"  → <b>{up.Name}</b> ({up.Cost}g • {upPlan.RemainingCost}g left)", sheetTextStyle))
+                    {
+                        selectedShopItemId = up.Id;
+                    }
+                }
+            }
+
+            GUILayout.EndScrollView();
+            GUILayout.EndVertical();
+            GUILayout.EndHorizontal();
             GUILayout.EndArea();
+        }
+
+        private static bool MatchesShopFilter(LaneItemDef item, int filter)
+        {
+            switch (filter)
+            {
+                case 0: return item.Category == LaneItemCategory.Starter;
+                case 1: return item.Category == LaneItemCategory.Component || item.Category == LaneItemCategory.SpecializedComponent;
+                case 2: return item.Category == LaneItemCategory.SpecializedComponent;
+                case 3: return item.Category == LaneItemCategory.Advanced;
+                case 4: return !item.IsApproved;
+                default: return true;
+            }
+        }
+
+        private static int CountOwnedDirect(int[] inventory, int canonicalId)
+        {
+            if (inventory == null) return 0;
+            int n = 0;
+            for (int i = 0; i < inventory.Length; i++)
+            {
+                if (LaneItems.MigrateItemId(inventory[i]) == canonicalId) n++;
+            }
+            return n;
+        }
+
+        private static string FormatDirectStatsLine(LaneItemDef item)
+        {
+            var parts = new List<string>();
+            if (item.AddMaxHp != 0f) parts.Add($"+{item.AddMaxHp:0} Max HP");
+            if (item.AddAttackDamage != 0f) parts.Add($"+{item.AddAttackDamage:0} AD");
+            if (item.AddAttackSpeed != 0f) parts.Add($"+{item.AddAttackSpeed * 100f:0}% AS");
+            if (item.AddArmor != 0f) parts.Add($"+{item.AddArmor:0} Armor");
+            if (item.AddMagicResist != 0f) parts.Add($"+{item.AddMagicResist:0} MR");
+            if (item.AddRegen != 0f) parts.Add($"+{item.AddRegen:0.#} HP/s");
+            if (item.AddHealPower != 0f) parts.Add($"+{item.AddHealPower * 100f:0}% Heal Power");
+            if (item.AddAlliedAuraRegen != 0f) parts.Add($"+{item.AddAlliedAuraRegen:0.#} Allied Aura HP/s");
+            if (item.AddMoveSpeed != 0f) parts.Add($"+{item.AddMoveSpeed:0.##} Move Speed");
+            if (item.AddAbilityHaste != 0f) parts.Add($"+{item.AddAbilityHaste:0} Ability Haste");
+            if (item.AddStrength != 0f) parts.Add($"+{item.AddStrength:0} STR");
+            if (item.AddAgility != 0f) parts.Add($"+{item.AddAgility:0} AGI");
+            if (item.AddIntelligence != 0f) parts.Add($"+{item.AddIntelligence:0} INT");
+            if (item.AddMaxMana != 0f) parts.Add($"+{item.AddMaxMana:0} Max Mana");
+            if (item.AddManaRegen != 0f) parts.Add($"+{item.AddManaRegen:0.#} Mana/s");
+            if (item.AddPercentManaRegen != 0f) parts.Add($"+{item.AddPercentManaRegen * 100f:0.##}% Max Mana/s");
+            if (item.AddResourceCostReduction != 0f) parts.Add($"+{item.AddResourceCostReduction * 100f:0} RCR");
+            return string.Join(" • ", parts);
         }
 
         private void DrawShopTierTab(string label, int tierVal)
@@ -1332,8 +1528,16 @@ namespace Moba.LaneSlice
                     : (self.cowardShieldState == 4 ? new Color(0.26f, 0.14f, 0.08f, 0.92f) : new Color(0.22f, 0.20f, 0.08f, 0.92f));
                 pills.Add(($"<color=#ffe066><b>COWARD {stateTag} +{Mathf.RoundToInt(self.cowardShieldBonus)}</b></color>", stateBg));
             }
-            if (self.spellweaverReady)
-                pills.Add(($"<color=#70d0ff><b>ARCANE ECHO READY</b></color>", new Color(0.08f, 0.18f, 0.28f, 0.92f)));
+            if (self.heatStacks > 0)
+                pills.Add(($"<color=#ff8a3d><b>HEAT x{self.heatStacks} ({self.heatTimer:0.0}s)</b></color>", new Color(0.28f, 0.12f, 0.06f, 0.92f)));
+            if (self.adaptiveScalesStacks > 0)
+                pills.Add(($"<color=#8be0ff><b>SCALES x{self.adaptiveScalesStacks} (+{Mathf.RoundToInt(self.adaptiveScalesBonus)})</b></color>", new Color(0.08f, 0.20f, 0.28f, 0.92f)));
+            if (self.deferredDamageTotal >= 1f)
+                pills.Add(($"<color=#ffb84d><b>DEFERRED {Mathf.RoundToInt(self.deferredDamageTotal)}</b></color>", new Color(0.30f, 0.18f, 0.06f, 0.92f)));
+            if (self.firstStrikeReady)
+                pills.Add(($"<color=#ffe888><b>FIRST STRIKE READY</b></color>", new Color(0.24f, 0.22f, 0.08f, 0.92f)));
+            if (self.slipperyBonus > 0.05f)
+                pills.Add(($"<color=#9ef0c8><b>SLIPPERY +{self.slipperyBonus:0.00} MS</b></color>", new Color(0.08f, 0.24f, 0.18f, 0.92f)));
             if (self.momentumBonus > 0.05f)
                 pills.Add(($"<color=#78ff9e><b>MOMENTUM +{self.momentumBonus:0.00} MS</b></color>", new Color(0.08f, 0.22f, 0.12f, 0.92f)));
             if (self.stunTimer > 0f)

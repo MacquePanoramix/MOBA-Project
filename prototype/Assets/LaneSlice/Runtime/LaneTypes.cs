@@ -97,6 +97,7 @@ namespace Moba.LaneSlice
         LaserGoldBonus = 28,
         OgreQShockwave = 29,
         InsufficientMana = 30,
+        BananaCrescent = 31,
     }
 
     public enum HeroResourceKind : byte
@@ -179,11 +180,22 @@ namespace Moba.LaneSlice
         UnboundedSqrt = 2,
     }
 
-    public enum LaneItemTier : byte
+    [Flags]
+    public enum DamageFlags : byte
     {
-        Starter = 0,
-        Core = 1,
-        Capstone = 2,
+        None = 0,
+        BasicOrMinion = 1 << 0,
+        OnHit = 1 << 1,
+        DamageOverTime = 1 << 2,
+        DeferredPayout = 1 << 3,
+    }
+
+    public enum HealSourceKind : byte
+    {
+        AbilityOrItem = 0,
+        NaturalRegen = 1,
+        Fountain = 2,
+        LingeringRestoration = 3,
     }
 
     /// <summary>
@@ -301,178 +313,7 @@ namespace Moba.LaneSlice
         }
     }
 
-    public readonly struct LaneItemDef
-    {
-        public readonly int Id;
-        public readonly string Name;
-        public readonly int Cost;
-        public readonly LaneItemTier Tier;
-        public readonly float AddMaxHp;
-        public readonly float AddAttackDamage;
-        public readonly float AddAttackSpeed;
-        public readonly float AddAbilityHaste;
-        public readonly float AddArmor;
-        public readonly float AddMagicResist;
-        public readonly float AddMoveSpeed;
-        public readonly float AddRegen;
-        public readonly float AddHealPower;
-        public readonly float AddAlliedAuraRegen;
-        public readonly float AddStrength;
-        public readonly float AddAgility;
-        public readonly float AddIntelligence;
-        public readonly float AddMaxMana;
-        public readonly float AddManaRegen;
-        public readonly float AddPercentManaRegen;
-        public readonly float AddResourceCostReduction;
-        public readonly bool IsCowardsShield;
-        public readonly bool IsMinionHatchet;
-        public readonly bool IsWoodlandSalve;
-        public readonly bool IsBrawlerBuckler;
-        public readonly bool IsBlightedThorn;
-        public readonly bool IsMomentumGreaves;
-        public readonly bool IsColossusPauldron;
-        public readonly bool IsSpellweaverHourglass;
-        public readonly bool IsExecutionerGrudge;
-        public readonly string Summary;
-
-        public LaneItemDef(
-            int id,
-            string name,
-            int cost,
-            LaneItemTier tier = LaneItemTier.Core,
-            float addMaxHp = 0f,
-            float addAttackDamage = 0f,
-            float addAttackSpeed = 0f,
-            float addAbilityHaste = 0f,
-            float addArmor = 0f,
-            float addMagicResist = 0f,
-            float addMoveSpeed = 0f,
-            float addRegen = 0f,
-            float addHealPower = 0f,
-            float addAlliedAuraRegen = 0f,
-            float addStrength = 0f,
-            float addAgility = 0f,
-            float addIntelligence = 0f,
-            float addMaxMana = 0f,
-            float addManaRegen = 0f,
-            float addPercentManaRegen = 0f,
-            float addResourceCostReduction = 0f,
-            bool isCowardsShield = false,
-            bool isMinionHatchet = false,
-            bool isWoodlandSalve = false,
-            bool isBrawlerBuckler = false,
-            bool isBlightedThorn = false,
-            bool isMomentumGreaves = false,
-            bool isColossusPauldron = false,
-            bool isSpellweaverHourglass = false,
-            bool isExecutionerGrudge = false,
-            string summary = "")
-        {
-            Id = id;
-            Name = name;
-            Cost = cost;
-            Tier = tier;
-            AddMaxHp = addMaxHp;
-            AddAttackDamage = addAttackDamage;
-            AddAttackSpeed = addAttackSpeed;
-            AddAbilityHaste = addAbilityHaste;
-            AddArmor = addArmor;
-            AddMagicResist = addMagicResist;
-            AddMoveSpeed = addMoveSpeed;
-            AddRegen = addRegen;
-            AddHealPower = addHealPower;
-            AddAlliedAuraRegen = addAlliedAuraRegen;
-            AddStrength = addStrength;
-            AddAgility = addAgility;
-            AddIntelligence = addIntelligence;
-            AddMaxMana = addMaxMana;
-            AddManaRegen = addManaRegen;
-            AddPercentManaRegen = addPercentManaRegen;
-            AddResourceCostReduction = addResourceCostReduction;
-            IsCowardsShield = isCowardsShield;
-            IsMinionHatchet = isMinionHatchet;
-            IsWoodlandSalve = isWoodlandSalve;
-            IsBrawlerBuckler = isBrawlerBuckler;
-            IsBlightedThorn = isBlightedThorn;
-            IsMomentumGreaves = isMomentumGreaves;
-            IsColossusPauldron = isColossusPauldron;
-            IsSpellweaverHourglass = isSpellweaverHourglass;
-            IsExecutionerGrudge = isExecutionerGrudge;
-            Summary = summary;
-        }
-    }
-
-    public static class LaneItems
-    {
-        public const int MaxSlots = 6;
-        public const int CowardsShieldId = 12;
-        public const float SellRefundRatio = 0.70f;
-
-        public static int SellRefund(int cost) => Mathf.RoundToInt(cost * SellRefundRatio);
-
-        public static readonly LaneItemDef[] Catalog = new[]
-        {
-            // Starter tier (175-250g)
-            new LaneItemDef(14, "Woodland Salve", 175, LaneItemTier.Starter, addMaxHp: 70f, isWoodlandSalve: true,
-                summary: "+70 Max HP • Moss Mend: +4.5 HP/s when out of hero combat for 5s"),
-            new LaneItemDef(13, "Miner's Hatchet", 200, LaneItemTier.Starter, addAttackDamage: 10f, isMinionHatchet: true,
-                summary: "+10 AD • Cleaver: +18 bonus physical damage vs minions"),
-            new LaneItemDef(15, "Brawler's Buckler", 225, LaneItemTier.Starter, addMaxHp: 80f, addArmor: 12f, isBrawlerBuckler: true,
-                summary: "+80 Max HP, +12 Armor • Sturdy: Blocks 6 dmg from minion hits & hero basics"),
-            new LaneItemDef(3, "Vitality Vest", 250, LaneItemTier.Starter, addMaxHp: 160f, addRegen: 1.4f,
-                summary: "+160 Max HP, +1.4 HP/s Regen (no attributes)"),
-
-            // Core tier (275-375g)
-            new LaneItemDef(1, "Iron Greatsword", 275, LaneItemTier.Core, addAttackDamage: 26f,
-                summary: "+26 Attack Damage (no attributes)"),
-            new LaneItemDef(2, "Quickstep Dagger", 275, LaneItemTier.Core, addAttackSpeed: 0.30f,
-                summary: "+30% Attack Speed (no attributes)"),
-            new LaneItemDef(4, "Stone Plate", 300, LaneItemTier.Core, addArmor: 30f,
-                summary: "+30 Armor (no attributes)"),
-            new LaneItemDef(5, "Null Mantle", 300, LaneItemTier.Core, addMagicResist: 30f,
-                summary: "+30 Magic Resist (no attributes)"),
-            new LaneItemDef(6, "Chrono Band", 300, LaneItemTier.Core, addAbilityHaste: 22f,
-                summary: "+22 Ability Haste (no attributes • Cooldown = Base × 100 / (100 + AH))"),
-            new LaneItemDef(8, "Titan's Knuckle", 300, LaneItemTier.Core, addStrength: 25f,
-                summary: "+25 Strength (independent scalar only)"),
-            new LaneItemDef(9, "Zephyr Feather", 300, LaneItemTier.Core, addAgility: 25f,
-                summary: "+25 Agility (independent scalar only)"),
-            new LaneItemDef(10, "Arcane Lens", 300, LaneItemTier.Core, addIntelligence: 25f,
-                summary: "+25 Intelligence (independent scalar only)"),
-            new LaneItemDef(7, "Courier Boots", 325, LaneItemTier.Core, addMoveSpeed: 0.80f,
-                summary: "+0.80 Move Speed (no attributes)"),
-            new LaneItemDef(11, "Kindred Charm", 325, LaneItemTier.Core, addHealPower: 0.22f, addAlliedAuraRegen: 1.6f,
-                summary: "+22% Heal Power, +1.6 Allied Aura HP/s (7.5u aura • works on any hero)"),
-            new LaneItemDef(16, "Blighted Thorn", 375, LaneItemTier.Core, addAttackDamage: 16f, addArmor: 12f, isBlightedThorn: true,
-                summary: "+16 AD, +12 Armor • Wither: Hero hits apply -35% healing/regen for 3.5s"),
-
-            // Capstone tier (450-650g)
-            new LaneItemDef(12, "The Coward's Shield", 450, LaneItemTier.Capstone, addArmor: 15f, addMagicResist: 15f, addAgility: 12f, isCowardsShield: true,
-                summary: "+15 Arm/MR, +12 AGI • Flight Reflex: Sustained movement away from recent attacker builds +Resist (AGI); short grace on stop/stun; faster decay pursuing"),
-            new LaneItemDef(17, "Momentum Greaves", 575, LaneItemTier.Capstone, addMoveSpeed: 0.85f, addAgility: 18f, isMomentumGreaves: true,
-                summary: "+0.85 MS, +18 AGI • Windstrider: Moving out of combat builds diminishing MS (AGI)"),
-            new LaneItemDef(18, "Colossus Pauldron", 625, LaneItemTier.Capstone, addMaxHp: 220f, addArmor: 20f, addStrength: 20f, isColossusPauldron: true,
-                summary: "+220 HP, +20 Arm, +20 STR • Titan Aegis: Inflicting Stun/KB or dropping <45% HP grants 4s Shield (STR)"),
-            new LaneItemDef(19, "Spellweaver's Hourglass", 625, LaneItemTier.Capstone, addAbilityHaste: 18f, addIntelligence: 25f, isSpellweaverHourglass: true,
-                summary: "+18 Ability Haste, +25 INT • Arcane Echo: Next hero hit after cast deals +28 + 85% INT magic dmg"),
-            new LaneItemDef(20, "Executioner's Grudge", 650, LaneItemTier.Capstone, addAttackDamage: 42f, addAttackSpeed: 0.20f, isExecutionerGrudge: true,
-                summary: "+42 AD, +20% AS (no attributes) • Merciless: +18% dmg vs heroes below 40% HP"),
-        };
-
-        public static bool TryGet(int id, out LaneItemDef def)
-        {
-            for (int i = 0; i < Catalog.Length; i++)
-            {
-                if (Catalog[i].Id == id)
-                {
-                    def = Catalog[i];
-                    return true;
-                }
-            }
-            def = default;
-            return false;
-        }
-    }
+    // Item definitions, catalog, and duplicate-aware recipe resolution live in LaneItems.cs.
 
     /// <summary>
     /// Editable prototype combat, wave, tower, and multi-dimensional scaling placeholders.
@@ -676,7 +517,7 @@ namespace Moba.LaneSlice
         public StatFormula swordsmanQDamageFormula = new StatFormula(45f, 20f, ScalingCurve.Linear, 0.90f);
         public StatFormula swordsmanRDamageFormula = new StatFormula(95f, 40f, ScalingCurve.Linear, 1.35f);
 
-        // Item Passives — v0.2.8 Coward's Shield Retreat Rework + Universal Kindred Charm + Colossus Pauldron
+        // Item Passives — Approved custom items & specialized components + retained provisional starters/utility
         public float kindredAuraRadius = 7.5f;
         public float cowardShieldMemorySeconds = 5.0f;
         public float cowardShieldMinSpeedRatio = 0.45f;
@@ -697,9 +538,39 @@ namespace Moba.LaneSlice
         public float grievousDuration = 3.5f;
         public StatFormula momentumGreavesFormula = new StatFormula(0.45f, 0f, ScalingCurve.Diminishing, 0.65f, 45f, 0f, 0f);
         public StatFormula colossusShieldFormula = new StatFormula(65f, 0f, ScalingCurve.Linear, 2.00f, 0f, 0f, 0f);
-        public StatFormula spellweaverEchoFormula = new StatFormula(28f, 0f, ScalingCurve.Linear, 0.85f);
-        public float executionerGrudgeAmp = 0.18f;
-        public float executionerGrudgeThreshold = 0.40f;
+
+        // New Approved Component & Advanced Item Passives (Provisional numbers, approved curves)
+        public float bloodstoneMaxAmp = 0.14f;
+        public StatFormula finalJudgmentFormula = new StatFormula(0.24f, 0f, ScalingCurve.Diminishing, 0.28f, 65f, 0f, 0f);
+        public float lingeringRestorationShare = 0.28f;
+        public float lingeringRestorationDuration = 3.5f;
+        public StatFormula fountainOfLifeFormula = new StatFormula(0.28f, 0f, ScalingCurve.Diminishing, 0.55f, 0.65f, 0f, 0f);
+        public int adaptiveScalesMaxStacks = 6;
+        public float adaptiveScalesStackHalfPoint = 3.0f;
+        public float adaptiveScalesHoldDuration = 3.5f;
+        public float adaptiveScalesDecayStep = 1.2f;
+        public StatFormula adaptiveScalesMaxResistFormula = new StatFormula(20f, 0f, ScalingCurve.Diminishing, 35f, 65f, 0f, 0f);
+        public float primordialVitalityMaxRegen = 12.0f;
+        public int draconicHeatMaxStacks = 8;
+        public float draconicHeatHalfPoint = 4.0f;
+        public float draconicHeatHoldDuration = 3.5f;
+        public float draconicHeatDecayStep = 1.0f;
+        public StatFormula dragonfireDpsFormula = new StatFormula(18f, 0f, ScalingCurve.Linear, 0.55f, 0f, 0f, 0f);
+        public StatFormula moltenEdgeShredFormula = new StatFormula(14f, 0f, ScalingCurve.Diminishing, 26f, 65f, 0f, 0f);
+        public StatFormula ancientVitalityDeferFractionFormula = new StatFormula(0.16f, 0f, ScalingCurve.Diminishing, 0.34f, 1800f, 0f, 0.70f);
+        public StatFormula ancientVitalityDurationFormula = new StatFormula(2.4f, 0f, ScalingCurve.Diminishing, 2.6f, 80f, 0.5f, 0f);
+        public float giantsMightAdPerMaxHp = 0.030f;
+        public StatFormula immovableMountainFormula = new StatFormula(0f, 0f, ScalingCurve.Diminishing, 0.65f, 70f, 0f, 0.90f);
+        public StatFormula bananaCrescentCoeffFormula = new StatFormula(0.28f, 0f, ScalingCurve.Diminishing, 0.52f, 70f, 0f, 0f);
+        public StatFormula bananaCrescentRadiusFormula = new StatFormula(2.30f, 0f, ScalingCurve.Diminishing, 1.75f, 75f, 1.4f, 0f);
+        public StatFormula slipperyTricksterBonusFormula = new StatFormula(0.70f, 0f, ScalingCurve.Diminishing, 1.80f, 60f, 0f, 0f);
+        public float slipperyTricksterDuration = 2.2f;
+        public float slipperyTricksterCooldown = 14.0f;
+        public float firstStrikeInactivitySeconds = 3.0f;
+        public StatFormula firstStrikeReductionFormula = new StatFormula(0.22f, 0f, ScalingCurve.Diminishing, 0.43f, 60f, 0f, 0.75f);
+        public float firstStrikeMinRawWindup = 0.08f;
+        public float firstStrikeMinFinalWindup = 0.065f;
+        public float weightlessnessSlowReduction = 0.25f;
 
         // Chain Laser Shooter Provisional Timings & Formulas (v0.2.8 INT Q speed & W radius & R duration; W sqrt overlap slow; Animated E step)
         public float laserSpeed = 4.00f;
@@ -925,8 +796,16 @@ namespace Moba.LaneSlice
         public float shieldTimer;
         public float grievousTimer;
         public float momentumBonus;
-        public bool spellweaverReady;
         public float colossusCd;
+        public float deferredDamageTotal;
+        public int heatStacks;
+        public float heatTimer;
+        public int adaptiveScalesStacks;
+        public float adaptiveScalesBonus;
+        public bool firstStrikeReady;
+        public float firstStrikeIdle;
+        public float slipperyBonus;
+        public float slipperyCd;
         public int rStrikeIndex;
         public bool rStrikeIsFinal;
         public int basicSwingAlt;

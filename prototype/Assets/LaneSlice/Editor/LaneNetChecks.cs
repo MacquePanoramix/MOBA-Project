@@ -133,7 +133,12 @@ namespace Moba.LaneSlice
                     Mathf.Abs(guestSnap.heroes[0].mana - big.heroes[0].mana) > 0.01f ||
                     Mathf.Abs(guestSnap.heroes[0].maxMana - big.heroes[0].maxMana) > 0.01f ||
                     Mathf.Abs(guestSnap.heroes[0].costQ - big.heroes[0].costQ) > 0.01f ||
-                    guestSnap.heroes[1].costModeR != ResourceCostMode.ContinuousPerSecond)
+                    guestSnap.heroes[1].costModeR != ResourceCostMode.ContinuousPerSecond ||
+                    Mathf.Abs(guestSnap.heroes[0].deferredDamageTotal - big.heroes[0].deferredDamageTotal) > 0.01f ||
+                    guestSnap.heroes[0].heatStacks != big.heroes[0].heatStacks ||
+                    guestSnap.heroes[0].adaptiveScalesStacks != big.heroes[0].adaptiveScalesStacks ||
+                    guestSnap.heroes[0].firstStrikeReady != big.heroes[0].firstStrikeReady ||
+                    Mathf.Abs(guestSnap.heroes[0].slipperyBonus - big.heroes[0].slipperyBonus) > 0.01f)
                 {
                     throw new InvalidOperationException($"Heavy snapshot / Mana resource sync roundtrip failed ({guestSnap?.minions.Count ?? -1} vs {big.minions.Count}).");
                 }
@@ -921,9 +926,9 @@ namespace Moba.LaneSlice
 
         private static void CheckSettingsSurviveSimulatedUpdate()
         {
-            if (LaneUpdater.BuildVersion != "v0.2.12")
+            if (LaneUpdater.BuildVersion != "v0.2.13")
             {
-                throw new InvalidOperationException($"Expected BuildVersion v0.2.12, got {LaneUpdater.BuildVersion}");
+                throw new InvalidOperationException($"Expected BuildVersion v0.2.13, got {LaneUpdater.BuildVersion}");
             }
             var updaterCfg = new LaneUpdater.UpdaterConfig();
             if (updaterCfg.assetName != "WoodlandLane-Windows.zip")

@@ -137,24 +137,28 @@ namespace Moba.LaneSlice
             public bool swordsmanLastStrikeHeavy;
 
             // Aura & expanded item passives / status
+            public ItemPassiveFlags passiveFlags;
+            public bool HasPassive(ItemPassiveFlags flag) => (passiveFlags & flag) != 0;
+
             public float miravelDrainAura;
             public float miravelLifeAura;
-            public bool hasHatchet;
-            public bool hasSalve;
-            public bool hasBuckler;
-            public bool hasBlightedThorn;
-            public bool hasMomentumGreaves;
             public float momentumFactor;
             public float momentumBonus;
-            public bool hasColossusPauldron;
             public float shieldHp;
             public float shieldTimer;
             public float colossusCd;
-            public bool hasSpellweaverHourglass;
-            public float spellweaverReadyTimer;
-            public float spellweaverCd;
-            public bool hasExecutionerGrudge;
             public float grievousTimer;
+
+            // Stage D/E Custom Item & Specialized Component State
+            public float firstStrikeIdleTimer;
+            public float slipperyTimer;
+            public float slipperyCd;
+            public float slipperyInitialBonus;
+            public float slipperyBonus;
+            public readonly List<DeferredDamageEntry> deferredDamage = new List<DeferredDamageEntry>();
+            public readonly List<DeferredHealEntry> deferredHeals = new List<DeferredHealEntry>();
+            public readonly List<AdaptiveScalesEntry> adaptiveScales = new List<AdaptiveScalesEntry>();
+            public readonly List<HeatEntry> heatEntries = new List<HeatEntry>();
 
             // Stage C Shared Hero Resource state
             public HeroResourceKind resourceKind;
@@ -217,6 +221,42 @@ namespace Moba.LaneSlice
             public int laserStacks;
             public float laserStackTimer;
             public bool isPreviewDummy;
+            public readonly List<HeatEntry> heatEntries = new List<HeatEntry>();
+        }
+
+        private sealed class DeferredDamageEntry
+        {
+            public float totalAmount;
+            public float paidSoFar;
+            public float duration;
+            public float elapsed;
+            public int attackerHeroId;
+            public LaneTeam attackerTeam;
+        }
+
+        private sealed class DeferredHealEntry
+        {
+            public float totalAmount;
+            public float paidSoFar;
+            public float duration;
+            public float elapsed;
+        }
+
+        private sealed class AdaptiveScalesEntry
+        {
+            public int attackerHeroId;
+            public int stacks;
+            public float holdTimer;
+            public float decayAccum;
+        }
+
+        private sealed class HeatEntry
+        {
+            public int ownerHeroId;
+            public int stacks;
+            public float holdTimer;
+            public float decayAccum;
+            public float dotAccum;
         }
 
         private sealed class IllusionState
@@ -818,9 +858,11 @@ namespace Moba.LaneSlice
                 return false;
             }
             HeroState h = GetHero(team);
-            if (!LaneItems.TryGet(itemId, out LaneItemDef item))
+            int goldInt = Mathf.FloorToInt(h.goldExact);
+            PurchasePlan plan = LaneItems.ResolvePurchase(itemId, h.items, goldInt);
+            if (!plan.ValidItem)
             {
-                reason = "Unknown item.";
+                reason = plan.Reason;
                 return false;
             }
 
@@ -831,33 +873,46 @@ namespace Moba.LaneSlice
                 return false;
             }
 
-            int goldInt = Mathf.FloorToInt(h.goldExact);
-            if (goldInt < item.Cost)
+            if (!plan.CanPurchase)
             {
-                reason = $"Need {item.Cost}g (have {goldInt}g).";
+                reason = plan.Reason;
                 return false;
             }
 
-            int freeSlot = -1;
-            for (int i = 0; i < h.items.Length; i++)
+            int targetSlot = -1;
+            if (plan.ConsumedSlots.Count > 0)
             {
-                if (h.items[i] == 0)
+                targetSlot = plan.ConsumedSlots[0];
+                for (int c = 0; c < plan.ConsumedSlots.Count; c++)
                 {
-                    freeSlot = i;
-                    break;
+                    h.items[plan.ConsumedSlots[c]] = 0;
                 }
             }
-            if (freeSlot < 0)
+            else
+            {
+                for (int i = 0; i < h.items.Length; i++)
+                {
+                    if (h.items[i] == 0)
+                    {
+                        targetSlot = i;
+                        break;
+                    }
+                }
+            }
+
+            if (targetSlot < 0)
             {
                 reason = "Inventory full (6/6).";
                 return false;
             }
 
-            h.items[freeSlot] = item.Id;
-            h.goldExact -= item.Cost;
+            h.items[targetSlot] = plan.TargetItem.Id;
+            h.goldExact -= plan.RemainingCost;
             RecalcHeroStats(h, preserveHpRatio: true);
-            PushEvent(LaneEventKind.Purchase, h.team, h.motor.Position, Vector2.up, 1f, item.Cost, item.Name);
-            reason = $"Bought {item.Name}.";
+            PushEvent(LaneEventKind.Purchase, h.team, h.motor.Position, Vector2.up, 1f, plan.RemainingCost, plan.TargetItem.Name);
+            reason = plan.ConsumedSlots.Count > 0 && plan.RemainingCost < plan.BaseCost
+                ? $"Upgraded to {plan.TargetItem.Name} ({plan.RemainingCost}g)."
+                : $"Bought {plan.TargetItem.Name}.";
             return true;
         }
 
@@ -1145,8 +1200,19 @@ namespace Moba.LaneSlice
         private void ApplySlowToHero(HeroState target, float slowFraction, float duration)
         {
             if (target.phase == LanePhase.Dead || IsCcImmune(target)) return;
-            target.slowAmount = Mathf.Max(target.slowAmount, slowFraction);
+            float effectiveSlow = AdjustSlowForWeightlessness(target, slowFraction);
+            target.slowAmount = Mathf.Max(target.slowAmount, effectiveSlow);
             target.slowTimer = Mathf.Max(target.slowTimer, duration);
+        }
+
+        private float AdjustSlowForWeightlessness(HeroState target, float slowFraction)
+        {
+            float clamped = Mathf.Clamp(slowFraction, 0f, 0.95f);
+            if (target != null && target.HasPassive(ItemPassiveFlags.Weightlessness))
+            {
+                clamped *= (1f - Mathf.Clamp01(tuning.weightlessnessSlowReduction));
+            }
+            return clamped;
         }
 
         private void ComputeLaserWSlow(int totalShocks, int rankW, float elapsedSoFar, out float combinedSlow, out float remainingDuration)
@@ -1181,7 +1247,7 @@ namespace Moba.LaneSlice
             }
             target.laserSlowOverlapCount += hitsThisCast;
             ComputeLaserWSlow(target.laserSlowOverlapCount, rankW, target.laserSlowElapsed, out float slowAmt, out float remDur);
-            target.slowAmount = Mathf.Max(target.slowAmount, slowAmt);
+            target.slowAmount = Mathf.Max(target.slowAmount, AdjustSlowForWeightlessness(target, slowAmt));
             target.slowTimer = Mathf.Max(target.slowTimer, remDur);
         }
 
@@ -1241,6 +1307,12 @@ namespace Moba.LaneSlice
                 if (attacker.id == attackerHeroId) TriggerColossusShield(attacker);
             }
 
+            if (target.HasPassive(ItemPassiveFlags.ImmovableMountain))
+            {
+                float resistFrac = Mathf.Clamp(tuning.immovableMountainFormula.Evaluate(1, target.strength), 0f, 0.90f);
+                distance *= (1f - resistFrac);
+            }
+
             Vector2 moved = map.PushOut(target.motor.Position, dir.normalized * distance, towers[0].alive, towers[1].alive);
             float heading = target.motor.HeadingDegrees;
             target.motor = new MovementMotor(moved, heading);
@@ -1267,12 +1339,155 @@ namespace Moba.LaneSlice
 
         private void TriggerColossusShield(HeroState h)
         {
-            if (h == null || h.phase == LanePhase.Dead || !h.hasColossusPauldron || h.colossusCd > 0f) return;
+            if (h == null || h.phase == LanePhase.Dead || !h.HasPassive(ItemPassiveFlags.TitanAegis) || h.colossusCd > 0f) return;
             float shield = tuning.colossusShieldFormula.Evaluate(1, h.strength);
             h.shieldHp = Mathf.Max(h.shieldHp, shield);
             h.shieldTimer = 4.0f;
             h.colossusCd = 12.0f;
             PushEvent(LaneEventKind.LevelUp, h.team, h.motor.Position, Vector2.up, 1.2f, shield, $"SHIELD +{Mathf.RoundToInt(shield)}");
+        }
+
+        private HeroState FindHeroById(int heroId)
+        {
+            if (heroId <= 0) return null;
+            for (int i = 0; i < heroes.Length; i++)
+            {
+                if (heroes[i].id == heroId) return heroes[i];
+            }
+            return null;
+        }
+
+        private float GetAdaptiveScalesBonus(HeroState target, int attackerHeroId)
+        {
+            if (target == null || !target.HasPassive(ItemPassiveFlags.AdaptiveScales) || attackerHeroId <= 0) return 0f;
+            for (int i = 0; i < target.adaptiveScales.Count; i++)
+            {
+                AdaptiveScalesEntry e = target.adaptiveScales[i];
+                if (e.attackerHeroId == attackerHeroId && e.stacks > 0)
+                {
+                    float maxBonus = tuning.adaptiveScalesMaxResistFormula.Evaluate(1, target.strength);
+                    return maxBonus * (e.stacks / (e.stacks + Mathf.Max(0.1f, tuning.adaptiveScalesStackHalfPoint)));
+                }
+            }
+            return 0f;
+        }
+
+        private void AddOrRefreshAdaptiveScales(HeroState target, int attackerHeroId)
+        {
+            if (target == null || !target.HasPassive(ItemPassiveFlags.AdaptiveScales) || attackerHeroId <= 0) return;
+            for (int i = 0; i < target.adaptiveScales.Count; i++)
+            {
+                if (target.adaptiveScales[i].attackerHeroId == attackerHeroId)
+                {
+                    target.adaptiveScales[i].stacks = Mathf.Min(tuning.adaptiveScalesMaxStacks, target.adaptiveScales[i].stacks + 1);
+                    target.adaptiveScales[i].holdTimer = tuning.adaptiveScalesHoldDuration;
+                    target.adaptiveScales[i].decayAccum = 0f;
+                    return;
+                }
+            }
+            target.adaptiveScales.Add(new AdaptiveScalesEntry
+            {
+                attackerHeroId = attackerHeroId,
+                stacks = 1,
+                holdTimer = tuning.adaptiveScalesHoldDuration,
+                decayAccum = 0f,
+            });
+        }
+
+        private void AddOrRefreshHeat(List<HeatEntry> list, int ownerHeroId)
+        {
+            if (ownerHeroId <= 0) return;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].ownerHeroId == ownerHeroId)
+                {
+                    list[i].stacks = Mathf.Min(tuning.draconicHeatMaxStacks, list[i].stacks + 1);
+                    list[i].holdTimer = tuning.draconicHeatHoldDuration;
+                    list[i].decayAccum = 0f;
+                    return;
+                }
+            }
+            list.Add(new HeatEntry
+            {
+                ownerHeroId = ownerHeroId,
+                stacks = 1,
+                holdTimer = tuning.draconicHeatHoldDuration,
+                decayAccum = 0f,
+                dotAccum = 0f,
+            });
+        }
+
+        private float ComputeTotalHeatShred(List<HeatEntry> list)
+        {
+            float total = 0f;
+            float hp = Mathf.Max(0.1f, tuning.draconicHeatHalfPoint);
+            for (int i = 0; i < list.Count; i++)
+            {
+                HeatEntry e = list[i];
+                if (e.stacks <= 0) continue;
+                HeroState owner = FindHeroById(e.ownerHeroId);
+                float intel = owner != null ? owner.intelligence : 0f;
+                total += tuning.moltenEdgeShredFormula.Evaluate(1, intel) * (e.stacks / (e.stacks + hp));
+            }
+            return total;
+        }
+
+        public static bool IsPointInBananaCrescent(Vector2 candidate, Vector2 attackerPos, Vector2 primaryPos, float intelligence, LaneTuning t)
+        {
+            LaneTuning cfg = t ?? new LaneTuning();
+            Vector2 delta = primaryPos - attackerPos;
+            Vector2 fwd = delta.sqrMagnitude > 0.0001f ? delta.normalized : Vector2.right;
+            float outerR = cfg.bananaCrescentRadiusFormula.Evaluate(1, intelligence);
+            Vector2 outerCenter = primaryPos + fwd * (outerR * 0.42f);
+            float innerR = outerR * 0.78f;
+            Vector2 innerCenter = primaryPos - fwd * (outerR * 0.20f);
+            return (candidate - outerCenter).sqrMagnitude <= outerR * outerR &&
+                   (candidate - innerCenter).sqrMagnitude > innerR * innerR;
+        }
+
+        private void TriggerBananaCrescent(HeroState attacker, LaneTargetKind primaryKind, int primaryId, Vector2 primaryPos)
+        {
+            if (attacker == null || !attacker.HasPassive(ItemPassiveFlags.CrescentStrike)) return;
+            float coeff = tuning.bananaCrescentCoeffFormula.Evaluate(1, attacker.agility);
+            float cleaveDmg = attacker.attackDamage * coeff;
+            if (cleaveDmg <= 0f) return;
+
+            Vector2 atkPos = attacker.motor.Position;
+            Vector2 fwd = DirectionTo(atkPos, primaryPos, attacker.aimDir);
+            float outerR = tuning.bananaCrescentRadiusFormula.Evaluate(1, attacker.intelligence);
+
+            HeroState enemyHero = GetEnemyHero(attacker.team);
+            if ((primaryKind != LaneTargetKind.Hero || enemyHero.id != primaryId) &&
+                enemyHero.phase != LanePhase.Dead &&
+                IsPointInBananaCrescent(enemyHero.motor.Position, atkPos, primaryPos, attacker.intelligence, tuning))
+            {
+                DealDamageToHero(enemyHero, cleaveDmg, isMagic: false, isTrueDamage: false, attacker.id, attacker.team,
+                    triggerMiravelWard: false, flags: DamageFlags.None);
+            }
+
+            for (int i = 0; i < illusions.Count; i++)
+            {
+                IllusionState ill = illusions[i];
+                if (ill.team != attacker.team && ill.hp > 0f &&
+                    (primaryKind != LaneTargetKind.Hero || ill.id != primaryId) &&
+                    IsPointInBananaCrescent(ill.motor.Position, atkPos, primaryPos, attacker.intelligence, tuning))
+                {
+                    DealDamageToIllusion(ill, cleaveDmg, isMagic: false, attacker.id, attacker.team);
+                }
+            }
+
+            for (int i = 0; i < minions.Count; i++)
+            {
+                MinionState m = minions[i];
+                if (m.team != attacker.team && m.hp > 0f &&
+                    (primaryKind != LaneTargetKind.Minion || m.id != primaryId) &&
+                    IsPointInBananaCrescent(m.motor.Position, atkPos, primaryPos, attacker.intelligence, tuning))
+                {
+                    DealDamageToMinion(m, cleaveDmg, isMagic: false, attacker.id, attacker.team, isOnHit: false);
+                }
+            }
+
+            PushEvent(LaneEventKind.BananaCrescent, attacker.team, primaryPos, fwd, outerR, cleaveDmg, string.Empty);
         }
 
         private void DealDamageToHero(
@@ -1283,31 +1498,46 @@ namespace Moba.LaneSlice
             int attackerHeroId,
             LaneTeam attackerTeam,
             bool triggerMiravelWard = true,
-            bool isBasicOrMinion = false,
-            bool allowSpellweaverProc = true)
+            DamageFlags flags = DamageFlags.None)
         {
             if (target.phase == LanePhase.Dead || target.phase == LanePhase.ExecuteDash || rawDamage <= 0f) return;
 
-            HeroState attacker = null;
-            if (attackerHeroId > 0 && attackerTeam != target.team)
+            HeroState attacker = FindHeroById(attackerHeroId);
+            if (attacker != null && attacker.team == target.team) attacker = null;
+
+            bool isDeferredPayout = (flags & DamageFlags.DeferredPayout) != 0;
+            bool isDoT = (flags & DamageFlags.DamageOverTime) != 0;
+            bool isBasicOrMinion = (flags & DamageFlags.BasicOrMinion) != 0;
+            bool isOnHit = (flags & DamageFlags.OnHit) != 0;
+
+            // 1. Wounded Strike / Final Judgment outgoing hero damage amp (superseded cleanly)
+            if (attacker != null && !isDeferredPayout)
             {
-                HeroState candidate = heroes[attackerTeam == LaneTeam.Blue ? 0 : 1];
-                if (candidate.id == attackerHeroId) attacker = candidate;
+                float missingFrac = 1f - Mathf.Clamp01(target.hp / Mathf.Max(1f, target.maxHp));
+                if (attacker.HasPassive(ItemPassiveFlags.FinalJudgment))
+                {
+                    float maxAmp = tuning.finalJudgmentFormula.Evaluate(1, attacker.strength);
+                    rawDamage *= (1f + maxAmp * missingFrac);
+                }
+                else if (attacker.HasPassive(ItemPassiveFlags.WoundedStrike))
+                {
+                    rawDamage *= (1f + tuning.bloodstoneMaxAmp * missingFrac);
+                }
             }
 
-            if (allowSpellweaverProc && attacker != null && attacker.hasExecutionerGrudge &&
-                target.hp / Mathf.Max(1f, target.maxHp) < tuning.executionerGrudgeThreshold)
-            {
-                rawDamage *= (1f + tuning.executionerGrudgeAmp);
-            }
-
-            float mult = isTrueDamage ? 1f : ResistanceFactor(isMagic ? target.magicResist : target.armor);
+            // 2. Resistance mitigation + per-attacker Adaptive Scales
+            float adaptiveBonus = (!isTrueDamage && attackerHeroId > 0 && attackerTeam != target.team)
+                ? GetAdaptiveScalesBonus(target, attackerHeroId)
+                : 0f;
+            float baseRes = (isMagic ? target.magicResist : target.armor) + adaptiveBonus;
+            float mult = isTrueDamage ? 1f : ResistanceFactor(baseRes);
             float postRes = rawDamage * mult * target.damageTakenMult * (1f - target.damageReduction);
-            if (isBasicOrMinion && target.hasBuckler && postRes > 0f)
+            if (isBasicOrMinion && target.HasPassive(ItemPassiveFlags.Sturdy) && postRes > 0f)
             {
                 postRes = Mathf.Max(1f, postRes - tuning.brawlerBucklerBlock);
             }
 
+            // 3. Shield absorption prior to Ancient Vitality deferral split (conserves overflow exactly)
             if (target.shieldHp > 0f && postRes > 0f)
             {
                 float absorbed = Mathf.Min(target.shieldHp, postRes);
@@ -1315,19 +1545,44 @@ namespace Moba.LaneSlice
                 postRes -= absorbed;
                 if (target.shieldHp <= 0f) target.shieldTimer = 0f;
             }
-            target.hp = Mathf.Max(0f, target.hp - postRes);
+
+            float immediateLoss = postRes;
+            if (!isDeferredPayout && target.HasPassive(ItemPassiveFlags.AncientVitality) && postRes > 0f)
+            {
+                float deferFrac = Mathf.Clamp(tuning.ancientVitalityDeferFractionFormula.Evaluate(1, target.maxHp), 0f, 0.70f);
+                float deferDur = Mathf.Max(0.5f, tuning.ancientVitalityDurationFormula.Evaluate(1, target.strength));
+                float deferred = postRes * deferFrac;
+                immediateLoss = postRes - deferred;
+                if (deferred > 0.0001f)
+                {
+                    target.deferredDamage.Add(new DeferredDamageEntry
+                    {
+                        totalAmount = deferred,
+                        paidSoFar = 0f,
+                        duration = deferDur,
+                        elapsed = 0f,
+                        attackerHeroId = attackerHeroId,
+                        attackerTeam = attackerTeam,
+                    });
+                }
+            }
+
+            target.hp = Mathf.Max(0f, target.hp - immediateLoss);
 
             if (attacker != null)
             {
                 target.lastHeroAttackerId = attackerHeroId;
                 target.lastHeroDamageAge = 0f;
-                if (target.momentumFactor > 0f)
+                bool recalcTarget = false;
+
+                if (target.momentumFactor > 0f || target.momentumBonus > 0f)
                 {
                     target.momentumFactor = 0f;
                     target.momentumBonus = 0f;
+                    recalcTarget = true;
                 }
 
-                if (attacker.hasBlightedThorn)
+                if (attacker.HasPassive(ItemPassiveFlags.Wither))
                 {
                     target.grievousTimer = Mathf.Max(target.grievousTimer, tuning.grievousDuration);
                 }
@@ -1353,19 +1608,44 @@ namespace Moba.LaneSlice
                     ApplyMiravelCurse(attacker, target);
                 }
 
-                // Spellweaver's Hourglass Arcane Echo burst on next hero hit
-                if (allowSpellweaverProc && attacker.hasSpellweaverHourglass && attacker.spellweaverReadyTimer > 0f && target.phase != LanePhase.Dead)
+                // Slippery Trickster: enemy hero damage burst on fixed cooldown (no AH scaling, no refresh on CD)
+                if (!isDeferredPayout && target.hp > 0f && target.HasPassive(ItemPassiveFlags.SlipperyTrickster) && target.slipperyCd <= 0f)
                 {
-                    attacker.spellweaverReadyTimer = 0f;
-                    attacker.spellweaverCd = 4.5f;
-                    float echoDmg = tuning.spellweaverEchoFormula.Evaluate(1, attacker.intelligence);
-                    DealDamageToHero(target, echoDmg, isMagic: true, isTrueDamage: false, attacker.id, attacker.team,
-                        triggerMiravelWard: false, isBasicOrMinion: false, allowSpellweaverProc: false);
-                    PushEvent(LaneEventKind.LuisCurseProc, attacker.team, target.motor.Position, Vector2.up, 1.0f, echoDmg, $"+{Mathf.RoundToInt(echoDmg)} ARCANE");
+                    target.slipperyInitialBonus = tuning.slipperyTricksterBonusFormula.Evaluate(1, target.agility);
+                    target.slipperyBonus = target.slipperyInitialBonus;
+                    target.slipperyTimer = tuning.slipperyTricksterDuration;
+                    target.slipperyCd = tuning.slipperyTricksterCooldown;
+                    recalcTarget = true;
+                }
+
+                // On-hit triggers: Shared Heat (Draconic Blade) & Crescent Strike (Banana Blade)
+                if (isOnHit)
+                {
+                    if (attacker.HasPassive(ItemPassiveFlags.DragonfireAndMoltenEdge) && target.hp > 0f)
+                    {
+                        AddOrRefreshHeat(target.heatEntries, attacker.id);
+                        recalcTarget = true;
+                    }
+                    if (attacker.HasPassive(ItemPassiveFlags.CrescentStrike))
+                    {
+                        TriggerBananaCrescent(attacker, LaneTargetKind.Hero, target.id, target.motor.Position);
+                    }
+                }
+
+                if (recalcTarget && target.hp > 0f)
+                {
+                    RecalcHeroStats(target, preserveHpRatio: true);
                 }
             }
 
-            if (target.hp > 0f && target.hasColossusPauldron && target.colossusCd <= 0f &&
+            // Adaptive Scales: build independent per-attacker stacks on direct physical/magical hero hits (never DoTs)
+            if (!isTrueDamage && !isDoT && !isDeferredPayout && attackerHeroId > 0 && attackerTeam != target.team &&
+                target.hp > 0f && target.HasPassive(ItemPassiveFlags.AdaptiveScales))
+            {
+                AddOrRefreshAdaptiveScales(target, attackerHeroId);
+            }
+
+            if (target.hp > 0f && target.HasPassive(ItemPassiveFlags.TitanAegis) && target.colossusCd <= 0f &&
                 target.hp / Mathf.Max(1f, target.maxHp) < 0.45f)
             {
                 TriggerColossusShield(target);
@@ -1377,20 +1657,31 @@ namespace Moba.LaneSlice
             }
         }
 
-        private void DealDamageToMinion(MinionState m, float rawDamage, bool isMagic, int attackerHeroId, LaneTeam attackerTeam)
+        private void DealDamageToMinion(MinionState m, float rawDamage, bool isMagic, int attackerHeroId, LaneTeam attackerTeam, bool isOnHit = false)
         {
             if (m.hp <= 0f || rawDamage <= 0f) return;
-            if (attackerHeroId > 0 && !isMagic)
+            HeroState attacker = FindHeroById(attackerHeroId);
+            if (attacker != null && !isMagic && attacker.HasPassive(ItemPassiveFlags.Cleaver))
             {
-                HeroState attacker = heroes[attackerTeam == LaneTeam.Blue ? 0 : 1];
-                if (attacker.id == attackerHeroId && attacker.hasHatchet)
-                {
-                    rawDamage += tuning.minerHatchetBonusDmg;
-                }
+                rawDamage += tuning.minerHatchetBonusDmg;
             }
-            float res = isMagic ? 0f : Mathf.Max(-48f, -m.swordShredStacks * tuning.swordsmanWStackShred);
+            float moltenShred = ComputeTotalHeatShred(m.heatEntries);
+            float res = (isMagic ? 0f : -m.swordShredStacks * tuning.swordsmanWStackShred) - moltenShred;
+            res = Mathf.Max(-60f, res);
             float dmg = rawDamage * ResistanceFactor(res) * m.damageTakenMult;
             m.hp = Mathf.Max(0f, m.hp - dmg);
+
+            if (isOnHit && attacker != null)
+            {
+                if (attacker.HasPassive(ItemPassiveFlags.DragonfireAndMoltenEdge) && m.hp > 0f)
+                {
+                    AddOrRefreshHeat(m.heatEntries, attacker.id);
+                }
+                if (attacker.HasPassive(ItemPassiveFlags.CrescentStrike))
+                {
+                    TriggerBananaCrescent(attacker, LaneTargetKind.Minion, m.id, m.motor.Position);
+                }
+            }
 
             if (m.hp <= 0f)
             {
@@ -1492,11 +1783,38 @@ namespace Moba.LaneSlice
             }
         }
 
-        private void HealHero(HeroState target, float rawAmount)
+        private float ComputeFountainOfLifeMult(HeroState target, HealSourceKind source)
+        {
+            if (target == null || source == HealSourceKind.LingeringRestoration || !target.HasPassive(ItemPassiveFlags.FountainOfLife))
+            {
+                return 1f;
+            }
+            float missingFrac = 1f - Mathf.Clamp01(target.hp / Mathf.Max(1f, target.maxHp));
+            float maxAmp = tuning.fountainOfLifeFormula.Evaluate(1, Mathf.Max(0f, target.healPower - 1f));
+            return 1f + maxAmp * missingFrac;
+        }
+
+        private void HealHero(HeroState target, float rawAmount, HealSourceKind source = HealSourceKind.AbilityOrItem)
         {
             if (target.phase == LanePhase.Dead || rawAmount <= 0f) return;
-            float gMult = target.grievousTimer > 0f ? (1f - tuning.grievousHealReduction) : 1f;
-            target.hp = Mathf.Min(target.maxHp, target.hp + rawAmount * target.healReceivedMult * gMult);
+            float fountainMult = ComputeFountainOfLifeMult(target, source);
+            float gMult = (source != HealSourceKind.LingeringRestoration && target.grievousTimer > 0f)
+                ? (1f - tuning.grievousHealReduction)
+                : 1f;
+            float hpBefore = target.hp;
+            target.hp = Mathf.Min(target.maxHp, target.hp + rawAmount * target.healReceivedMult * fountainMult * gMult);
+            float actualRestored = Mathf.Max(0f, target.hp - hpBefore);
+
+            if (source == HealSourceKind.AbilityOrItem && actualRestored > 0f && target.HasPassive(ItemPassiveFlags.LingeringRestoration))
+            {
+                target.deferredHeals.Add(new DeferredHealEntry
+                {
+                    totalAmount = actualRestored * tuning.lingeringRestorationShare,
+                    paidSoFar = 0f,
+                    duration = Mathf.Max(0.25f, tuning.lingeringRestorationDuration),
+                    elapsed = 0f,
+                });
+            }
         }
 
         private void OnHeroKilled(HeroState victim, int attackerHeroId, LaneTeam attackerTeam)
@@ -1530,7 +1848,14 @@ namespace Moba.LaneSlice
             victim.grievousTimer = 0f;
             victim.momentumFactor = 0f;
             victim.momentumBonus = 0f;
-            victim.spellweaverReadyTimer = 0f;
+            victim.slipperyTimer = 0f;
+            victim.slipperyInitialBonus = 0f;
+            victim.slipperyBonus = 0f;
+            victim.deferredDamage.Clear();
+            victim.deferredHeals.Clear();
+            victim.adaptiveScales.Clear();
+            victim.heatEntries.Clear();
+            victim.firstStrikeIdleTimer = tuning.firstStrikeInactivitySeconds;
             victim.rStrikeInFollowthrough = false;
             victim.miravelDrainAura = 0f;
             victim.miravelLifeAura = 0f;
@@ -1643,6 +1968,27 @@ namespace Moba.LaneSlice
             for (int i = 0; i < heroes.Length; i++)
             {
                 HeroState h = heroes[i];
+                float deferTotal = 0f;
+                for (int d = 0; d < h.deferredDamage.Count; d++)
+                {
+                    deferTotal += Mathf.Max(0f, h.deferredDamage[d].totalAmount - h.deferredDamage[d].paidSoFar);
+                }
+                int maxHeatStacks = 0;
+                float maxHeatTimer = 0f;
+                for (int ht = 0; ht < h.heatEntries.Count; ht++)
+                {
+                    if (h.heatEntries[ht].stacks > maxHeatStacks) maxHeatStacks = h.heatEntries[ht].stacks;
+                    if (h.heatEntries[ht].holdTimer > maxHeatTimer) maxHeatTimer = h.heatEntries[ht].holdTimer;
+                }
+                int maxScaleStacks = 0;
+                for (int sc = 0; sc < h.adaptiveScales.Count; sc++)
+                {
+                    if (h.adaptiveScales[sc].stacks > maxScaleStacks) maxScaleStacks = h.adaptiveScales[sc].stacks;
+                }
+                float maxScaleBonus = maxScaleStacks > 0
+                    ? tuning.adaptiveScalesMaxResistFormula.Evaluate(1, h.strength) * (maxScaleStacks / (maxScaleStacks + Mathf.Max(0.1f, tuning.adaptiveScalesStackHalfPoint)))
+                    : 0f;
+
                 var hs = new HeroSnap
                 {
                     id = h.id,
@@ -1737,8 +2083,16 @@ namespace Moba.LaneSlice
                     shieldTimer = h.shieldTimer,
                     grievousTimer = h.grievousTimer,
                     momentumBonus = h.momentumBonus,
-                    spellweaverReady = h.hasSpellweaverHourglass && h.spellweaverReadyTimer > 0f,
                     colossusCd = h.colossusCd,
+                    deferredDamageTotal = deferTotal,
+                    heatStacks = maxHeatStacks,
+                    heatTimer = maxHeatTimer,
+                    adaptiveScalesStacks = maxScaleStacks,
+                    adaptiveScalesBonus = maxScaleBonus,
+                    firstStrikeReady = h.HasPassive(ItemPassiveFlags.FirstStrike) && h.firstStrikeIdleTimer >= tuning.firstStrikeInactivitySeconds - 0.0001f,
+                    firstStrikeIdle = h.firstStrikeIdleTimer,
+                    slipperyBonus = h.slipperyBonus,
+                    slipperyCd = h.slipperyCd,
                     rStrikeIndex = h.rStrikeIndex,
                     rStrikeIsFinal = h.phase == LanePhase.ComboSeq && h.rQueue.Count > 0 && h.rStrikeIndex == h.rQueue.Count - 1,
                     basicSwingAlt = h.basicSwingAlt,
@@ -1959,6 +2313,35 @@ namespace Moba.LaneSlice
         {
             HeroState h = GetHero(team);
             h.mana = h.resourceKind == HeroResourceKind.Mana ? Mathf.Clamp(manaAmount, 0f, h.maxMana) : 0f;
+        }
+
+        public void SetHeroHpForTest(LaneTeam team, float hpAmount)
+        {
+            HeroState h = GetHero(team);
+            if (h.phase == LanePhase.Dead) return;
+            h.hp = Mathf.Clamp(hpAmount, 1f, h.maxHp);
+        }
+
+        public void ApplyDamageForTest(LaneTeam targetTeam, float rawDamage, bool isMagic, bool isTrueDamage, LaneTeam attackerTeam, DamageFlags flags = DamageFlags.None)
+        {
+            HeroState target = GetHero(targetTeam);
+            HeroState attacker = GetHero(attackerTeam);
+            DealDamageToHero(target, rawDamage, isMagic, isTrueDamage, attacker.id, attacker.team, triggerMiravelWard: false, flags: flags);
+        }
+
+        public void ApplyDamageFromAttackerIdForTest(LaneTeam targetTeam, int attackerId, float rawDamage, bool isMagic, LaneTeam attackerTeam, DamageFlags flags = DamageFlags.None)
+        {
+            HeroState target = GetHero(targetTeam);
+            DealDamageToHero(target, rawDamage, isMagic, false, attackerId, attackerTeam, triggerMiravelWard: false, flags: flags);
+        }
+
+        public float ApplyDisplacementForTest(LaneTeam targetTeam, Vector2 dir, float distance, LaneTeam attackerTeam)
+        {
+            HeroState target = GetHero(targetTeam);
+            HeroState attacker = GetHero(attackerTeam);
+            Vector2 before = target.motor.Position;
+            ApplyDisplacementToHero(target, dir, distance, attacker.id);
+            return Vector2.Distance(before, target.motor.Position);
         }
 
         public bool TryConsumeResourceSpec(LaneTeam team, AbilityResourceSpec spec, int rank, out float spent)

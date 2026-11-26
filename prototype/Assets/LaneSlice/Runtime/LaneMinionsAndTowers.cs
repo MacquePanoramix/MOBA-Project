@@ -277,6 +277,49 @@ namespace Moba.LaneSlice
                     if (m.laserStackTimer <= 0f) m.laserStacks = 0;
                 }
 
+                // Draconic Blade Shared Heat DoT & single-stack decay on minions
+                if (m.heatEntries.Count > 0)
+                {
+                    float hpHalf = Mathf.Max(0.1f, tuning.draconicHeatHalfPoint);
+                    for (int hIdx = m.heatEntries.Count - 1; hIdx >= 0; hIdx--)
+                    {
+                        HeatEntry he = m.heatEntries[hIdx];
+                        if (he.stacks <= 0)
+                        {
+                            m.heatEntries.RemoveAt(hIdx);
+                            continue;
+                        }
+                        he.dotAccum += dt;
+                        while (he.dotAccum >= 0.5f && m.hp > 0f)
+                        {
+                            he.dotAccum -= 0.5f;
+                            HeroState owner = FindHeroById(he.ownerHeroId);
+                            float intel = owner != null ? owner.intelligence : 0f;
+                            float dps = tuning.dragonfireDpsFormula.Evaluate(1, intel);
+                            float stackFactor = he.stacks / (he.stacks + hpHalf);
+                            DealDamageToMinion(m, dps * 0.5f * stackFactor, isMagic: true, he.ownerHeroId,
+                                owner != null ? owner.team : (m.team == LaneTeam.Blue ? LaneTeam.Red : LaneTeam.Blue), isOnHit: false);
+                        }
+                        if (m.hp <= 0f) break;
+
+                        if (he.holdTimer > 0f)
+                        {
+                            he.holdTimer -= dt;
+                        }
+                        else
+                        {
+                            he.decayAccum += dt;
+                            if (he.decayAccum >= tuning.draconicHeatDecayStep)
+                            {
+                                he.decayAccum -= tuning.draconicHeatDecayStep;
+                                he.stacks--;
+                                if (he.stacks <= 0) m.heatEntries.RemoveAt(hIdx);
+                            }
+                        }
+                    }
+                    if (m.hp <= 0f) continue;
+                }
+
                 m.damageTakenMult = 1f;
                 m.healReceivedMult = 1f;
                 for (int z = 0; z < zones.Count; z++)
@@ -450,7 +493,7 @@ namespace Moba.LaneSlice
             if (m.targetKind == LaneTargetKind.Hero)
             {
                 HeroState enemy = GetEnemyHero(m.team);
-                if (enemy.id == m.targetId) DealDamageToHero(enemy, dmg, false, false, 0, m.team, isBasicOrMinion: true);
+                if (enemy.id == m.targetId) DealDamageToHero(enemy, dmg, false, false, 0, m.team, flags: DamageFlags.BasicOrMinion);
                 else
                 {
                     for (int i = 0; i < illusions.Count; i++)
@@ -622,8 +665,10 @@ namespace Moba.LaneSlice
                 HeroState enemy = GetEnemyHero(p.team);
                 if (enemy.id == p.targetId)
                 {
-                    bool isBasicOrMinion = p.kind == LaneProjKind.LuisBolt || p.kind == LaneProjKind.MinionBolt;
-                    DealDamageToHero(enemy, p.damage, p.isMagic, false, p.sourceHeroId, p.team, isBasicOrMinion: isBasicOrMinion);
+                    DamageFlags heroFlags = DamageFlags.None;
+                    if (p.kind == LaneProjKind.LuisBolt) heroFlags = DamageFlags.BasicOrMinion | DamageFlags.OnHit;
+                    else if (p.kind == LaneProjKind.MinionBolt) heroFlags = DamageFlags.BasicOrMinion;
+                    DealDamageToHero(enemy, p.damage, p.isMagic, false, p.sourceHeroId, p.team, flags: heroFlags);
                     return;
                 }
                 for (int i = 0; i < illusions.Count; i++)
@@ -641,7 +686,7 @@ namespace Moba.LaneSlice
                 {
                     if (minions[i].id == p.targetId)
                     {
-                        DealDamageToMinion(minions[i], p.damage, p.isMagic, p.sourceHeroId, p.team);
+                        DealDamageToMinion(minions[i], p.damage, p.isMagic, p.sourceHeroId, p.team, isOnHit: p.kind == LaneProjKind.LuisBolt);
                         return;
                     }
                 }

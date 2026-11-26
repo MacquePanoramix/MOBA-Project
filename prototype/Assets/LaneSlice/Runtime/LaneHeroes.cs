@@ -16,6 +16,7 @@ namespace Moba.LaneSlice
                 prevMotorPos = pos,
                 goldExact = tuning.startingGold,
                 aimDir = team == LaneTeam.Blue ? Vector2.right : Vector2.left,
+                firstStrikeIdleTimer = tuning.firstStrikeInactivitySeconds,
             };
             RecalcHeroStats(h, preserveHpRatio: false);
             h.hp = h.maxHp;
@@ -71,8 +72,7 @@ namespace Moba.LaneSlice
             float itemHp = 0f, itemAd = 0f, itemAs = 0f, itemAh = 0f, itemSpeed = 0f, itemArmor = 0f, itemMr = 0f, itemRegen = 0f;
             float itemStr = 0f, itemAgi = 0f, itemInt = 0f, itemHeal = 0f, itemAuraRegen = 0f;
             float itemMaxMana = 0f, itemManaRegen = 0f, itemPctManaRegen = 0f, itemRcr = 0f;
-            bool cowardOwned = false, hatchet = false, salve = false, buckler = false, thorn = false;
-            bool greaves = false, colossus = false, spellweaver = false, grudge = false;
+            ItemPassiveFlags rawPassives = ItemPassiveFlags.None;
 
             for (int i = 0; i < h.items.Length; i++)
             {
@@ -94,15 +94,7 @@ namespace Moba.LaneSlice
                 itemManaRegen += item.AddManaRegen;
                 itemPctManaRegen += item.AddPercentManaRegen;
                 itemRcr += item.AddResourceCostReduction;
-                if (item.IsCowardsShield) cowardOwned = true;
-                if (item.IsMinionHatchet) hatchet = true;
-                if (item.IsWoodlandSalve) salve = true;
-                if (item.IsBrawlerBuckler) buckler = true;
-                if (item.IsBlightedThorn) thorn = true;
-                if (item.IsMomentumGreaves) greaves = true;
-                if (item.IsColossusPauldron) colossus = true;
-                if (item.IsSpellweaverHourglass) spellweaver = true;
-                if (item.IsExecutionerGrudge) grudge = true;
+                rawPassives |= item.PassiveFlags;
             }
 
             int lvlOffset = h.level - 1;
@@ -128,28 +120,22 @@ namespace Moba.LaneSlice
             h.strength = itemStr;
             h.agility = itemAgi;
             h.intelligence = itemInt;
-            h.hasHatchet = hatchet;
-            h.hasSalve = salve;
-            h.hasBuckler = buckler;
-            h.hasBlightedThorn = thorn;
-            h.hasMomentumGreaves = greaves;
-            h.hasColossusPauldron = colossus;
-            h.hasSpellweaverHourglass = spellweaver;
-            h.hasExecutionerGrudge = grudge;
-            if (!greaves)
+            h.passiveFlags = LaneItems.NormalizeEffectivePassives(rawPassives);
+            if (!h.HasPassive(ItemPassiveFlags.Windstrider))
             {
                 h.momentumFactor = 0f;
                 h.momentumBonus = 0f;
             }
-            if (!colossus)
+            if (!h.HasPassive(ItemPassiveFlags.TitanAegis))
             {
                 h.shieldHp = 0f;
                 h.shieldTimer = 0f;
             }
-            if (!spellweaver)
+            if (!h.HasPassive(ItemPassiveFlags.AdaptiveScales))
             {
-                h.spellweaverReadyTimer = 0f;
+                h.adaptiveScales.Clear();
             }
+            bool cowardOwned = h.HasPassive(ItemPassiveFlags.FlightReflex);
             h.hasCowardsShield = cowardOwned;
             if (!cowardOwned)
             {
@@ -164,20 +150,24 @@ namespace Moba.LaneSlice
             // New W (Stance Temper): stacks & rank scaling read h.rankW
             float swordBonus = h.swordStacks * (tuning.swordsmanWStackGain + 2f * Mathf.Max(0, h.rankW - 1));
             float swordShred = h.swordDebuffStacks * tuning.swordsmanWStackShred;
+            float moltenShred = ComputeTotalHeatShred(h.heatEntries);
 
             h.maxHp = Mathf.Max(100f, baseHp + hpPerLvl * lvlOffset + itemHp + ovMaxHp);
-            h.attackDamage = Mathf.Max(1f, baseAd + adPerLvl * lvlOffset + itemAd + ovAd);
+            float giantsMightAd = h.HasPassive(ItemPassiveFlags.GiantsMight)
+                ? h.maxHp * tuning.giantsMightAdPerMaxHp
+                : 0f;
+            h.attackDamage = Mathf.Max(1f, baseAd + adPerLvl * lvlOffset + itemAd + ovAd + giantsMightAd);
             h.bonusAttackSpeed = Mathf.Max(0f, itemAs + ovAs);
             // v0.2.8 Global unbounded diminishing Attack Speed: EffectiveAS = sqrt(1 + k * BonusAS)
             h.attackSpeed = LaneTuning.EffectiveAttackSpeed(h.bonusAttackSpeed, tuning.attackSpeedCurveK);
             h.abilityHaste = Mathf.Max(0f, itemAh + ovAh);
             h.cooldownReduction = h.abilityHaste / (100f + h.abilityHaste);
-            h.armor = baseArmor + itemArmor + swordBonus - swordShred + h.cowardShieldBonus;
-            h.magicResist = baseMr + itemMr + swordBonus - swordShred + h.cowardShieldBonus;
+            h.armor = baseArmor + itemArmor + swordBonus - swordShred - moltenShred + h.cowardShieldBonus;
+            h.magicResist = baseMr + itemMr + swordBonus - swordShred - moltenShred + h.cowardShieldBonus;
             h.regenRate = baseRegen + itemRegen;
             h.healPower = Mathf.Max(0.1f, 1f + itemHeal + ovHeal + h.takedownHealBonus);
             h.itemAlliedAuraRegen = itemAuraRegen;
-            h.moveSpeed = baseSpeed + itemSpeed + h.momentumBonus;
+            h.moveSpeed = baseSpeed + itemSpeed + h.momentumBonus + h.slipperyBonus;
             h.turnRate = turnRate;
 
             h.resourceKind = GetHeroResourceKind(h.heroId);
@@ -288,6 +278,7 @@ namespace Moba.LaneSlice
                     h.laserSlowElapsed = 0f;
                     h.laserEStepPending = false;
                     h.swordsmanLastStrikeHeavy = false;
+                    h.firstStrikeIdleTimer = tuning.firstStrikeInactivitySeconds;
                 }
                 return;
             }
@@ -296,7 +287,7 @@ namespace Moba.LaneSlice
             h.healReceivedMult = 1f;
             ReapplyActiveZonesOnHero(h);
 
-            // Timers: damage age, Momentum Greaves, Shield, Spellweaver, and Grievous Wounds
+            // Timers: damage age, Momentum Greaves, Shield, Grievous, Slippery Trickster, First Strike
             h.lastHeroDamageAge += dt;
             if (h.colossusCd > 0f) h.colossusCd = Mathf.Max(0f, h.colossusCd - dt);
             if (h.shieldTimer > 0f)
@@ -304,12 +295,15 @@ namespace Moba.LaneSlice
                 h.shieldTimer = Mathf.Max(0f, h.shieldTimer - dt);
                 if (h.shieldTimer <= 0f) h.shieldHp = 0f;
             }
-            if (h.spellweaverCd > 0f) h.spellweaverCd = Mathf.Max(0f, h.spellweaverCd - dt);
-            if (h.spellweaverReadyTimer > 0f) h.spellweaverReadyTimer = Mathf.Max(0f, h.spellweaverReadyTimer - dt);
             if (h.grievousTimer > 0f) h.grievousTimer = Mathf.Max(0f, h.grievousTimer - dt);
+            if (h.slipperyCd > 0f) h.slipperyCd = Mathf.Max(0f, h.slipperyCd - dt);
+            if (h.phase != LanePhase.Windup && !h.twinSecondPending)
+            {
+                h.firstStrikeIdleTimer = Mathf.Min(tuning.firstStrikeInactivitySeconds, h.firstStrikeIdleTimer + dt);
+            }
 
             bool momentumChanged = false;
-            if (h.hasMomentumGreaves)
+            if (h.HasPassive(ItemPassiveFlags.Windstrider))
             {
                 float targetM = (h.motor.IsMoving && h.lastHeroDamageAge > 2.0f)
                     ? Mathf.Min(1f, h.momentumFactor + dt / 3.0f)
@@ -321,6 +315,16 @@ namespace Moba.LaneSlice
                     if (Mathf.Abs(nextBonus - h.momentumBonus) > 0.02f) momentumChanged = true;
                     h.momentumBonus = nextBonus;
                 }
+            }
+
+            if (h.slipperyTimer > 0f)
+            {
+                h.slipperyTimer = Mathf.Max(0f, h.slipperyTimer - dt);
+                float nextSlip = h.slipperyTimer > 0f
+                    ? h.slipperyInitialBonus * (h.slipperyTimer / Mathf.Max(0.1f, tuning.slipperyTricksterDuration))
+                    : 0f;
+                if (Mathf.Abs(nextSlip - h.slipperyBonus) > 0.01f || nextSlip == 0f) momentumChanged = true;
+                h.slipperyBonus = nextSlip;
             }
 
             if (h.invisTimer > 0f)
@@ -379,6 +383,103 @@ namespace Moba.LaneSlice
                     recalcNeeded = true;
                 }
             }
+
+            // Adaptive Scales one-by-one decay after hold period
+            for (int sc = h.adaptiveScales.Count - 1; sc >= 0; sc--)
+            {
+                AdaptiveScalesEntry e = h.adaptiveScales[sc];
+                if (e.stacks <= 0)
+                {
+                    h.adaptiveScales.RemoveAt(sc);
+                    continue;
+                }
+                if (e.holdTimer > 0f)
+                {
+                    e.holdTimer -= dt;
+                }
+                else
+                {
+                    e.decayAccum += dt;
+                    if (e.decayAccum >= tuning.adaptiveScalesDecayStep)
+                    {
+                        e.decayAccum -= tuning.adaptiveScalesDecayStep;
+                        e.stacks--;
+                        if (e.stacks <= 0) h.adaptiveScales.RemoveAt(sc);
+                    }
+                }
+            }
+
+            // Shared Heat (Dragonfire DoT + Molten Edge shred decay)
+            if (h.heatEntries.Count > 0)
+            {
+                float heatHalf = Mathf.Max(0.1f, tuning.draconicHeatHalfPoint);
+                for (int hi = h.heatEntries.Count - 1; hi >= 0; hi--)
+                {
+                    HeatEntry he = h.heatEntries[hi];
+                    if (he.stacks <= 0)
+                    {
+                        h.heatEntries.RemoveAt(hi);
+                        recalcNeeded = true;
+                        continue;
+                    }
+                    he.dotAccum += dt;
+                    while (he.dotAccum >= 0.5f && h.phase != LanePhase.Dead)
+                    {
+                        he.dotAccum -= 0.5f;
+                        HeroState owner = FindHeroById(he.ownerHeroId);
+                        float intel = owner != null ? owner.intelligence : 0f;
+                        float dps = tuning.dragonfireDpsFormula.Evaluate(1, intel);
+                        float stackFactor = he.stacks / (he.stacks + heatHalf);
+                        DealDamageToHero(h, dps * 0.5f * stackFactor, isMagic: true, isTrueDamage: false,
+                            he.ownerHeroId, owner != null ? owner.team : (h.team == LaneTeam.Blue ? LaneTeam.Red : LaneTeam.Blue),
+                            triggerMiravelWard: false, flags: DamageFlags.DamageOverTime);
+                        if (h.phase == LanePhase.Dead) return;
+                    }
+                    if (he.holdTimer > 0f)
+                    {
+                        he.holdTimer -= dt;
+                    }
+                    else
+                    {
+                        he.decayAccum += dt;
+                        if (he.decayAccum >= tuning.draconicHeatDecayStep)
+                        {
+                            he.decayAccum -= tuning.draconicHeatDecayStep;
+                            he.stacks--;
+                            recalcNeeded = true;
+                            if (he.stacks <= 0) h.heatEntries.RemoveAt(hi);
+                        }
+                    }
+                }
+            }
+
+            // Ancient Vitality deferred damage payout (even distribution, no double mitigation/re-deferral, credits original attacker)
+            if (h.deferredDamage.Count > 0)
+            {
+                for (int di = h.deferredDamage.Count - 1; di >= 0; di--)
+                {
+                    DeferredDamageEntry de = h.deferredDamage[di];
+                    de.elapsed += dt;
+                    float frac = de.duration > 0.0001f ? Mathf.Clamp01(de.elapsed / de.duration) : 1f;
+                    float targetPaid = de.totalAmount * frac;
+                    float payNow = Mathf.Max(0f, targetPaid - de.paidSoFar);
+                    de.paidSoFar += payNow;
+                    if (payNow > 0f)
+                    {
+                        h.hp = Mathf.Max(0f, h.hp - payNow);
+                        if (h.hp <= 0f)
+                        {
+                            OnHeroKilled(h, de.attackerHeroId, de.attackerTeam);
+                            return;
+                        }
+                    }
+                    if (de.elapsed >= de.duration - 0.0001f)
+                    {
+                        h.deferredDamage.RemoveAt(di);
+                    }
+                }
+            }
+
             if (recalcNeeded || momentumChanged) RecalcHeroStats(h, preserveHpRatio: true);
 
             // Miravel E Curse tick
@@ -435,12 +536,16 @@ namespace Moba.LaneSlice
             h.miravelLifeAura = allyAura;
             h.miravelDrainAura = enemyPenalty;
 
-            float salveRegen = (h.hasSalve && h.lastHeroDamageAge >= tuning.woodlandSalveOutOfCombat) ? tuning.woodlandSalveRegen : 0f;
+            float salveRegen = (h.HasPassive(ItemPassiveFlags.MossMend) && h.lastHeroDamageAge >= tuning.woodlandSalveOutOfCombat) ? tuning.woodlandSalveRegen : 0f;
+            float primordialRegen = h.HasPassive(ItemPassiveFlags.PrimordialVitality)
+                ? tuning.primordialVitalityMaxRegen * (1f - Mathf.Clamp01(h.hp / Mathf.Max(1f, h.maxHp)))
+                : 0f;
             float grievousMult = h.grievousTimer > 0f ? (1f - tuning.grievousHealReduction) : 1f;
-            float netRegen = h.regenRate + allyAura + salveRegen - enemyPenalty;
+            float netRegen = h.regenRate + allyAura + salveRegen + primordialRegen - enemyPenalty;
             if (netRegen > 0f)
             {
-                float effectivePositive = netRegen * h.healReceivedMult * grievousMult;
+                float fountainMult = ComputeFountainOfLifeMult(h, HealSourceKind.NaturalRegen);
+                float effectivePositive = netRegen * h.healReceivedMult * fountainMult * grievousMult;
                 h.netRegenRate = effectivePositive;
                 h.hp = Mathf.Min(h.maxHp, h.hp + effectivePositive * dt);
             }
@@ -464,7 +569,22 @@ namespace Moba.LaneSlice
             }
             if (map.IsInFountain(h.team, h.motor.Position))
             {
-                HealHero(h, tuning.fountainHealPerSec * dt);
+                HealHero(h, tuning.fountainHealPerSec * dt, HealSourceKind.Fountain);
+            }
+            // Lingering Restoration delayed healing ticks (never recursively stored, never Fountain-of-Life double-amped)
+            if (h.deferredHeals.Count > 0)
+            {
+                for (int hl = h.deferredHeals.Count - 1; hl >= 0; hl--)
+                {
+                    DeferredHealEntry he = h.deferredHeals[hl];
+                    he.elapsed += dt;
+                    float frac = he.duration > 0.0001f ? Mathf.Clamp01(he.elapsed / he.duration) : 1f;
+                    float targetPaid = he.totalAmount * frac;
+                    float payNow = Mathf.Max(0f, targetPaid - he.paidSoFar);
+                    he.paidSoFar += payNow;
+                    if (payNow > 0f) HealHero(h, payNow, HealSourceKind.LingeringRestoration);
+                    if (he.elapsed >= he.duration - 0.0001f) h.deferredHeals.RemoveAt(hl);
+                }
             }
             if (h.lowManaPopupCd > 0f) h.lowManaPopupCd = Mathf.Max(0f, h.lowManaPopupCd - dt);
 
@@ -722,6 +842,11 @@ namespace Moba.LaneSlice
             if (h.heroId == LaneHeroId.Miravel && h.invisible) h.invisible = false;
 
             float asMult = Mathf.Max(0.4f, h.attackSpeed);
+            bool firstStrike = h.HasPassive(ItemPassiveFlags.FirstStrike) &&
+                               h.firstStrikeIdleTimer >= tuning.firstStrikeInactivitySeconds - 0.0001f;
+            // Consume First Strike on wind-up start so cancelling repeatedly cannot exploit shortened wind-up
+            h.firstStrikeIdleTimer = 0f;
+
             h.aimDir = DirectionTo(h.motor.Position, targetPos, h.aimDir);
             h.phase = LanePhase.Windup;
             h.activeSlot = LaneAbilitySlot.None;
@@ -729,7 +854,16 @@ namespace Moba.LaneSlice
             h.swordsmanLastStrikeHeavy = false;
             float rawWindup = h.heroId == LaneHeroId.Miravel ? tuning.luisBasicWindup
                 : (h.heroId == LaneHeroId.LaserShooter ? tuning.laserBasicWindup : tuning.swordsmanHit1Windup);
-            h.phaseDuration = rawWindup / asMult;
+            if (firstStrike)
+            {
+                float red = Mathf.Clamp(tuning.firstStrikeReductionFormula.Evaluate(1, h.agility), 0f, 0.75f);
+                float reducedRaw = Mathf.Max(tuning.firstStrikeMinRawWindup, rawWindup * (1f - red));
+                h.phaseDuration = Mathf.Max(tuning.firstStrikeMinFinalWindup, reducedRaw / asMult);
+            }
+            else
+            {
+                h.phaseDuration = rawWindup / asMult;
+            }
             h.phaseTimer = h.phaseDuration;
         }
 
@@ -925,7 +1059,8 @@ namespace Moba.LaneSlice
                 HeroState enemy = GetEnemyHero(attacker.team);
                 if (enemy.id == targetId)
                 {
-                    DealDamageToHero(enemy, dmg, isMagic, false, attacker.id, attacker.team, isBasicOrMinion: isBasicAttack);
+                    DealDamageToHero(enemy, dmg, isMagic, false, attacker.id, attacker.team,
+                        flags: isBasicAttack ? (DamageFlags.BasicOrMinion | DamageFlags.OnHit) : DamageFlags.None);
                     return;
                 }
                 for (int i = 0; i < illusions.Count; i++)
@@ -943,7 +1078,7 @@ namespace Moba.LaneSlice
                 {
                     if (minions[i].id == targetId)
                     {
-                        DealDamageToMinion(minions[i], dmg, isMagic, attacker.id, attacker.team);
+                        DealDamageToMinion(minions[i], dmg, isMagic, attacker.id, attacker.team, isOnHit: isBasicAttack);
                         return;
                     }
                 }
@@ -1103,10 +1238,6 @@ namespace Moba.LaneSlice
 
         private void OnHeroCastAbilityForCurse(HeroState caster, bool isFollowupStrike)
         {
-            if (!isFollowupStrike && caster.hasSpellweaverHourglass && caster.spellweaverCd <= 0f)
-            {
-                caster.spellweaverReadyTimer = 5.0f;
-            }
             if (caster.curseTimer <= 0f) return;
             if (isFollowupStrike && !tuning.ogreRStacksCursePerStrike) return;
 
@@ -1712,7 +1843,7 @@ namespace Moba.LaneSlice
                     }
                     else if (enemy.hp / enemy.maxHp <= execThresh)
                     {
-                        DealDamageToHero(enemy, enemy.hp + 999f, false, true, h.id, h.team);
+                        DealDamageToHero(enemy, enemy.maxHp * 4f + 999f, false, true, h.id, h.team);
                         resetCooldown = enemy.phase == LanePhase.Dead;
                     }
                 }

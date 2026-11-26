@@ -97,8 +97,11 @@ namespace Moba.LaneSlice
                     unitIds = new[] { 105 },
                 });
 
-                // Synthesize heavy multi-wave snapshot (~22+ KB JSON) to verify large frame delivery
-                var heavyMatch = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Swordsman, new LaneTuning { waveFirstSpawnDelay = 0.01f });
+                // Synthesize heavy multi-wave snapshot (~22+ KB JSON) including Mana resource telemetry to verify large frame delivery
+                var heavyMatch = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Miravel, new LaneTuning { waveFirstSpawnDelay = 0.01f });
+                heavyMatch.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q);
+                heavyMatch.TryLevelAbility(LaneTeam.Red, LaneAbilitySlot.W);
+                heavyMatch.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(5f, 0f) });
                 for (int i = 0; i < 40; i++) heavyMatch.Tick(0.05f);
                 LaneSnapshot big = heavyMatch.Snapshot();
                 for (int extra = 0; extra < 120; extra++)
@@ -106,7 +109,10 @@ namespace Moba.LaneSlice
                     big.minions.Add(new MinionSnap { id = 5000 + extra, team = LaneTeam.Blue, x = extra * 0.1f, y = 0.5f, hp = 200f, maxHp = 240f });
                 }
                 int jsonBytes = System.Text.Encoding.UTF8.GetByteCount(JsonUtility.ToJson(big));
-                if (jsonBytes < 18000) throw new InvalidOperationException($"Test heavy frame unexpectedly small ({jsonBytes} bytes).");
+                if (jsonBytes < 18000 || jsonBytes >= LaneWireCodec.MaxFrameBytes)
+                {
+                    throw new InvalidOperationException($"Test heavy frame size out of bounds ({jsonBytes} vs max {LaneWireCodec.MaxFrameBytes}).");
+                }
 
                 host.SendSnapshot(big);
                 PumpBoth(host, guest, 400);
@@ -120,9 +126,16 @@ namespace Moba.LaneSlice
                 {
                     throw new InvalidOperationException($"Expected 4 remote orders including RTS unitIds & Stop on host, got {hostOrders.Count}");
                 }
-                if (guestSnap == null || guestSnap.minions.Count != big.minions.Count)
+                if (guestSnap == null || guestSnap.minions.Count != big.minions.Count ||
+                    guestSnap.heroes.Count != 2 ||
+                    guestSnap.heroes[0].resourceKind != HeroResourceKind.Mana ||
+                    guestSnap.heroes[1].resourceKind != HeroResourceKind.Mana ||
+                    Mathf.Abs(guestSnap.heroes[0].mana - big.heroes[0].mana) > 0.01f ||
+                    Mathf.Abs(guestSnap.heroes[0].maxMana - big.heroes[0].maxMana) > 0.01f ||
+                    Mathf.Abs(guestSnap.heroes[0].costQ - big.heroes[0].costQ) > 0.01f ||
+                    guestSnap.heroes[1].costModeR != ResourceCostMode.ContinuousPerSecond)
                 {
-                    throw new InvalidOperationException($"Heavy snapshot roundtrip failed ({guestSnap?.minions.Count ?? -1} vs {big.minions.Count}).");
+                    throw new InvalidOperationException($"Heavy snapshot / Mana resource sync roundtrip failed ({guestSnap?.minions.Count ?? -1} vs {big.minions.Count}).");
                 }
 
                 // Force disconnect check
@@ -234,10 +247,14 @@ namespace Moba.LaneSlice
                     Thread.Sleep(10);
                 }
 
-                if (!sent || receivedSnap == null || receivedSnap.minions.Count != big.minions.Count)
+                if (!sent || receivedSnap == null || receivedSnap.minions.Count != big.minions.Count ||
+                    receivedSnap.heroes.Count != 2 ||
+                    receivedSnap.heroes[0].resourceKind != HeroResourceKind.None ||
+                    receivedSnap.heroes[1].resourceKind != HeroResourceKind.Mana ||
+                    Mathf.Abs(receivedSnap.heroes[1].maxMana - big.heroes[1].maxMana) > 0.01f)
                 {
                     throw new InvalidOperationException(
-                        $"UTP Fragmented+Reliable loopback failed (sent={sent}, minions={receivedSnap?.minions.Count ?? -1}/{big.minions.Count}).");
+                        $"UTP Fragmented+Reliable loopback or resource sync failed (sent={sent}, minions={receivedSnap?.minions.Count ?? -1}/{big.minions.Count}).");
                 }
             }
             finally
@@ -904,9 +921,9 @@ namespace Moba.LaneSlice
 
         private static void CheckSettingsSurviveSimulatedUpdate()
         {
-            if (LaneUpdater.BuildVersion != "v0.2.11")
+            if (LaneUpdater.BuildVersion != "v0.2.12")
             {
-                throw new InvalidOperationException($"Expected BuildVersion v0.2.11, got {LaneUpdater.BuildVersion}");
+                throw new InvalidOperationException($"Expected BuildVersion v0.2.12, got {LaneUpdater.BuildVersion}");
             }
             var updaterCfg = new LaneUpdater.UpdaterConfig();
             if (updaterCfg.assetName != "WoodlandLane-Windows.zip")

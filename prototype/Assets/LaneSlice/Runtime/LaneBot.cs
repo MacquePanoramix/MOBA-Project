@@ -85,7 +85,8 @@ namespace Moba.LaneSlice
 
             if (retreatingToFountain)
             {
-                if (inFountain && hpPct >= 0.82f)
+                bool manaSafe = self.resourceKind != HeroResourceKind.Mana || self.maxMana <= 0f || (self.mana / self.maxMana) >= 0.45f;
+                if (inFountain && hpPct >= 0.82f && manaSafe)
                 {
                     retreatingToFountain = false;
                 }
@@ -95,7 +96,7 @@ namespace Moba.LaneSlice
                     return;
                 }
             }
-            else if (hpPct < 0.24f)
+            else if (hpPct < 0.24f || (self.resourceKind == HeroResourceKind.Mana && self.maxMana > 0f && self.mana < 28f && hpPct < 0.70f))
             {
                 retreatingToFountain = true;
                 SendMoveIfNeeded(match, self, ownFountain);
@@ -270,18 +271,19 @@ namespace Moba.LaneSlice
         private void TickMiravel(LaneMatch match, LaneSnapshot snap, HeroSnap self, HeroSnap enemy, TowerSnap enemyTower, Vector2 ownFountain,
             Vector2 selfPos, Vector2 enemyPos, bool enemyVisible, float enemyDist, bool allowTowerDive)
         {
-            if (enemyVisible && enemyDist <= 5.2f && self.rankE >= 1 && self.cdE <= 0f)
+            if (enemyVisible && enemyDist <= 5.2f && self.rankE >= 1 && self.cdE <= 0f && self.mana >= self.costE)
             {
                 SendNonMoveOrder(match, new LaneOrder { team = team, kind = LaneOrderKind.CastE, point = selfPos });
             }
 
-            if (enemyVisible && enemyDist <= 3.1f && self.hp / self.maxHp < 0.65f && self.rankW >= 1 && self.cdW <= 0f)
+            if (enemyVisible && enemyDist <= 3.1f && self.hp / self.maxHp < 0.65f && self.rankW >= 1 && self.cdW <= 0f && self.mana >= self.costW)
             {
                 SendNonMoveOrder(match, new LaneOrder { team = team, kind = LaneOrderKind.CastW, point = enemyPos });
                 return;
             }
 
             if (enemyVisible && enemyDist <= 4.6f && self.rankR >= 1 && self.cdR <= 0f && enemy.hp / enemy.maxHp < 0.80f &&
+                self.mana >= Mathf.Max(30f, self.costR * 1.1f) &&
                 !IsUnsafeTowerZone(snap, self, enemyTower, selfPos))
             {
                 SendNonMoveOrder(match, new LaneOrder { team = team, kind = LaneOrderKind.CastR, point = enemyPos });
@@ -434,19 +436,19 @@ namespace Moba.LaneSlice
                 return;
             }
 
-            if (enemyVisible && !enemyUnderUnsafeTower && enemyDist <= 3.6f && self.rankE >= 1 && self.cdE <= 0f)
+            if (enemyVisible && !enemyUnderUnsafeTower && enemyDist <= 3.6f && self.rankE >= 1 && self.cdE <= 0f && self.mana >= self.costE)
             {
                 SendNonMoveOrder(match, new LaneOrder { team = team, kind = LaneOrderKind.CastE, point = enemyPos });
                 return;
             }
 
-            if (enemyVisible && !enemyUnderUnsafeTower && enemyDist <= 6.8f && self.rankR >= 1 && self.cdR <= 0f)
+            if (enemyVisible && !enemyUnderUnsafeTower && enemyDist <= 6.8f && self.rankR >= 1 && self.cdR <= 0f && self.mana >= self.costR)
             {
                 SendNonMoveOrder(match, new LaneOrder { team = team, kind = LaneOrderKind.CastR, point = enemyPos });
                 return;
             }
 
-            if (self.rankW >= 1 && self.cdW <= 0f)
+            if (self.rankW >= 1 && self.cdW <= 0f && self.mana >= self.costW)
             {
                 float shockRange = match.Tuning.laserWCastRange - 0.3f;
                 bool heroStacked = enemyVisible && enemy.laserStacks >= 1 && enemyDist <= shockRange;
@@ -457,7 +459,8 @@ namespace Moba.LaneSlice
                 }
             }
 
-            if (self.rankQ >= 1 && self.cdQ <= 0f)
+            float eReserve = (self.rankE >= 1 && self.cdE <= 0f) ? self.costE : 0f;
+            if (self.rankQ >= 1 && self.cdQ <= 0f && self.mana >= self.costQ + eReserve)
             {
                 if (enemyVisible && !enemyUnderUnsafeTower && enemyDist <= match.Tuning.laserQMaxRange - 0.4f)
                 {

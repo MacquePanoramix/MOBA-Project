@@ -156,6 +156,17 @@ namespace Moba.LaneSlice
             public bool hasExecutionerGrudge;
             public float grievousTimer;
 
+            // Stage C Shared Hero Resource state
+            public HeroResourceKind resourceKind;
+            public float mana;
+            public float maxMana;
+            public float manaRegen;
+            public float percentManaRegenPerSec;
+            public float netManaRegen;
+            public float rcrStat;
+            public float rcrPct;
+            public float lowManaPopupCd;
+
             // Targeting / Attack-Move / Input buffering
             public LaneTargetKind attackTargetKind = LaneTargetKind.None;
             public int attackTargetId;
@@ -276,6 +287,7 @@ namespace Moba.LaneSlice
         private readonly List<OrbState> orbs = new List<OrbState>();
         private readonly List<ZoneState> zones = new List<ZoneState>();
         private readonly List<VisualEventSnap> events = new List<VisualEventSnap>();
+        private readonly List<VisualEventSnap> pendingOrderEvents = new List<VisualEventSnap>();
         private readonly List<LaserBeamSnap> laserBeams = new List<LaserBeamSnap>();
         private readonly List<Vector2> scratchRoute = new List<Vector2>();
         private readonly Dictionary<LaneTeam, PreviewStatOverrides> previewOverrides = new Dictionary<LaneTeam, PreviewStatOverrides>();
@@ -283,6 +295,7 @@ namespace Moba.LaneSlice
         private int nextEntityId = 100;
         private int tickCount;
         private float matchTime;
+        private bool inTick;
         private float nextWaveTimer;
         private int waveNumber;
         private bool gameOver;
@@ -385,6 +398,7 @@ namespace Moba.LaneSlice
             h.rQueue.Clear();
             h.rStrikeIndex = 0;
             h.twinSecondPending = false;
+            h.lowManaPopupCd = 0f;
             ClearAttackAndRoute(h);
             RecalcHeroStats(h, preserveHpRatio: false);
             h.hp = Mathf.Clamp(h.maxHp * Mathf.Clamp01(hpFraction), 1f, h.maxHp);
@@ -889,22 +903,35 @@ namespace Moba.LaneSlice
             tickCount++;
             matchTime += dt;
             events.Clear();
+            if (pendingOrderEvents.Count > 0)
+            {
+                events.AddRange(pendingOrderEvents);
+                pendingOrderEvents.Clear();
+            }
             laserBeams.Clear();
 
-            if (bannerTimer > 0f)
+            inTick = true;
+            try
             {
-                bannerTimer = Mathf.Max(0f, bannerTimer - dt);
-                if (bannerTimer <= 0f) bannerText = string.Empty;
-            }
+                if (bannerTimer > 0f)
+                {
+                    bannerTimer = Mathf.Max(0f, bannerTimer - dt);
+                    if (bannerTimer <= 0f) bannerText = string.Empty;
+                }
 
-            TickWaveSpawns(dt);
-            TickOrbs(dt);
-            TickZones(dt);
-            TickHeroes(dt);
-            TickIllusions(dt);
-            TickMinions(dt);
-            TickTowers(dt);
-            TickProjectiles(dt);
+                TickWaveSpawns(dt);
+                TickOrbs(dt);
+                TickZones(dt);
+                TickHeroes(dt);
+                TickIllusions(dt);
+                TickMinions(dt);
+                TickTowers(dt);
+                TickProjectiles(dt);
+            }
+            finally
+            {
+                inTick = false;
+            }
         }
 
         private void ClearAttackIntent(HeroState h)
@@ -1474,14 +1501,22 @@ namespace Moba.LaneSlice
 
         private void OnHeroKilled(HeroState victim, int attackerHeroId, LaneTeam attackerTeam)
         {
+            if (victim.phase == LanePhase.Channeling)
+            {
+                InterruptChannel(victim);
+            }
             victim.phase = LanePhase.Dead;
             victim.hp = 0f;
+            victim.mana = 0f;
+            victim.netManaRegen = 0f;
+            victim.lowManaPopupCd = 0f;
             victim.deaths++;
             victim.respawnTimer = tuning.baseRespawnSeconds + (victim.level - 1) * tuning.respawnPerLevelSeconds;
             victim.invisible = false;
             victim.wardTimer = 0f;
             victim.stunTimer = 0f;
             victim.slowTimer = 0f;
+            victim.slowAmount = 0f;
             victim.curseTimer = 0f;
             victim.curseStacks = 0;
             victim.twinSecondPending = false;
@@ -1557,7 +1592,7 @@ namespace Moba.LaneSlice
 
         private void PushEvent(LaneEventKind kind, LaneTeam team, Vector2 pos, Vector2 dir, float radius, float value, string label)
         {
-            events.Add(new VisualEventSnap
+            var ev = new VisualEventSnap
             {
                 id = AllocId(),
                 kind = kind,
@@ -1569,7 +1604,12 @@ namespace Moba.LaneSlice
                 radius = radius,
                 value = value,
                 label = label ?? string.Empty,
-            });
+            };
+            events.Add(ev);
+            if (!inTick)
+            {
+                pendingOrderEvents.Add(ev);
+            }
         }
 
         private void PushLaserBeam(LaneTeam team, Vector2 from, Vector2 to, float width, bool isUlt)
@@ -1713,6 +1753,18 @@ namespace Moba.LaneSlice
                     laserStepProgress = (h.heroId == LaneHeroId.LaserShooter && h.phase == LanePhase.Casting && h.activeSlot == LaneAbilitySlot.E && h.phaseDuration > 0.01f)
                         ? 1f - Mathf.Clamp01(h.phaseTimer / h.phaseDuration)
                         : 0f,
+                    resourceKind = h.resourceKind,
+                    mana = h.mana,
+                    maxMana = h.maxMana,
+                    manaRegen = h.manaRegen,
+                    netManaRegen = h.netManaRegen,
+                    rcrStat = h.rcrStat,
+                    rcrPct = h.rcrPct,
+                    costQ = EvaluateAbilityResourceCost(h, LaneAbilitySlot.Q),
+                    costW = EvaluateAbilityResourceCost(h, LaneAbilitySlot.W),
+                    costE = EvaluateAbilityResourceCost(h, LaneAbilitySlot.E),
+                    costR = EvaluateAbilityResourceCost(h, LaneAbilitySlot.R),
+                    costModeR = GetAbilityResourceSpec(h.heroId, LaneAbilitySlot.R, tuning).Mode,
                 };
                 for (int r = 0; r < h.rQueue.Count; r++)
                 {
@@ -1841,6 +1893,118 @@ namespace Moba.LaneSlice
             }
 
             return snap;
+        }
+
+        public static HeroResourceKind GetHeroResourceKind(LaneHeroId heroId)
+        {
+            return (heroId == LaneHeroId.Miravel || heroId == LaneHeroId.LaserShooter)
+                ? HeroResourceKind.Mana
+                : HeroResourceKind.None;
+        }
+
+        public static AbilityResourceSpec GetAbilityResourceSpec(LaneHeroId heroId, LaneAbilitySlot slot, LaneTuning t)
+        {
+            if (t == null) t = new LaneTuning();
+            if (heroId == LaneHeroId.Miravel)
+            {
+                switch (slot)
+                {
+                    case LaneAbilitySlot.W:
+                        return new AbilityResourceSpec(HeroResourceKind.Mana, ResourceCostMode.Flat, t.miravelWManaBase, t.miravelWManaPerRank, usesCostReduction: true);
+                    case LaneAbilitySlot.E:
+                        return new AbilityResourceSpec(HeroResourceKind.Mana, ResourceCostMode.Flat, t.miravelEManaBase, t.miravelEManaPerRank, usesCostReduction: true);
+                    case LaneAbilitySlot.R:
+                        return new AbilityResourceSpec(HeroResourceKind.Mana, ResourceCostMode.ContinuousPerSecond, t.miravelRManaPerSecBase, t.miravelRManaPerSecPerRank, usesCostReduction: true);
+                    default:
+                        return new AbilityResourceSpec(HeroResourceKind.Mana, ResourceCostMode.None, 0f, 0f, usesCostReduction: false);
+                }
+            }
+            if (heroId == LaneHeroId.LaserShooter)
+            {
+                switch (slot)
+                {
+                    case LaneAbilitySlot.Q:
+                        return new AbilityResourceSpec(HeroResourceKind.Mana, ResourceCostMode.Flat, t.laserQManaBase, t.laserQManaPerRank, usesCostReduction: true);
+                    case LaneAbilitySlot.W:
+                        return new AbilityResourceSpec(HeroResourceKind.Mana, ResourceCostMode.Flat, t.laserWManaBase, t.laserWManaPerRank, usesCostReduction: true);
+                    case LaneAbilitySlot.E:
+                        return new AbilityResourceSpec(HeroResourceKind.Mana, ResourceCostMode.Flat, t.laserEManaFlat, 0f, usesCostReduction: true);
+                    case LaneAbilitySlot.R:
+                        return new AbilityResourceSpec(HeroResourceKind.Mana, ResourceCostMode.Flat, t.laserRManaUpfront, 0f, usesCostReduction: true);
+                    default:
+                        return new AbilityResourceSpec(HeroResourceKind.Mana, ResourceCostMode.None, 0f, 0f, usesCostReduction: false);
+                }
+            }
+            return default;
+        }
+
+        private float EvaluateAbilityResourceCost(HeroState h, LaneAbilitySlot slot)
+        {
+            if (h == null || h.resourceKind == HeroResourceKind.None) return 0f;
+            AbilityResourceSpec spec = GetAbilityResourceSpec(h.heroId, slot, tuning);
+            if (spec.Mode == ResourceCostMode.None) return 0f;
+            int rank = slot == LaneAbilitySlot.Q ? h.rankQ
+                : (slot == LaneAbilitySlot.W ? h.rankW
+                : (slot == LaneAbilitySlot.E ? h.rankE : h.rankR));
+            if (rank <= 0) rank = 1;
+            return spec.EvaluateEffectiveCost(rank, h.maxMana, h.mana, h.rcrPct);
+        }
+
+        public float ComputeEffectiveAbilityCost(LaneTeam team, LaneAbilitySlot slot)
+        {
+            return EvaluateAbilityResourceCost(GetHero(team), slot);
+        }
+
+        public void SetHeroManaForTest(LaneTeam team, float manaAmount)
+        {
+            HeroState h = GetHero(team);
+            h.mana = h.resourceKind == HeroResourceKind.Mana ? Mathf.Clamp(manaAmount, 0f, h.maxMana) : 0f;
+        }
+
+        public bool TryConsumeResourceSpec(LaneTeam team, AbilityResourceSpec spec, int rank, out float spent)
+        {
+            HeroState h = GetHero(team);
+            spent = 0f;
+            if (h.resourceKind != spec.ResourceKind || spec.ResourceKind == HeroResourceKind.None || spec.Mode == ResourceCostMode.None)
+            {
+                return true;
+            }
+            float cost = spec.EvaluateEffectiveCost(Mathf.Max(1, rank), h.maxMana, h.mana, h.rcrPct);
+            if (spec.Mode == ResourceCostMode.ContinuousPerSecond)
+            {
+                float minRequired = Mathf.Max(1f, cost * tuning.miravelRMinStartFraction);
+                if (h.mana + 0.0001f < minRequired)
+                {
+                    EmitInsufficientManaFeedback(h);
+                    return false;
+                }
+                return true;
+            }
+            if (h.mana + 0.0001f < cost)
+            {
+                EmitInsufficientManaFeedback(h);
+                return false;
+            }
+            spent = Mathf.Min(h.mana, cost);
+            h.mana = Mathf.Max(0f, h.mana - spent);
+            return true;
+        }
+
+        private bool TryConsumeHeroAbilityResource(HeroState h, LaneAbilitySlot slot)
+        {
+            if (h.resourceKind == HeroResourceKind.None) return true;
+            AbilityResourceSpec spec = GetAbilityResourceSpec(h.heroId, slot, tuning);
+            int rank = slot == LaneAbilitySlot.Q ? h.rankQ
+                : (slot == LaneAbilitySlot.W ? h.rankW
+                : (slot == LaneAbilitySlot.E ? h.rankE : h.rankR));
+            return TryConsumeResourceSpec(h.team, spec, Mathf.Max(1, rank), out _);
+        }
+
+        private void EmitInsufficientManaFeedback(HeroState h)
+        {
+            if (h.lowManaPopupCd > 0f) return;
+            h.lowManaPopupCd = 0.85f;
+            PushEvent(LaneEventKind.InsufficientMana, h.team, h.motor.Position, Vector2.up, 0.9f, h.mana, "Not enough Mana");
         }
     }
 }

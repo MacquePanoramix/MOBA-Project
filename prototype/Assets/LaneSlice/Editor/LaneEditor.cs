@@ -60,6 +60,7 @@ namespace Moba.LaneSlice
         public static void RunAllChecks()
         {
             LaneMatchChecks.Run();
+            LaneResourceAndItemChecks.Run();
             LaneNetChecks.Run();
             Debug.Log("[LaneEditor] All WoodlandLane automated checks PASSED.");
         }

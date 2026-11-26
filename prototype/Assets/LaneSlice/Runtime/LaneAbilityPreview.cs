@@ -145,6 +145,15 @@ namespace Moba.LaneSlice
                     case PreviewStatField.MaxHp:
                         list.Add(new PreviewSliderSpec(f, "+Max HP", LaneHeroSheet.ColHp, 0f, 1500f, 50f));
                         break;
+                    case PreviewStatField.MaxMana:
+                        list.Add(new PreviewSliderSpec(f, "+Max Mana", LaneHeroSheet.ColMana, 0f, 800f, 25f));
+                        break;
+                    case PreviewStatField.ManaRegen:
+                        list.Add(new PreviewSliderSpec(f, "+Mana Regen", LaneHeroSheet.ColMana, 0f, 20f, 0.5f));
+                        break;
+                    case PreviewStatField.ResourceCostReduction:
+                        list.Add(new PreviewSliderSpec(f, "+Cost Reduc.", LaneHeroSheet.ColMana, 0f, 120f, 5f));
+                        break;
                 }
             }
 
@@ -182,17 +191,26 @@ namespace Moba.LaneSlice
                     else if (slot == LaneAbilitySlot.W)
                     {
                         Add(PreviewStatField.AbilityHaste);
+                        Add(PreviewStatField.MaxMana);
+                        Add(PreviewStatField.ManaRegen);
+                        Add(PreviewStatField.ResourceCostReduction);
                     }
                     else if (slot == LaneAbilitySlot.E)
                     {
                         Add(PreviewStatField.Intelligence);
                         Add(PreviewStatField.AbilityHaste);
+                        Add(PreviewStatField.MaxMana);
+                        Add(PreviewStatField.ManaRegen);
+                        Add(PreviewStatField.ResourceCostReduction);
                     }
                     else if (slot == LaneAbilitySlot.R)
                     {
                         Add(PreviewStatField.HealPower);
                         Add(PreviewStatField.Intelligence);
                         Add(PreviewStatField.AbilityHaste);
+                        Add(PreviewStatField.MaxMana);
+                        Add(PreviewStatField.ManaRegen);
+                        Add(PreviewStatField.ResourceCostReduction);
                     }
                     break;
                 case LaneHeroId.Swordsman:
@@ -238,17 +256,26 @@ namespace Moba.LaneSlice
                         Add(PreviewStatField.AttackDamage);
                         Add(PreviewStatField.Intelligence);
                         Add(PreviewStatField.AbilityHaste);
+                        Add(PreviewStatField.MaxMana);
+                        Add(PreviewStatField.ManaRegen);
+                        Add(PreviewStatField.ResourceCostReduction);
                     }
                     else if (slot == LaneAbilitySlot.W)
                     {
                         Add(PreviewStatField.Intelligence);
                         Add(PreviewStatField.AbilityHaste);
+                        Add(PreviewStatField.MaxMana);
+                        Add(PreviewStatField.ManaRegen);
+                        Add(PreviewStatField.ResourceCostReduction);
                     }
                     else if (slot == LaneAbilitySlot.E)
                     {
                         Add(PreviewStatField.Agility);
                         Add(PreviewStatField.Intelligence);
                         Add(PreviewStatField.AbilityHaste);
+                        Add(PreviewStatField.MaxMana);
+                        Add(PreviewStatField.ManaRegen);
+                        Add(PreviewStatField.ResourceCostReduction);
                     }
                     else if (slot == LaneAbilitySlot.R)
                     {
@@ -257,6 +284,9 @@ namespace Moba.LaneSlice
                         Add(PreviewStatField.Intelligence);
                         Add(PreviewStatField.Agility);
                         Add(PreviewStatField.AbilityHaste);
+                        Add(PreviewStatField.MaxMana);
+                        Add(PreviewStatField.ManaRegen);
+                        Add(PreviewStatField.ResourceCostReduction);
                     }
                     break;
             }
@@ -487,6 +517,15 @@ namespace Moba.LaneSlice
                 float fill = h.maxHp > 0f ? Mathf.Clamp01(h.hp / h.maxHp) : 0f;
                 GUI.color = h.team == LaneTeam.Blue ? new Color(0.28f, 0.88f, 0.42f) : new Color(0.92f, 0.30f, 0.28f);
                 GUI.DrawTexture(new Rect(bg.x + 1f, bg.y + 1f, (bw - 2f) * fill, 3f), Texture2D.whiteTexture);
+                if (h.resourceKind == HeroResourceKind.Mana && h.maxMana > 0f)
+                {
+                    var mbg = new Rect(sx - bw * 0.5f, sy + 6f, bw, 4f);
+                    GUI.color = new Color(0.08f, 0.10f, 0.14f, 0.9f);
+                    GUI.DrawTexture(mbg, Texture2D.whiteTexture);
+                    float mfill = Mathf.Clamp01(h.mana / h.maxMana);
+                    GUI.color = new Color(0.26f, 0.64f, 0.98f);
+                    GUI.DrawTexture(new Rect(mbg.x + 1f, mbg.y + 1f, (bw - 2f) * mfill, 2f), Texture2D.whiteTexture);
+                }
                 GUI.color = prev;
 
                 string tag = h.team == LaneTeam.Blue ? "You" : "Target";

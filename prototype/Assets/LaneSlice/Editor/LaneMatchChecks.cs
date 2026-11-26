@@ -1045,8 +1045,15 @@ namespace Moba.LaneSlice
 
                 // Only relevant sliders should be shown per ability
                 List<PreviewSliderSpec> mirWSliders = LaneAbilityPreview.GetRelevantSliders(LaneHeroId.Miravel, LaneAbilitySlot.W);
-                Assert(mirWSliders.Count == 1 && mirWSliders[0].Field == PreviewStatField.AbilityHaste,
-                    "Miravel W preview sliders must expose only Ability Haste (no irrelevant AD/STR)");
+                bool hasAh = mirWSliders.Exists(s => s.Field == PreviewStatField.AbilityHaste);
+                bool hasRcr = mirWSliders.Exists(s => s.Field == PreviewStatField.ResourceCostReduction);
+                bool hasIrrelevantStat = mirWSliders.Exists(s =>
+                    s.Field == PreviewStatField.AttackDamage ||
+                    s.Field == PreviewStatField.Strength ||
+                    s.Field == PreviewStatField.Agility ||
+                    s.Field == PreviewStatField.Intelligence);
+                Assert(mirWSliders.Count == 4 && hasAh && hasRcr && !hasIrrelevantStat,
+                    "Miravel W preview sliders must expose only Ability Haste & Mana/RCR controls (no irrelevant AD/STR/AGI/INT)");
 
                 // Deactivating halts simulation ticks completely
                 int ticksBeforeOff = preview.SimulationTickCount;

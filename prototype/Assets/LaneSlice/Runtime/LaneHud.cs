@@ -107,6 +107,7 @@ namespace Moba.LaneSlice
                     else if (ev.kind == LaneEventKind.LevelUp) c = new Color(0.50f, 0.88f, 1f);
                     else if (ev.kind == LaneEventKind.LaserGoldBonus) c = new Color(1f, 0.88f, 0.28f);
                     else if (ev.kind == LaneEventKind.LaserShock || ev.kind == LaneEventKind.LaserDecoy) c = new Color(0.32f, 0.94f, 1f);
+                    else if (ev.kind == LaneEventKind.InsufficientMana) c = new Color(0.45f, 0.82f, 1f);
 
                     popups.Add(new FloatingPopup
                     {
@@ -431,6 +432,11 @@ namespace Moba.LaneSlice
                     }
                     DrawBox(new Rect(barX, y, shW, 9f), new Color(0.84f, 0.94f, 1f, 0.95f));
                 }
+                float labelY = y - 18f;
+                if (h.resourceKind == HeroResourceKind.Mana && h.maxMana > 0f)
+                {
+                    DrawBar(new Rect(x, y + 10f, 84f, 4f), h.mana / Mathf.Max(1f, h.maxMana), new Color(0.24f, 0.62f, 0.98f));
+                }
 
                 string tag = $"L{h.level} {LaneNames.ShortName(h.heroId)}";
                 if (h.stunTimer > 0f) tag += " [STUN]";
@@ -442,7 +448,7 @@ namespace Moba.LaneSlice
                 if (h.shieldHp > 1f) tag += $" [SHIELD {Mathf.RoundToInt(h.shieldHp)}]";
                 else if (h.cowardShieldBonus > 1f) tag += $" [COWARD +{Mathf.RoundToInt(h.cowardShieldBonus)}]";
 
-                GUI.Label(new Rect(x - 42f, y - 18f, 184f, 18f), tag);
+                GUI.Label(new Rect(x - 42f, labelY, 184f, 18f), tag);
             }
 
             // Illusions & Laser Decoys
@@ -604,8 +610,8 @@ namespace Moba.LaneSlice
 
         private void DrawBottomDock(HeroSnap h)
         {
-            float dockW = Mathf.Min(880f, Screen.width - 220f);
-            float dockH = 128f;
+            float dockW = Mathf.Min(900f, Screen.width - 220f);
+            float dockH = 142f;
             var dock = new Rect(10f, Screen.height - dockH - 10f, dockW, dockH);
             TrackPointer(dock);
             DrawBox(dock, new Color(0.09f, 0.11f, 0.13f, 0.92f));
@@ -614,11 +620,16 @@ namespace Moba.LaneSlice
             GUILayout.BeginHorizontal();
 
             // Left: Separated Conventional Stats vs Scaling Attributes
-            GUILayout.BeginVertical(GUILayout.Width(240f));
+            GUILayout.BeginVertical(GUILayout.Width(252f));
             GUILayout.Label($"<b>{LaneNames.DisplayName(h.heroId)}</b> Lvl {h.level}  ({Mathf.RoundToInt(h.xp)}/{Mathf.RoundToInt(h.xpToNext)} XP)");
             string regenCol = h.netRegenRate < -0.05f ? "#ff7b7b" : "#9effbe";
             GUILayout.Label($"HP {Mathf.CeilToInt(h.hp)}/{Mathf.RoundToInt(h.maxHp)} <color={regenCol}>({h.netRegenRate:+0.0;-0.0;+0.0}/s)</color>" +
                             (h.phase == LanePhase.Dead ? $" <color=#ff8888>RESPAWN {h.respawnTimer:0.0}s</color>" : ""));
+            if (h.resourceKind == HeroResourceKind.Mana && h.maxMana > 0f)
+            {
+                string rcrTag = h.rcrPct > 0.005f ? $"  <color=#8cd8ff>RCR -{h.rcrPct * 100f:0}%</color>" : "";
+                GUILayout.Label($"<color=#4da6ff>Mana {Mathf.FloorToInt(h.mana)}/{Mathf.RoundToInt(h.maxMana)} ({h.netManaRegen:+0.0;-0.0;+0.0}/s)</color>{rcrTag}");
+            }
             GUILayout.Label($"AD:{h.attackDamage:0}  AS:{h.attackSpeed:0.00}x  AH:{h.abilityHaste:0} (-{h.cooldownReduction * 100f:0}% CD)  MS:{h.moveSpeed:0.00}");
             GUILayout.Label($"Arm:{h.armor:0}  MR:{h.magicResist:0}  HPwr:{h.healPower * 100f:0}%");
             GUILayout.Label($"<color=#9ad8ff>Scalars (0 free): STR {h.strength:0} • AGI {h.agility:0} • INT {h.intelligence:0}</color>");
@@ -694,7 +705,17 @@ namespace Moba.LaneSlice
 
         private void DrawAbilitySlot(HeroSnap h, LaneAbilitySlot slot, string key, int rank, float cd, float maxCd, int maxRank)
         {
-            GUILayout.BeginVertical("box", GUILayout.Width(76f), GUILayout.Height(82f));
+            float manaCost = slot == LaneAbilitySlot.Q ? h.costQ
+                : (slot == LaneAbilitySlot.W ? h.costW
+                : (slot == LaneAbilitySlot.E ? h.costE : h.costR));
+            bool isContinuous = slot == LaneAbilitySlot.R && h.costModeR == ResourceCostMode.ContinuousPerSecond;
+            float requiredMana = isContinuous ? Mathf.Max(1f, manaCost * tuning.miravelRMinStartFraction) : manaCost;
+            bool usesMana = h.resourceKind == HeroResourceKind.Mana && manaCost > 0.01f;
+            bool noMana = usesMana && rank > 0 && (h.mana + 0.0001f < requiredMana);
+
+            GUI.color = noMana ? new Color(0.75f, 0.80f, 0.90f, 0.90f) : Color.white;
+            GUILayout.BeginVertical("box", GUILayout.Width(80f), GUILayout.Height(94f));
+            GUI.color = Color.white;
             GUILayout.Label($"<b>[{key}]</b> {(rank > 0 ? $"R{rank}" : "Lock")}");
             bool isPassiveSlot = (h.heroId == LaneHeroId.Miravel && slot == LaneAbilitySlot.Q) ||
                                  (h.heroId == LaneHeroId.Swordsman && (slot == LaneAbilitySlot.W || slot == LaneAbilitySlot.E));
@@ -710,9 +731,19 @@ namespace Moba.LaneSlice
             {
                 GUILayout.Label($"<color=#ff9070><b>{cd:0.0}s</b></color>");
             }
+            else if (noMana)
+            {
+                GUILayout.Label("<color=#ff7878><b>NO MANA</b></color>");
+            }
             else
             {
                 GUILayout.Label("<color=#80ff9f>READY</color>");
+            }
+            if (usesMana && !isPassiveSlot)
+            {
+                string costCol = noMana ? "#ff8282" : "#62c6ff";
+                string costStr = isContinuous ? $"{manaCost:0}/s" : $"{manaCost:0}M";
+                GUILayout.Label($"<color={costCol}><b>{costStr}</b></color>");
             }
 
             bool canLevel = h.skillPoints > 0 && rank < maxRank && (slot != LaneAbilitySlot.R || h.level >= tuning.ultMinLevel);

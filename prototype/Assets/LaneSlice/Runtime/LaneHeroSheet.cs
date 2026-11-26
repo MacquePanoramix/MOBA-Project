@@ -374,6 +374,7 @@ namespace Moba.LaneSlice
             }
 
             g.RuleLines.Add($"<color={ColInt}><b>Zero Free Attribute Stats:</b></color> <color={ColStr}>STR</color>, <color={ColAgi}>AGI</color>, and <color={ColInt}>INT</color> start at <b>0</b> and only affect abilities or items that explicitly scale with them.");
+            g.RuleLines.Add($"<color={ColMana}><b>Shared Hero Resource System (Mana vs Resourceless):</b></color> Miravel & Chain Laser spend <b>Mana</b> (natural regen stays active inside & outside combat; <b>Resource Cost Reduction</b> uses Bounded diminishing returns strictly below 100%). Ogre & Old Man Swordsman are intentionally <b>Resourceless</b>.");
             g.RuleLines.Add($"<color={ColAgi}><b>Global Attack Speed (Unbounded diminishing → Inverse duration):</b></color> Effective AS = <b>sqrt(1 + {F(t.attackSpeedCurveK, "0.##")} × Bonus AS)</b> (+30% AS → {F(LaneTuning.EffectiveAttackSpeed(0.30f, t.attackSpeedCurveK), "0.00")}x, +120% → {F(LaneTuning.EffectiveAttackSpeed(1.20f, t.attackSpeedCurveK), "0.00")}x, no hard cap). Governs basic attacks, Swordsman strikes, Ogre ability recovery, & Chain Laser [R] procs.");
             g.RuleLines.Add($"<color={ColAgi}><b>The Coward's Shield (450g):</b></color> +15 Arm/MR, +12 AGI • Sustained retreat velocity away from a recent hero attacker ({F(t.cowardShieldMemorySeconds, "0.0")}s) builds {FormatPrettyFormula(t.cowardShieldResistFormula, ColCc, "AGI", ColAgi, " Arm/MR", maxRanks: 1)}; {F(t.cowardShieldGraceSeconds, "0.00")}s grace holds on brief stops/stuns; fades in {F(t.cowardShieldStopDecaySeconds, "0.0")}s stopped or {F(t.cowardShieldPursuitDecaySeconds, "0.00")}s pursuing.");
             g.RuleLines.Add($"<color={ColHeal}><b>Kindred Charm (325g) & Colossus Pauldron (625g):</b></color> Kindred Charm emits +{F(1.6f, "0.0")} × HealPower HP/s within {F(t.kindredAuraRadius, "0.0")}u for allies on <b>any</b> hero; Colossus triggers when its owner inflicts Stun/Knockback or drops <45% HP.");
@@ -608,10 +609,10 @@ namespace Moba.LaneSlice
         private static void BuildMiravelGuide(HeroGuideData g, LaneTuning t, HeroSnap live)
         {
             g.IdentitySummary = "Sustain and denial mage who fights through vitality-draining auras, Sanctuary Orbs, deceptive Shimmer Decoys, and her Ramping Sanctum.";
-            g.BaseStatsLine = $"HP <b>530</b> (+34/lvl)  •  <color={ColAd}>AD <b>48</b> (+3.5/lvl)</color>  •  Arm <b>8</b>  •  MR <b>18</b>  •  Regen <b>1.4/s</b>  •  Move <b>{F(t.luisSpeed, "0.00")}</b>  •  Turn <b>{F(t.luisTurnRate)}°/s</b>";
+            g.BaseStatsLine = $"HP <b>530</b> (+34/lvl)  •  <color={ColMana}>Mana <b>{F(t.miravelBaseMana)}</b> (+{F(t.miravelManaPerLevel)}/lvl, <b>{F(t.miravelBaseManaRegen, "0.0")}/s</b> +{F(t.miravelManaRegenPerLevel, "0.00")}/lvl)</color>  •  <color={ColAd}>AD <b>48</b> (+3.5/lvl)</color>  •  Arm <b>8</b>  •  MR <b>18</b>  •  Regen <b>1.4/s</b>  •  Move <b>{F(t.luisSpeed, "0.00")}</b>";
             if (live != null)
             {
-                g.LiveStatsLine = $"<color={ColLive}>Live (Lvl {live.level}): AD {F(live.attackDamage)} • INT {F(live.intelligence)} • AH {F(live.abilityHaste)} • HealPower {F(live.healPower * 100f)}% (+{F((live.healPower - 1f) * 100f)}% bonus) • Eff AS {F(live.attackSpeed, "0.00")}x</color>";
+                g.LiveStatsLine = $"<color={ColLive}>Live (Lvl {live.level}): AD {F(live.attackDamage)} • <color={ColMana}>Mana {F(live.mana)}/{F(live.maxMana)} ({live.manaRegen:+0.0;-0.0}/s, RCR -{F(live.rcrPct * 100f)}%)</color> • INT {F(live.intelligence)} • AH {F(live.abilityHaste)} • HealPower {F(live.healPower * 100f)}%</color>";
             }
 
             var passive = new AbilityCardData
@@ -624,6 +625,7 @@ namespace Moba.LaneSlice
                 PracticalTip = "Stay within aura range against low-sustain opponents to wear them down through walls and fog — negative regeneration ignores Armor, MR, and shields.",
             };
             AddFact(passive, "Attack Range", $"{F(t.luisBasicRange, "0.0")}u ranged projectile");
+            AddFact(passive, "Resource", "0 Mana (Aura stays active at 0 Mana)", ColMana);
             AddFact(passive, "Allied Regen", $"+{F(t.luisAllyAuraRegenBase, "0.0")} HP/s (+0.35/lvl) × Heal Power", ColHeal);
             AddFact(passive, "Enemy Drain", $"-{F(t.luisEnemyAuraRegenPenaltyBase, "0.0")} HP/s (+0.35/lvl) × Heal Power", ColMagic);
             AddFact(passive, "Aura Radius", $"{F(t.luisAuraRadius, "0.0")}u base (+INT)", ColInt);
@@ -658,6 +660,7 @@ namespace Moba.LaneSlice
             AddFact(q, "Pulse Radius", $"{F(t.luisOrbPulseRadius, "0.0")}u base (+INT)", ColInt);
             AddFact(q, "Duration", $"{F(t.luisOrbDuration)}s ground lifetime (max 2 orbs)");
             AddFact(q, "Cooldown", $"{F(t.luisOrbInterval, "0.0")}/{F(t.luisOrbInterval - 0.6f, "0.0")}/{F(t.luisOrbInterval - 1.2f, "0.0")}s spawn × AH (automatic)");
+            AddFact(q, "Resource", "0 Mana (Automatic passive pulse)", ColMana);
             AddScalingRow(q, "Heal Power", ColHeal, "Orb heal & magic pulse damage", "Linear", "68/88/108 heal & 62/80/98 dmg × Heal Power");
             AddScalingRow(q, "INT", ColInt, "Pulse explosion radius", "Bounded diminishing", FormatFormula(t.luisOrbPulseRadiusFormula, "INT", "u"));
             AddScalingRow(q, "Ability Haste", ColInt, "Orb spawn interval (no 4s artificial floor)", "Inverse", "Interval = Base × 100 / (100 + AH)");
@@ -686,7 +689,11 @@ namespace Moba.LaneSlice
             AddFact(w, "Stealth Duration", $"{F(t.luisWDuration, "0.0")}/{F(t.luisWDuration + 0.4f, "0.0")}/{F(t.luisWDuration + 0.8f, "0.0")}s invisibility", ColInt);
             AddFact(w, "Decoy Lifetime", $"{F(t.luisWIllusionDuration, "0.0")}s illusion");
             AddFact(w, "Cooldown", $"CD {F(t.luisWCooldown, "0.0")}/{F(t.luisWCooldown - 1.1f, "0.0")}/{F(t.luisWCooldown - 2.2f, "0.0")}s");
+            AddFact(w, "Mana Cost", $"{F(t.miravelWManaBase)} / {F(t.miravelWManaBase + t.miravelWManaPerRank)} / {F(t.miravelWManaBase + t.miravelWManaPerRank * 2f)} Mana", ColMana);
             AddScalingRow(w, "Ability Haste", ColInt, "Cooldown reduction only", "Inverse", "Cooldown = Base × 100 / (100 + AH)");
+            AddScalingRow(w, "Resource Cost Reduction", ColMana, "Reduces Mana cost (<100% cap)", "Bounded diminishing",
+                FormatFormula(t.resourceCostReductionFormula, "RCR", "", asPercent: true, maxRanks: 1),
+                live != null && live.costW > 0f ? $"{F(live.costW)} Mana" : "");
             w.MathLines.Add($"Invisibility = {F(t.luisWDuration, "0.0")}/{F(t.luisWDuration + 0.4f, "0.0")}/{F(t.luisWDuration + 0.8f, "0.0")}s (fixed); Decoy = {F(t.luisWIllusionDuration, "0.0")}s (copies MS/Arm/MR)");
             if (live != null)
             {
@@ -708,9 +715,13 @@ namespace Moba.LaneSlice
             AddFact(e, "Ward Duration", $"{F(t.luisEWardDuration, "0.0")}/{F(t.luisEWardDuration + 0.6f, "0.0")}/{F(t.luisEWardDuration + 1.2f, "0.0")}s");
             AddFact(e, "Curse Duration", $"{F(t.luisECurseBaseDuration, "0.0")}/{F(t.luisECurseBaseDuration + 0.4f, "0.0")}/{F(t.luisECurseBaseDuration + 0.8f, "0.0")}s (+{F(t.luisECurseBonusDuration, "0.0")}s/cast)");
             AddFact(e, "Cooldown", $"CD {F(t.luisECooldown, "0.0")}/{F(t.luisECooldown - 0.8f, "0.0")}/{F(t.luisECooldown - 1.6f, "0.0")}s");
+            AddFact(e, "Mana Cost", $"{F(t.miravelEManaBase)} / {F(t.miravelEManaBase + t.miravelEManaPerRank)} / {F(t.miravelEManaBase + t.miravelEManaPerRank * 2f)} Mana (Curse extensions free)", ColMana);
             AddFact(e, "Interaction", "Safe during W stealth • Up to 5 stacks", ColInt);
             AddScalingRow(e, "INT", ColInt, "Curse magic damage per second", "Linear", FormatFormula(t.luisCurseDpsFormula, "INT"));
             AddScalingRow(e, "Ability Haste", ColInt, "Cooldown reduction", "Inverse", "Cooldown = Base × 100 / (100 + AH)");
+            AddScalingRow(e, "Resource Cost Reduction", ColMana, "Reduces initial cast cost (<100% cap)", "Bounded diminishing",
+                FormatFormula(t.resourceCostReductionFormula, "RCR", "", asPercent: true, maxRanks: 1),
+                live != null && live.costE > 0f ? $"{F(live.costE)} Mana" : "");
             e.MathLines.Add($"1-Stack DPS = {FormatExactMath(t.luisCurseDpsFormula, "INT")}; Total DPS = DPS × (1 + 0.35 × (stacks - 1)) → 2.40x at 5 stacks");
             e.MathLines.Add($"Durations fixed: Ward {F(t.luisEWardDuration, "0.0")}s + 0.6s/rank; Curse {F(t.luisECurseBaseDuration, "0.0")}s + 0.4s/rank + {F(t.luisECurseBonusDuration, "0.0")}s per enemy cast");
             if (live != null)
@@ -735,9 +746,13 @@ namespace Moba.LaneSlice
             AddFact(ult, "Crowd Control", $"Ramps to {F(t.luisRMaxSlow * 100f)}/{F((t.luisRMaxSlow + 0.06f) * 100f)}% Slow (fixed)", ColCc);
             AddFact(ult, "Range / Radius", $"{F(t.luisRRange, "0.0")}u cast  •  {F(t.luisRRadius, "0.0")}u base (+INT)");
             AddFact(ult, "Channel / CD", $"Channel {F(t.luisRChannelDuration, "0.0")}s  •  CD {F(t.luisRCooldown)}/{F(t.luisRCooldown - 3f)}s");
+            AddFact(ult, "Mana Drain", $"{F(t.miravelRManaPerSecBase)} / {F(t.miravelRManaPerSecBase + t.miravelRManaPerSecPerRank)} Mana/s (Continuous, independent of INT; ends if OOM)", ColMana);
             AddScalingRow(ult, "INT", ColInt, "Sanctum zone radius", "Bounded diminishing", FormatFormula(t.luisRRadiusFormula, "INT", "u", maxRanks: 2));
             AddScalingRow(ult, "Heal Power", ColHeal, "Max ally healing amp & enemy vulnerability (>100%)", "Bounded diminishing", "Bonus Heal Power above 100% raises both caps");
             AddScalingRow(ult, "Ability Haste", ColInt, "Cooldown reduction", "Inverse", "Cooldown = Base × 100 / (100 + AH)");
+            AddScalingRow(ult, "Resource Cost Reduction", ColMana, "Reduces continuous Mana drain/sec (<100% cap)", "Bounded diminishing",
+                FormatFormula(t.resourceCostReductionFormula, "RCR", "", asPercent: true, maxRanks: 1),
+                live != null && live.costR > 0f ? $"{F(live.costR, "0.0")}/s" : "");
             ult.MathLines.Add($"Zone Radius = {FormatExactMath(t.luisRRadiusFormula, "INT", "u", maxRanks: 2)} | Channel = {F(t.luisRChannelDuration, "0.0")}s");
             ult.MathLines.Add($"Max Ally Heal Amp = {FormatExactMath(t.luisRHealAmpFormula, "BonusHealPwr", "", asPercent: true, maxRanks: 2, customDomain: "(HealPwr-1)")}");
             ult.MathLines.Add($"Max Enemy Vuln = {FormatExactMath(t.luisRVulnFormula, "BonusHealPwr", "", asPercent: true, maxRanks: 2, customDomain: "(HealPwr-1)")}");
@@ -900,13 +915,13 @@ namespace Moba.LaneSlice
         private static void BuildLaserShooterGuide(HeroGuideData g, LaneTuning t, HeroSnap live)
         {
             g.IdentitySummary = "Long-range laser ADC whose endless chained beams stack vulnerability, trigger explosive slow shocks, and step patiently out of trouble.";
-            g.BaseStatsLine = $"HP <b>480</b> (+30/lvl)  •  <color={ColAd}>AD <b>46</b> (+3.5/lvl)</color>  •  Arm <b>8</b>  •  MR <b>10</b>  •  Regen <b>1.3/s</b>  •  Move <b>{F(t.laserSpeed, "0.00")}</b>  •  Turn <b>{F(t.laserTurnRate)}°/s</b>";
+            g.BaseStatsLine = $"HP <b>480</b> (+30/lvl)  •  <color={ColMana}>Mana <b>{F(t.laserBaseMana)}</b> (+{F(t.laserManaPerLevel)}/lvl, <b>{F(t.laserBaseManaRegen, "0.0")}/s</b> +{F(t.laserManaRegenPerLevel, "0.00")}/lvl)</color>  •  <color={ColAd}>AD <b>46</b> (+3.5/lvl)</color>  •  Arm <b>8</b>  •  MR <b>10</b>  •  Move <b>{F(t.laserSpeed, "0.00")}</b>";
             if (live != null)
             {
                 float stackScale = t.laserStackMaxAmpFormula.Evaluate(1, live.intelligence) * 100f;
                 float qExtMult = t.laserQSpeedFormula.Evaluate(1, live.intelligence);
                 float bounceR = t.laserChainRadiusFormula.Evaluate(1, live.intelligence);
-                g.LiveStatsLine = $"<color={ColLive}>Live (Lvl {live.level}): AD {F(live.attackDamage)} • EffAS {F(live.attackSpeed, "0.00")}x • AGI {F(live.agility)} • INT {F(live.intelligence)} • Chain {F(bounceR, "0.00")}u • StackCap +{F(stackScale, "0.0")}% • QSpd {F(qExtMult, "0.00")}x</color>";
+                g.LiveStatsLine = $"<color={ColLive}>Live (Lvl {live.level}): AD {F(live.attackDamage)} • <color={ColMana}>Mana {F(live.mana)}/{F(live.maxMana)} ({live.manaRegen:+0.0;-0.0}/s, RCR -{F(live.rcrPct * 100f)}%)</color> • EffAS {F(live.attackSpeed, "0.00")}x • AGI {F(live.agility)} • INT {F(live.intelligence)} • Chain {F(bounceR, "0.00")}u • StackCap +{F(stackScale, "0.0")}% • QSpd {F(qExtMult, "0.00")}x</color>";
             }
 
             var passive = new AbilityCardData
@@ -919,6 +934,7 @@ namespace Moba.LaneSlice
                 PracticalTip = "Attack the front minion in a wave to bounce laser stacks onto a hiding enemy hero from safely beyond normal attack range.",
             };
             AddFact(passive, "Range / Damage", $"{F(t.laserBasicRange, "0.0")}u range  •  100% AD (0.70x/hop, 0.25x min)", ColPhys);
+            AddFact(passive, "Resource", "0 Mana (Basic chains remain free at 0 Mana)", ColMana);
             AddFact(passive, "Hop Radius", $"{F(t.laserChainRadiusFormula.baseValue, "0.0")}u base (+INT)", ColInt);
             AddFact(passive, "Stack Amp", $"Up to +45% (+INT) over {F(t.laserStackDuration, "0.0")}s", ColInt);
             AddScalingRow(passive, "AD", ColAd, "Primary & chained beam physical damage", "Linear", "100% AD primary, decaying 0.70x per bounce");
@@ -948,9 +964,13 @@ namespace Moba.LaneSlice
             AddFact(q, "Extend Speed", $"Base {F(t.laserQDuration, "0.00")}s duration (+INT speed)");
             AddFact(q, "Bonus Gold", $"+{F(t.laserQMultiKillBonusGold)}g escalating per extra kill", ColCc);
             AddFact(q, "Cooldown", $"CD {F(t.laserQCooldown, "0.0")}/{F(t.laserQCooldown - 0.7f, "0.0")}/{F(t.laserQCooldown - 1.4f, "0.0")}s");
+            AddFact(q, "Mana Cost", $"{F(t.laserQManaBase)} / {F(t.laserQManaBase + t.laserQManaPerRank)} / {F(t.laserQManaBase + t.laserQManaPerRank * 2f)} Mana", ColMana);
             AddScalingRow(q, "AD", ColAd, "Beam physical damage", "Linear", FormatFormula(t.laserQDamageFormula, "AD"));
             AddScalingRow(q, "INT", ColInt, "Beam extension speed (replaces AGI)", "Unbounded sqrt → Inverse", FormatFormula(t.laserQSpeedFormula, "INT", "x", maxRanks: 1));
             AddScalingRow(q, "Ability Haste", ColInt, "Cooldown reduction", "Inverse", "Cooldown = Base × 100 / (100 + AH)");
+            AddScalingRow(q, "Resource Cost Reduction", ColMana, "Reduces Mana cost (<100% cap)", "Bounded diminishing",
+                FormatFormula(t.resourceCostReductionFormula, "RCR", "", asPercent: true, maxRanks: 1),
+                live != null && live.costQ > 0f ? $"{F(live.costQ)} Mana" : "");
             q.MathLines.Add($"Damage = {FormatExactMath(t.laserQDamageFormula, "AD")} × LaserStackMultiplier");
             q.MathLines.Add($"Extension Duration = {F(t.laserQDuration, "0.00")}s / ({FormatExactMath(t.laserQSpeedFormula, "INT", "x", maxRanks: 1)})");
             if (live != null)
@@ -975,11 +995,15 @@ namespace Moba.LaneSlice
             AddFact(w, "Crowd Control", $"20/24/28% single → up to {F(t.laserWSlowMaxCap * 100f)}% overlapping Slow", ColCc);
             AddFact(w, "Radius / Range", $"{F(t.laserWShockRadiusFormula.baseValue, "0.00")}u (+INT) shock • {F(t.laserWCastRange, "0.0")}u scan");
             AddFact(w, "Cooldown", $"CD {F(t.laserWCooldown, "0.0")}/{F(t.laserWCooldown - 0.7f, "0.0")}/{F(t.laserWCooldown - 1.4f, "0.0")}s");
+            AddFact(w, "Mana Cost", $"{F(t.laserWManaBase)} / {F(t.laserWManaBase + t.laserWManaPerRank)} / {F(t.laserWManaBase + t.laserWManaPerRank * 2f)} Mana (Independent of enemy count)", ColMana);
             AddFact(w, "Requirement", "Needs ≥1 stacked hostile unit in range", ColCc);
             AddScalingRow(w, "INT", ColInt, "Per-shock magic damage", "Linear", FormatFormula(t.laserWDamageFormula, "INT"));
             AddScalingRow(w, "INT", ColInt, "Shockwave explosion radius", "Bounded diminishing", FormatFormula(t.laserWShockRadiusFormula, "INT", "u"));
             AddScalingRow(w, "Overlapping Shocks", ColCc, "Combined slow strength (bounded) & duration (sqrt)", "Bounded + Unbounded sqrt", $"Base 20/24/28% → {F(t.laserWSlowMaxCap * 100f)}% limit; Dur {F(t.laserWSlowDuration, "0.00")}s × sqrt(n)");
             AddScalingRow(w, "Ability Haste", ColInt, "Cooldown reduction", "Inverse", "Cooldown = Base × 100 / (100 + AH)");
+            AddScalingRow(w, "Resource Cost Reduction", ColMana, "Reduces Mana cost (<100% cap)", "Bounded diminishing",
+                FormatFormula(t.resourceCostReductionFormula, "RCR", "", asPercent: true, maxRanks: 1),
+                live != null && live.costW > 0f ? $"{F(live.costW)} Mana" : "");
             w.MathLines.Add($"Shock Damage = ({FormatExactMath(t.laserWDamageFormula, "INT")}) × (1 + 0.12×(srcStacks-1)) × TargetStackMult | Shock Radius = {FormatExactMath(t.laserWShockRadiusFormula, "INT", "u")}");
             w.MathLines.Add($"Overlap Slow (anti-bypass): Single=20/24/28%; TotalSlow → bounded {F(t.laserWSlowMaxCap * 100f)}% cap; TotalDur = {F(t.laserWSlowDuration, "0.00")}s × sqrt(n) minus prior elapsed");
             if (live != null)
@@ -1005,10 +1029,14 @@ namespace Moba.LaneSlice
             AddFact(e, "Crowd Control", "0.65 / 0.80 / 0.95s Stun (rank-only)", ColCc);
             AddFact(e, "Decoy Lifetime", $"{F(t.laserEDecoyDuration, "0.0")}s ({F(t.laserEDecoyHp)} HP)");
             AddFact(e, "Cooldown", $"CD {F(t.laserECooldown, "0.0")}/{F(t.laserECooldown - 0.9f, "0.0")}/{F(t.laserECooldown - 1.8f, "0.0")}s");
+            AddFact(e, "Mana Cost", $"{F(t.laserEManaFlat)} Mana (Constant across ranks)", ColMana);
             AddScalingRow(e, "AGI", ColAgi, "Step-back animation speed (shorter duration)", "Bounded diminishing", FormatFormula(t.laserEStepDurationFormula, "AGI", "s"));
             AddScalingRow(e, "INT", ColInt, "Decoy retaliation magic damage", "Linear", FormatFormula(t.laserEDecoyDamageFormula, "INT"));
             AddScalingRow(e, "Rank Only", ColCc, "Retaliation stun duration (no attribute scaling)", "Rank-only", "0.65 / 0.80 / 0.95s");
             AddScalingRow(e, "Ability Haste", ColInt, "Cooldown reduction", "Inverse", "Cooldown = Base × 100 / (100 + AH)");
+            AddScalingRow(e, "Resource Cost Reduction", ColMana, "Reduces Mana cost (<100% cap)", "Bounded diminishing",
+                FormatFormula(t.resourceCostReductionFormula, "RCR", "", asPercent: true, maxRanks: 1),
+                live != null && live.costE > 0f ? $"{F(live.costE)} Mana" : "");
             e.MathLines.Add($"Step Duration = {FormatExactMath(t.laserEStepDurationFormula, "AGI", "s")} | Distance fixed {F(t.laserEStepBack, "0.00")}u");
             e.MathLines.Add($"Retaliation = {FormatExactMath(t.laserEDecoyDamageFormula, "INT")} + 1 Laser Stack + 0.65/0.80/0.95s stun (rank-only)");
             if (live != null)
@@ -1034,11 +1062,15 @@ namespace Moba.LaneSlice
             AddFact(ult, "Proc Interval", $"Every {F(t.laserRProcInterval, "0.00")}s ÷ Effective AS", ColAgi);
             AddFact(ult, "Duration", $"{F(t.laserRDurationFormula.baseValue, "0.0")}/{F(t.laserRDurationFormula.baseValue + t.laserRDurationFormula.perRank, "0.0")}s (+INT)", ColInt);
             AddFact(ult, "Beam Size / Cooldown", $"{F(t.laserRRange, "0.0")}u × {F(t.laserRHalfWidth * 2f, "0.00")}u  •  CD {F(t.laserRCooldown)}/{F(t.laserRCooldown - 4f)}s");
+            AddFact(ult, "Upfront Mana", $"{F(t.laserRManaUpfront)} Mana on cast (0 continuous drain)", ColMana);
             AddScalingRow(ult, "AD", ColAd, "Damage per Overdrive beam tick", "Linear", "62% AD physical per proc (+Chain bounces)");
             AddScalingRow(ult, "Attack Speed", ColAgi, "Beam proc cadence (faster ticks)", "Global Effective AS → Inverse", $"Every {F(t.laserRProcInterval, "0.00")}s / Effective AS");
             AddScalingRow(ult, "INT", ColInt, "Beam active duration", "Bounded diminishing", FormatFormula(t.laserRDurationFormula, "INT", "s", maxRanks: 2));
             AddScalingRow(ult, "AGI", ColAgi, "Movement speed retained while firing (<100%)", "Bounded diminishing", FormatFormula(t.laserRMoveRatioFormula, "AGI", "x", maxRanks: 2));
             AddScalingRow(ult, "Ability Haste", ColInt, "Cooldown reduction", "Inverse", "Cooldown = Base × 100 / (100 + AH)");
+            AddScalingRow(ult, "Resource Cost Reduction", ColMana, "Reduces upfront Mana cost (<100% cap)", "Bounded diminishing",
+                FormatFormula(t.resourceCostReductionFormula, "RCR", "", asPercent: true, maxRanks: 1),
+                live != null && live.costR > 0f ? $"{F(live.costR)} Mana" : "");
             ult.MathLines.Add($"Proc Damage = 62% AD every {F(t.laserRProcInterval, "0.00")}s / EffectiveAS (up to 16 procs/tick accumulator)");
             ult.MathLines.Add($"Duration = {FormatExactMath(t.laserRDurationFormula, "INT", "s", maxRanks: 2)} | Retained Move Speed = {FormatExactMath(t.laserRMoveRatioFormula, "AGI", "x", maxRanks: 2)}");
             if (live != null)

@@ -96,6 +96,72 @@ namespace Moba.LaneSlice
         LaserDecoy = 27,
         LaserGoldBonus = 28,
         OgreQShockwave = 29,
+        InsufficientMana = 30,
+    }
+
+    public enum HeroResourceKind : byte
+    {
+        None = 0,
+        Mana = 1,
+    }
+
+    public enum ResourceCostMode : byte
+    {
+        None = 0,
+        Flat = 1,
+        PercentMax = 2,
+        PercentCurrent = 3,
+        ContinuousPerSecond = 4,
+    }
+
+    [Serializable]
+    public struct AbilityResourceSpec
+    {
+        public HeroResourceKind ResourceKind;
+        public ResourceCostMode Mode;
+        public float BaseCost;
+        public float PerRankCost;
+        public bool UsesCostReduction;
+
+        public AbilityResourceSpec(
+            HeroResourceKind resourceKind,
+            ResourceCostMode mode,
+            float baseCost,
+            float perRankCost = 0f,
+            bool usesCostReduction = true)
+        {
+            ResourceKind = resourceKind;
+            Mode = mode;
+            BaseCost = baseCost;
+            PerRankCost = perRankCost;
+            UsesCostReduction = usesCostReduction;
+        }
+
+        public float EvaluateRawCost(int rank, float maxResource, float currentResource)
+        {
+            if (ResourceKind == HeroResourceKind.None || Mode == ResourceCostMode.None) return 0f;
+            float ranked = Mathf.Max(0f, BaseCost + PerRankCost * Mathf.Max(0, rank - 1));
+            switch (Mode)
+            {
+                case ResourceCostMode.Flat:
+                case ResourceCostMode.ContinuousPerSecond:
+                    return ranked;
+                case ResourceCostMode.PercentMax:
+                    return Mathf.Max(0f, maxResource) * ranked;
+                case ResourceCostMode.PercentCurrent:
+                    return Mathf.Max(0f, currentResource) * ranked;
+                default:
+                    return 0f;
+            }
+        }
+
+        public float EvaluateEffectiveCost(int rank, float maxResource, float currentResource, float rcrFraction)
+        {
+            float raw = EvaluateRawCost(rank, maxResource, currentResource);
+            if (raw <= 0f) return 0f;
+            float mult = UsesCostReduction ? (1f - Mathf.Clamp(rcrFraction, 0f, 0.99f)) : 1f;
+            return raw * mult;
+        }
     }
 
     public enum LaneTargetKind : byte
@@ -254,6 +320,10 @@ namespace Moba.LaneSlice
         public readonly float AddStrength;
         public readonly float AddAgility;
         public readonly float AddIntelligence;
+        public readonly float AddMaxMana;
+        public readonly float AddManaRegen;
+        public readonly float AddPercentManaRegen;
+        public readonly float AddResourceCostReduction;
         public readonly bool IsCowardsShield;
         public readonly bool IsMinionHatchet;
         public readonly bool IsWoodlandSalve;
@@ -283,6 +353,10 @@ namespace Moba.LaneSlice
             float addStrength = 0f,
             float addAgility = 0f,
             float addIntelligence = 0f,
+            float addMaxMana = 0f,
+            float addManaRegen = 0f,
+            float addPercentManaRegen = 0f,
+            float addResourceCostReduction = 0f,
             bool isCowardsShield = false,
             bool isMinionHatchet = false,
             bool isWoodlandSalve = false,
@@ -311,6 +385,10 @@ namespace Moba.LaneSlice
             AddStrength = addStrength;
             AddAgility = addAgility;
             AddIntelligence = addIntelligence;
+            AddMaxMana = addMaxMana;
+            AddManaRegen = addManaRegen;
+            AddPercentManaRegen = addPercentManaRegen;
+            AddResourceCostReduction = addResourceCostReduction;
             IsCowardsShield = isCowardsShield;
             IsMinionHatchet = isMinionHatchet;
             IsWoodlandSalve = isWoodlandSalve;
@@ -676,6 +754,35 @@ namespace Moba.LaneSlice
         public float laserRCooldown = 28f;
         public bool laserRTracksCursor = false; // Open question 05_OPEN_QUESTIONS
         public StatFormula laserRMoveRatioFormula = new StatFormula(0.78f, 0f, ScalingCurve.Diminishing, 0.22f, 50f, 0.5f, 0f);
+
+        // Shared Hero Resource System (Stage C / v0.2.12 — Provisional values calibrated with Mana items)
+        public StatFormula resourceCostReductionFormula = new StatFormula(0f, 0f, ScalingCurve.Diminishing, 0.65f, 65f, 0f, 0.65f);
+        public float fountainManaPerSec = 48f;
+
+        // Miravel (Mana): Passive & auto-Q = 0 Mana; W/E rank flat; R continuous/s independent of INT
+        public float miravelBaseMana = 320f;
+        public float miravelManaPerLevel = 32f;
+        public float miravelBaseManaRegen = 2.6f;
+        public float miravelManaRegenPerLevel = 0.25f;
+        public float miravelWManaBase = 55f;
+        public float miravelWManaPerRank = 10f;
+        public float miravelEManaBase = 45f;
+        public float miravelEManaPerRank = 10f;
+        public float miravelRManaPerSecBase = 26f;
+        public float miravelRManaPerSecPerRank = 8f;
+        public float miravelRMinStartFraction = 0.25f;
+
+        // Chain Laser (Mana): Passive basics = 0 Mana; Q high rank flat; W lower rank flat; E low constant flat; R substantial constant upfront
+        public float laserBaseMana = 300f;
+        public float laserManaPerLevel = 28f;
+        public float laserBaseManaRegen = 2.2f;
+        public float laserManaRegenPerLevel = 0.22f;
+        public float laserQManaBase = 65f;
+        public float laserQManaPerRank = 13f;
+        public float laserWManaBase = 45f;
+        public float laserWManaPerRank = 7f;
+        public float laserEManaFlat = 35f;
+        public float laserRManaUpfront = 110f;
     }
 
     [Serializable]
@@ -710,6 +817,7 @@ namespace Moba.LaneSlice
         public float bonusMaxHp;
         public float bonusMaxMana;
         public float bonusManaRegen;
+        public float bonusPercentManaRegen;
         public float bonusResourceCostReduction;
     }
 
@@ -838,6 +946,20 @@ namespace Moba.LaneSlice
         public float cowardShieldFactor;
         public byte cowardShieldState; // 0=Idle, 1=Building, 2=Active, 3=Grace, 4=Decaying
         public float laserStepProgress;
+
+        // Stage C Shared Hero Resource telemetry
+        public HeroResourceKind resourceKind;
+        public float mana;
+        public float maxMana;
+        public float manaRegen;
+        public float netManaRegen;
+        public float rcrStat;
+        public float rcrPct;
+        public float costQ;
+        public float costW;
+        public float costE;
+        public float costR;
+        public ResourceCostMode costModeR;
     }
 
     [Serializable]

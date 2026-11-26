@@ -41,6 +41,7 @@ namespace Moba.LaneSlice
         private void RecalcHeroStats(HeroState h, bool preserveHpRatio)
         {
             float hpRatio = (preserveHpRatio && h.maxHp > 0f) ? Mathf.Clamp01(h.hp / h.maxHp) : 1f;
+            float manaRatio = (preserveHpRatio && h.maxMana > 0f) ? Mathf.Clamp01(h.mana / h.maxMana) : 1f;
 
             float baseHp, hpPerLvl, baseAd, adPerLvl, baseArmor, baseMr, baseRegen, baseSpeed, turnRate;
             switch (h.heroId)
@@ -69,6 +70,7 @@ namespace Moba.LaneSlice
 
             float itemHp = 0f, itemAd = 0f, itemAs = 0f, itemAh = 0f, itemSpeed = 0f, itemArmor = 0f, itemMr = 0f, itemRegen = 0f;
             float itemStr = 0f, itemAgi = 0f, itemInt = 0f, itemHeal = 0f, itemAuraRegen = 0f;
+            float itemMaxMana = 0f, itemManaRegen = 0f, itemPctManaRegen = 0f, itemRcr = 0f;
             bool cowardOwned = false, hatchet = false, salve = false, buckler = false, thorn = false;
             bool greaves = false, colossus = false, spellweaver = false, grudge = false;
 
@@ -88,6 +90,10 @@ namespace Moba.LaneSlice
                 itemInt += item.AddIntelligence;
                 itemHeal += item.AddHealPower;
                 itemAuraRegen += item.AddAlliedAuraRegen;
+                itemMaxMana += item.AddMaxMana;
+                itemManaRegen += item.AddManaRegen;
+                itemPctManaRegen += item.AddPercentManaRegen;
+                itemRcr += item.AddResourceCostReduction;
                 if (item.IsCowardsShield) cowardOwned = true;
                 if (item.IsMinionHatchet) hatchet = true;
                 if (item.IsWoodlandSalve) salve = true;
@@ -101,6 +107,7 @@ namespace Moba.LaneSlice
 
             int lvlOffset = h.level - 1;
             float ovMaxHp = 0f, ovAd = 0f, ovAs = 0f, ovAh = 0f, ovHeal = 0f;
+            float ovMaxMana = 0f, ovManaRegen = 0f, ovPctManaRegen = 0f, ovRcr = 0f;
             if (previewOverrides.TryGetValue(h.team, out PreviewStatOverrides ov) && ov.enabled)
             {
                 itemStr += Mathf.Max(0f, ov.bonusStrength);
@@ -111,6 +118,10 @@ namespace Moba.LaneSlice
                 ovAh = ov.bonusAbilityHaste;
                 ovHeal = ov.bonusHealPower;
                 ovMaxHp = ov.bonusMaxHp;
+                ovMaxMana = ov.bonusMaxMana;
+                ovManaRegen = ov.bonusManaRegen;
+                ovPctManaRegen = ov.bonusPercentManaRegen;
+                ovRcr = ov.bonusResourceCostReduction;
             }
 
             // Core rule (01_CORE_SYSTEMS): Str/Agi/Int start at 0 (LoL AP model) and confer ZERO inherent universal stats.
@@ -168,6 +179,34 @@ namespace Moba.LaneSlice
             h.itemAlliedAuraRegen = itemAuraRegen;
             h.moveSpeed = baseSpeed + itemSpeed + h.momentumBonus;
             h.turnRate = turnRate;
+
+            h.resourceKind = GetHeroResourceKind(h.heroId);
+            if (h.resourceKind == HeroResourceKind.Mana)
+            {
+                float bMana = h.heroId == LaneHeroId.Miravel ? tuning.miravelBaseMana : tuning.laserBaseMana;
+                float mPerLvl = h.heroId == LaneHeroId.Miravel ? tuning.miravelManaPerLevel : tuning.laserManaPerLevel;
+                float bRegen = h.heroId == LaneHeroId.Miravel ? tuning.miravelBaseManaRegen : tuning.laserBaseManaRegen;
+                float rPerLvl = h.heroId == LaneHeroId.Miravel ? tuning.miravelManaRegenPerLevel : tuning.laserManaRegenPerLevel;
+
+                h.rcrStat = Mathf.Max(0f, itemRcr + ovRcr);
+                h.rcrPct = Mathf.Clamp(tuning.resourceCostReductionFormula.Evaluate(1, h.rcrStat), 0f, 0.99f);
+                h.maxMana = Mathf.Max(1f, bMana + mPerLvl * lvlOffset + itemMaxMana + ovMaxMana);
+                h.percentManaRegenPerSec = Mathf.Max(0f, itemPctManaRegen + ovPctManaRegen);
+                float flatRegen = Mathf.Max(0f, bRegen + rPerLvl * lvlOffset + itemManaRegen + ovManaRegen);
+                h.manaRegen = flatRegen + h.maxMana * h.percentManaRegenPerSec;
+                h.mana = preserveHpRatio ? Mathf.Clamp(h.maxMana * manaRatio, 0f, h.maxMana) : h.maxMana;
+                h.netManaRegen = h.manaRegen;
+            }
+            else
+            {
+                h.rcrStat = 0f;
+                h.rcrPct = 0f;
+                h.maxMana = 0f;
+                h.percentManaRegenPerSec = 0f;
+                h.manaRegen = 0f;
+                h.mana = 0f;
+                h.netManaRegen = 0f;
+            }
 
             if (h.heroId == LaneHeroId.Ogre)
             {
@@ -426,6 +465,26 @@ namespace Moba.LaneSlice
             if (map.IsInFountain(h.team, h.motor.Position))
             {
                 HealHero(h, tuning.fountainHealPerSec * dt);
+            }
+            if (h.lowManaPopupCd > 0f) h.lowManaPopupCd = Mathf.Max(0f, h.lowManaPopupCd - dt);
+
+            // Continuous Mana regeneration (active inside and outside combat) + fountain recovery
+            if (h.resourceKind == HeroResourceKind.Mana && h.maxMana > 0f)
+            {
+                float fountainMana = map.IsInFountain(h.team, h.motor.Position) ? tuning.fountainManaPerSec : 0f;
+                float totalManaRegen = h.manaRegen + fountainMana;
+                if (totalManaRegen > 0f)
+                {
+                    h.mana = Mathf.Min(h.maxMana, h.mana + totalManaRegen * dt);
+                }
+                float activeChannelDrain = (h.heroId == LaneHeroId.Miravel && h.phase == LanePhase.Channeling && h.activeSlot == LaneAbilitySlot.R)
+                    ? EvaluateAbilityResourceCost(h, LaneAbilitySlot.R)
+                    : 0f;
+                h.netManaRegen = totalManaRegen - activeChannelDrain;
+            }
+            else
+            {
+                h.netManaRegen = 0f;
             }
 
             // Miravel Q Passive Orb Spawner — inverse Ability Haste cooldown scaling without artificial 4.0s floor
@@ -918,18 +977,21 @@ namespace Moba.LaneSlice
                 if (slot == LaneAbilitySlot.Q) return;
                 if (slot == LaneAbilitySlot.W)
                 {
+                    if (!TryConsumeHeroAbilityResource(h, LaneAbilitySlot.W)) return;
                     CastMiravelW(h, cursorPoint);
                     OnHeroCastAbilityForCurse(h, isFollowupStrike: false);
                     return;
                 }
                 if (slot == LaneAbilitySlot.E)
                 {
+                    if (!TryConsumeHeroAbilityResource(h, LaneAbilitySlot.E)) return;
                     CastMiravelE(h);
                     OnHeroCastAbilityForCurse(h, isFollowupStrike: false);
                     return;
                 }
                 if (slot == LaneAbilitySlot.R)
                 {
+                    if (!TryConsumeHeroAbilityResource(h, LaneAbilitySlot.R)) return;
                     CastMiravelR(h, cursorPoint);
                     OnHeroCastAbilityForCurse(h, isFollowupStrike: false);
                     return;
@@ -964,6 +1026,7 @@ namespace Moba.LaneSlice
             {
                 if (slot == LaneAbilitySlot.Q)
                 {
+                    if (!TryConsumeHeroAbilityResource(h, LaneAbilitySlot.Q)) return;
                     CastLaserQ(h, cursorPoint);
                     return;
                 }
@@ -974,11 +1037,13 @@ namespace Moba.LaneSlice
                 }
                 if (slot == LaneAbilitySlot.E)
                 {
+                    if (!TryConsumeHeroAbilityResource(h, LaneAbilitySlot.E)) return;
                     CastLaserE(h, cursorPoint);
                     return;
                 }
                 if (slot == LaneAbilitySlot.R)
                 {
+                    if (!TryConsumeHeroAbilityResource(h, LaneAbilitySlot.R)) return;
                     CastLaserR(h, cursorPoint);
                     return;
                 }
@@ -1181,6 +1246,20 @@ namespace Moba.LaneSlice
                     h.phaseTimer = h.phaseDuration;
                 }
                 return;
+            }
+
+            if (h.heroId == LaneHeroId.Miravel && h.activeSlot == LaneAbilitySlot.R)
+            {
+                float drainPerSec = EvaluateAbilityResourceCost(h, LaneAbilitySlot.R);
+                float drainTick = drainPerSec * dt;
+                if (h.mana < drainTick || h.mana <= 0.0001f)
+                {
+                    h.mana = 0f;
+                    h.netManaRegen = h.manaRegen;
+                    InterruptChannel(h);
+                    return;
+                }
+                h.mana = Mathf.Max(0f, h.mana - drainTick);
             }
 
             h.phaseTimer -= dt;

@@ -320,6 +320,7 @@ namespace Moba.LaneSlice
             }
 
             if (scratchShockSources.Count == 0) return;
+            if (!TryConsumeHeroAbilityResource(h, LaneAbilitySlot.W)) return;
 
             h.cdW = ApplyCdr(h, tuning.laserWCooldown - 0.7f * (h.rankW - 1));
             h.maxCdW = h.cdW;

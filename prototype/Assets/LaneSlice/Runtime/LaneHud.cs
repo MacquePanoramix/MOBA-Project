@@ -26,10 +26,16 @@ namespace Moba.LaneSlice
         private Vector2 heroSheetScroll;
         private Vector2 shopScroll;
         private GUIStyle sheetTextStyle;
+        private GUIStyle sheetBodyStyle;
+        private GUIStyle sheetSectionStyle;
+        private GUIStyle sheetFactPillStyle;
+        private GUIStyle sheetMathBoxStyle;
+        private GUIStyle sheetTipBoxStyle;
         private GUIStyle cardBoxStyle;
         private GUIStyle cardHeaderStyle;
         private GUIStyle tooltipStyle;
         private bool showExactMath;
+        private readonly HashSet<int> expandedMathCards = new HashSet<int>();
         private int shopTierFilter = -1; // -1=All, 0=Starter, 1=Core, 2=Capstone
         private string hoverTooltipText;
         private Rect hoverTooltipAnchor;
@@ -874,38 +880,39 @@ namespace Moba.LaneSlice
         {
             EnsureStyles();
             float w = inMatch
-                ? Mathf.Min(650f, Screen.width - 32f)
-                : Mathf.Min(Screen.width - 24f, Mathf.Clamp(Screen.width * 0.60f, 700f, 940f));
+                ? Mathf.Min(Screen.width - 24f, Mathf.Clamp(Screen.width * 0.72f, 700f, 1020f))
+                : Mathf.Min(Screen.width - 24f, Mathf.Clamp(Screen.width * 0.76f, 760f, 1120f));
             float h = inMatch
-                ? Mathf.Min(580f, Screen.height - 190f)
-                : Mathf.Min(Screen.height - 32f, Mathf.Clamp(Screen.height * 0.78f, 520f, 760f));
+                ? Mathf.Min(Screen.height - 170f, Mathf.Clamp(Screen.height * 0.78f, 440f, 720f))
+                : Mathf.Min(Screen.height - 30f, Mathf.Clamp(Screen.height * 0.84f, 520f, 800f));
             var r = inMatch
                 ? new Rect(12f, 52f, w, h)
                 : new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
             TrackPointer(r);
-            DrawBox(r, new Color(0.09f, 0.11f, 0.14f, 0.98f));
+            DrawBox(r, new Color(0.08f, 0.10f, 0.13f, 0.98f));
 
-            GUILayout.BeginArea(new Rect(r.x + 14, r.y + 12, r.width - 28, r.height - 24));
+            float contentW = Mathf.Max(420f, r.width - 54f);
+            GUILayout.BeginArea(new Rect(r.x + 14f, r.y + 12f, r.width - 28f, r.height - 24f));
             GUILayout.BeginHorizontal();
-            GUILayout.Label("<b><size=14>HERO NUMBERS & SCALING</size></b>");
+            GUILayout.Label($"<color={LaneHeroSheet.ColText}><b><size=15>HERO GUIDE & SCALING</size></b></color>");
             GUILayout.FlexibleSpace();
             foreach (LaneHeroId id in new[] { LaneHeroId.Ogre, LaneHeroId.Miravel, LaneHeroId.Swordsman, LaneHeroId.LaserShooter })
             {
                 bool active = inspectedHero == id;
-                GUI.backgroundColor = active ? new Color(0.35f, 0.78f, 0.52f) : Color.white;
-                if (GUILayout.Button(LaneNames.ShortName(id), GUILayout.Width(74f), GUILayout.Height(24f)))
+                GUI.backgroundColor = active ? new Color(0.32f, 0.76f, 0.52f) : new Color(0.75f, 0.80f, 0.88f);
+                if (GUILayout.Button(LaneNames.ShortName(id), GUILayout.Width(76f), GUILayout.Height(25f)))
                 {
                     inspectedHero = id;
                     heroSheetScroll = Vector2.zero;
                 }
             }
-            GUI.backgroundColor = showExactMath ? new Color(0.38f, 0.62f, 0.95f) : Color.white;
-            if (GUILayout.Button(showExactMath ? "Hide Math" : "Show Math", GUILayout.Width(86f), GUILayout.Height(24f)))
+            GUI.backgroundColor = showExactMath ? new Color(0.34f, 0.60f, 0.94f) : new Color(0.75f, 0.80f, 0.88f);
+            if (GUILayout.Button(showExactMath ? "Hide All Math" : "Show All Math", GUILayout.Width(102f), GUILayout.Height(25f)))
             {
                 showExactMath = !showExactMath;
             }
             GUI.backgroundColor = Color.white;
-            if (GUILayout.Button("X", GUILayout.Width(28f), GUILayout.Height(24f)))
+            if (GUILayout.Button("X", GUILayout.Width(28f), GUILayout.Height(25f)))
             {
                 HeroSheetOpen = false;
             }
@@ -915,8 +922,10 @@ namespace Moba.LaneSlice
             LaneHeroSheet.HeroGuideData guide = LaneHeroSheet.BuildHeroGuide(inspectedHero, tuning, liveSelf);
             heroSheetScroll = GUILayout.BeginScrollView(heroSheetScroll);
 
+            // Hero Header Card
             GUILayout.BeginVertical(cardBoxStyle);
-            GUILayout.Label($"<b><size=15>{guide.Title}</size></b>  <color={LaneHeroSheet.ColMuted}>— {guide.RoleLine}</color>", cardHeaderStyle);
+            GUILayout.Label($"<color={LaneHeroSheet.ColText}><b><size=16>{guide.Title}</size></b></color>  <color={LaneHeroSheet.ColMuted}>— {guide.IdentitySummary}</color>", cardHeaderStyle);
+            GUILayout.Space(3);
             GUILayout.Label(guide.BaseStatsLine, sheetTextStyle);
             if (!string.IsNullOrEmpty(guide.LiveStatsLine))
             {
@@ -927,37 +936,121 @@ namespace Moba.LaneSlice
             for (int i = 0; i < guide.Cards.Count; i++)
             {
                 LaneHeroSheet.AbilityCardData card = guide.Cards[i];
-                GUILayout.Space(5);
+                int mathKey = ((int)inspectedHero * 32) + i;
+                bool cardMathOpen = showExactMath || expandedMathCards.Contains(mathKey);
+
+                GUILayout.Space(7);
                 GUILayout.BeginVertical(cardBoxStyle);
+
+                // Card Title + Per-Card Math Toggle
                 GUILayout.BeginHorizontal();
-                GUILayout.Label($"<color={LaneHeroSheet.ColCc}><b>[{card.KeyBadge}]</b></color> <b>{card.Name}</b>", cardHeaderStyle);
+                GUILayout.Label($"<color={LaneHeroSheet.ColCc}><b>[{card.KeyBadge}]</b></color> <color={LaneHeroSheet.ColText}><b>{card.Name}</b></color>", cardHeaderStyle);
                 GUILayout.FlexibleSpace();
                 if (!string.IsNullOrEmpty(card.MetaRight))
                 {
                     GUILayout.Label($"<color={LaneHeroSheet.ColMuted}>{card.MetaRight}</color>", sheetTextStyle);
+                    GUILayout.Space(6);
+                }
+                if (card.MathLines.Count > 0)
+                {
+                    GUI.backgroundColor = cardMathOpen ? new Color(0.36f, 0.62f, 0.94f) : new Color(0.66f, 0.72f, 0.80f);
+                    if (GUILayout.Button(cardMathOpen ? "Hide Math" : "Show Math", GUILayout.Width(76f), GUILayout.Height(21f)))
+                    {
+                        if (showExactMath)
+                        {
+                            showExactMath = false;
+                            expandedMathCards.Remove(mathKey);
+                        }
+                        else if (!expandedMathCards.Remove(mathKey))
+                        {
+                            expandedMathCards.Add(mathKey);
+                        }
+                    }
+                    GUI.backgroundColor = Color.white;
                 }
                 GUILayout.EndHorizontal();
 
-                if (!string.IsNullOrEmpty(card.Description))
+                // A. Plain-Language Description
+                if (!string.IsNullOrEmpty(card.PlainDescription))
                 {
-                    GUILayout.Label(card.Description, sheetTextStyle);
+                    GUILayout.Space(3);
+                    GUILayout.Label(card.PlainDescription, sheetBodyStyle);
                 }
-                for (int s = 0; s < card.StatLines.Count; s++)
+
+                // B. Important Gameplay Info Pills (wrapping cleanly)
+                if (card.KeyFacts.Count > 0)
                 {
-                    GUILayout.Label(card.StatLines[s], sheetTextStyle);
+                    GUILayout.Space(4);
+                    float usedW = 0f;
+                    GUILayout.BeginHorizontal();
+                    for (int k = 0; k < card.KeyFacts.Count; k++)
+                    {
+                        LaneHeroSheet.KeyFactPill kf = card.KeyFacts[k];
+                        string pillMarkup = $"<color={LaneHeroSheet.ColMuted}>{kf.Label}:</color> <color={kf.ColorHex}><b>{kf.Value}</b></color>";
+                        float pillW = Mathf.Min(contentW - 12f, sheetFactPillStyle.CalcSize(new GUIContent(pillMarkup)).x + 12f);
+                        if (usedW > 0f && usedW + pillW > contentW - 12f)
+                        {
+                            GUILayout.FlexibleSpace();
+                            GUILayout.EndHorizontal();
+                            GUILayout.Space(2);
+                            GUILayout.BeginHorizontal();
+                            usedW = 0f;
+                        }
+                        GUILayout.Label(pillMarkup, sheetFactPillStyle, GUILayout.Width(pillW));
+                        GUILayout.Space(4);
+                        usedW += pillW + 4f;
+                    }
+                    GUILayout.FlexibleSpace();
+                    GUILayout.EndHorizontal();
                 }
+
+                // C. What Scales?
+                if (card.ScalingRows.Count > 0)
+                {
+                    GUILayout.Space(5);
+                    GUILayout.Label($"<color={LaneHeroSheet.ColMuted}><b>WHAT SCALES?</b></color>", sheetSectionStyle);
+                    for (int s = 0; s < card.ScalingRows.Count; s++)
+                    {
+                        LaneHeroSheet.ScalingRow row = card.ScalingRows[s];
+                        string liveSuffix = string.IsNullOrEmpty(row.LiveText)
+                            ? string.Empty
+                            : $"  <color={LaneHeroSheet.ColLive}><b>(Now: {row.LiveText})</b></color>";
+                        GUILayout.Label(
+                            $"  • <color={row.StatColorHex}><b>{row.StatTag}</b></color> → <color={LaneHeroSheet.ColText}>{row.AffectedProperty}</color> <color={LaneHeroSheet.ColMuted}>[{row.CurveLabel}]</color>{liveSuffix}",
+                            sheetTextStyle);
+                    }
+                }
+
                 if (!string.IsNullOrEmpty(card.LiveLine))
                 {
+                    GUILayout.Space(3);
                     GUILayout.Label(card.LiveLine, sheetTextStyle);
                 }
-                if (showExactMath && !string.IsNullOrEmpty(card.MathLine))
+
+                // D. Detailed Mathematics (Expandable)
+                if (cardMathOpen && card.MathLines.Count > 0)
                 {
-                    GUILayout.Label($"<color={LaneHeroSheet.ColMuted}>{card.MathLine}</color>", sheetTextStyle);
+                    GUILayout.Space(4);
+                    GUILayout.BeginVertical(sheetMathBoxStyle);
+                    GUILayout.Label($"<color={LaneHeroSheet.ColInt}><b>EXACT MATH</b></color>", sheetSectionStyle);
+                    for (int m = 0; m < card.MathLines.Count; m++)
+                    {
+                        GUILayout.Label($"<color={LaneHeroSheet.ColMuted}>• {card.MathLines[m]}</color>", sheetTextStyle);
+                    }
+                    GUILayout.EndVertical();
                 }
+
+                // E. Practical Ability Tip
+                if (!string.IsNullOrEmpty(card.PracticalTip))
+                {
+                    GUILayout.Space(4);
+                    GUILayout.Label($"<color={LaneHeroSheet.ColCc}><b>Tip:</b></color> <color=#dce7cf>{card.PracticalTip}</color>", sheetTipBoxStyle);
+                }
+
                 GUILayout.EndVertical();
             }
 
-            GUILayout.Space(6);
+            GUILayout.Space(7);
             GUILayout.BeginVertical(cardBoxStyle);
             GUILayout.Label($"<b><color={LaneHeroSheet.ColInt}>SHARED ATTRIBUTE & ITEM RULES</color></b>", cardHeaderStyle);
             for (int i = 0; i < guide.RuleLines.Count; i++)
@@ -1064,11 +1157,37 @@ namespace Moba.LaneSlice
         {
             string s = $"<color={LaneHeroSheet.ColCc}><b>[{card.KeyBadge}]</b></color> <b>{card.Name}</b>";
             if (!string.IsNullOrEmpty(card.MetaRight)) s += $"\n<color={LaneHeroSheet.ColMuted}>{card.MetaRight}</color>";
-            if (!string.IsNullOrEmpty(card.Description)) s += $"\n{card.Description}";
-            for (int i = 0; i < card.StatLines.Count; i++) s += $"\n{card.StatLines[i]}";
+            if (!string.IsNullOrEmpty(card.PlainDescription)) s += $"\n{card.PlainDescription}";
+            if (card.KeyFacts.Count > 0)
+            {
+                s += "\n";
+                for (int k = 0; k < card.KeyFacts.Count; k++)
+                {
+                    if (k > 0) s += "  •  ";
+                    s += $"<color={LaneHeroSheet.ColMuted}>{card.KeyFacts[k].Label}:</color> <color={card.KeyFacts[k].ColorHex}><b>{card.KeyFacts[k].Value}</b></color>";
+                }
+            }
+            if (card.ScalingRows.Count > 0)
+            {
+                s += $"\n<color={LaneHeroSheet.ColMuted}><b>What Scales:</b></color>";
+                for (int i = 0; i < card.ScalingRows.Count; i++)
+                {
+                    LaneHeroSheet.ScalingRow row = card.ScalingRows[i];
+                    s += $"\n• <color={row.StatColorHex}><b>{row.StatTag}</b></color> → {row.AffectedProperty}";
+                }
+            }
             if (!string.IsNullOrEmpty(card.LiveLine)) s += $"\n{card.LiveLine}";
-            if (showExactMath && !string.IsNullOrEmpty(card.MathLine)) s += $"\n<color={LaneHeroSheet.ColMuted}>{card.MathLine}</color>";
+            if (!string.IsNullOrEmpty(card.PracticalTip)) s += $"\n<color={LaneHeroSheet.ColCc}><b>Tip:</b></color> <color=#dce7cf>{card.PracticalTip}</color>";
+            if (showExactMath && card.MathLines.Count > 0) s += $"\n<color={LaneHeroSheet.ColMuted}>{card.MathLine}</color>";
             return s;
+        }
+
+        private Texture2D MakeSolidTex(Color col)
+        {
+            var t = new Texture2D(1, 1);
+            t.SetPixel(0, 0, col);
+            t.Apply();
+            return t;
         }
 
         private void EnsureStyles()
@@ -1082,32 +1201,82 @@ namespace Moba.LaneSlice
                     fontSize = 12,
                 };
             }
+            if (sheetBodyStyle == null)
+            {
+                sheetBodyStyle = new GUIStyle(GUI.skin.label)
+                {
+                    richText = true,
+                    wordWrap = true,
+                    fontSize = 13,
+                };
+                sheetBodyStyle.normal.textColor = new Color(0.91f, 0.94f, 0.97f);
+            }
+            if (sheetSectionStyle == null)
+            {
+                sheetSectionStyle = new GUIStyle(GUI.skin.label)
+                {
+                    richText = true,
+                    wordWrap = false,
+                    fontSize = 11,
+                };
+            }
+            if (sheetFactPillStyle == null)
+            {
+                sheetFactPillStyle = new GUIStyle(GUI.skin.box)
+                {
+                    richText = true,
+                    wordWrap = false,
+                    fontSize = 11,
+                    alignment = TextAnchor.MiddleLeft,
+                    padding = new RectOffset(7, 7, 3, 3),
+                    margin = new RectOffset(0, 0, 1, 1),
+                };
+                sheetFactPillStyle.normal.background = MakeSolidTex(new Color(0.10f, 0.14f, 0.19f, 0.98f));
+                sheetFactPillStyle.normal.textColor = Color.white;
+            }
+            if (sheetMathBoxStyle == null)
+            {
+                sheetMathBoxStyle = new GUIStyle(GUI.skin.box)
+                {
+                    padding = new RectOffset(8, 8, 6, 6),
+                    margin = new RectOffset(2, 2, 2, 2),
+                };
+                sheetMathBoxStyle.normal.background = MakeSolidTex(new Color(0.06f, 0.08f, 0.11f, 0.98f));
+            }
+            if (sheetTipBoxStyle == null)
+            {
+                sheetTipBoxStyle = new GUIStyle(GUI.skin.box)
+                {
+                    richText = true,
+                    wordWrap = true,
+                    fontSize = 12,
+                    alignment = TextAnchor.MiddleLeft,
+                    padding = new RectOffset(8, 8, 5, 5),
+                    margin = new RectOffset(2, 2, 2, 2),
+                };
+                sheetTipBoxStyle.normal.background = MakeSolidTex(new Color(0.13f, 0.16f, 0.12f, 0.96f));
+                sheetTipBoxStyle.normal.textColor = new Color(0.86f, 0.91f, 0.81f);
+            }
             if (cardHeaderStyle == null)
             {
                 cardHeaderStyle = new GUIStyle(GUI.skin.label)
                 {
                     richText = true,
                     wordWrap = true,
-                    fontSize = 13,
+                    fontSize = 14,
                 };
             }
             if (cardBoxStyle == null)
             {
-                var bg = new Texture2D(1, 1);
-                bg.SetPixel(0, 0, new Color(0.14f, 0.17f, 0.21f, 0.95f));
-                bg.Apply();
                 cardBoxStyle = new GUIStyle(GUI.skin.box)
                 {
-                    padding = new RectOffset(8, 8, 6, 6),
-                    margin = new RectOffset(2, 2, 3, 3),
+                    padding = new RectOffset(10, 10, 8, 8),
+                    margin = new RectOffset(2, 2, 4, 4),
                 };
-                cardBoxStyle.normal.background = bg;
+                cardBoxStyle.normal.background = MakeSolidTex(new Color(0.13f, 0.16f, 0.21f, 0.96f));
             }
             if (tooltipStyle == null)
             {
-                var bg = new Texture2D(1, 1);
-                bg.SetPixel(0, 0, new Color(0.06f, 0.08f, 0.11f, 0.98f));
-                bg.Apply();
                 tooltipStyle = new GUIStyle(GUI.skin.box)
                 {
                     richText = true,
@@ -1116,7 +1285,7 @@ namespace Moba.LaneSlice
                     alignment = TextAnchor.UpperLeft,
                     padding = new RectOffset(9, 9, 7, 7),
                 };
-                tooltipStyle.normal.background = bg;
+                tooltipStyle.normal.background = MakeSolidTex(new Color(0.06f, 0.08f, 0.11f, 0.98f));
                 tooltipStyle.normal.textColor = Color.white;
             }
         }

@@ -968,6 +968,24 @@ namespace Moba.LaneSlice
             Assert(liveAfter.Contains($"{qDmgAfter.ToString("0", inv)} central") && liveAfter.Contains($"{qStunAfter.ToString("0.00", inv)}s stun") &&
                    liveAfter.Contains($"{qWindupAfter.ToString("0.00", inv)}s/{qRecoverAfter.ToString("0.00", inv)}s"),
                 "Ogre live sheet must match evaluated live Q damage, stun duration, and split AGI-windup/AS-recover times");
+
+            // Stage A Readability Check: every hero must have 5 structured cards with PlainDescription (no formula math symbols),
+            // KeyFacts, What Scales arrows, MathLines, and PracticalTips matching real formulas.
+            foreach (LaneHeroId hid in new[] { LaneHeroId.Ogre, LaneHeroId.Miravel, LaneHeroId.Swordsman, LaneHeroId.LaserShooter })
+            {
+                LaneHeroSheet.HeroGuideData gd = LaneHeroSheet.BuildHeroGuide(hid, t, null);
+                Assert(gd.Cards.Count == 5 && !string.IsNullOrEmpty(gd.IdentitySummary), $"{hid} guide must provide IdentitySummary and 5 ability cards.");
+                foreach (LaneHeroSheet.AbilityCardData card in gd.Cards)
+                {
+                    Assert(!string.IsNullOrEmpty(card.PlainDescription) &&
+                           !card.PlainDescription.Contains("sqrt(") &&
+                           !card.PlainDescription.Contains("S/(S+") &&
+                           !card.PlainDescription.Contains("100/("),
+                        $"{hid} {card.KeyBadge} PlainDescription must explain ability cleanly without math formulas.");
+                    Assert(card.KeyFacts.Count >= 1 && card.ScalingRows.Count >= 1 && card.MathLines.Count >= 1 && !string.IsNullOrEmpty(card.PracticalTip),
+                        $"{hid} {card.KeyBadge} missing KeyFacts, ScalingRows, MathLines, or PracticalTip.");
+                }
+            }
         }
 
         private static void CheckRepeatedMoveClicksPreserveSpeed()

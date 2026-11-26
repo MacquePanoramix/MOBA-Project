@@ -1,6 +1,6 @@
-# Independent Design & Implementation Review Guide (`v0.2.8`)
+# Independent Design & Implementation Review Guide (`v0.2.8 → v0.3.0`)
 
-This document was prepared for **independent architectural and game-design review** (including ChatGPT's external review of the synchronized GitHub repository `MacquePanoramix/MOBA-Project`). It maps the live source code and explicitly separates **designer-approved rules & scaling relationships** from **provisional prototype formulas, items, and balancing defaults** created for **Ultimate Free MOBA (`Woodland Lane`)**.
+This document was prepared for **independent architectural and game-design review** (including ChatGPT's external review of the synchronized GitHub repository `MacquePanoramix/MOBA-Project`). It maps the live source code and explicitly separates **designer-approved rules & scaling relationships** from **provisional prototype formulas, items, and balancing defaults** created for **Ultimate Free MOBA (`Woodland Lane`)**. See [`docs/11_ITEMS_AND_RESOURCES.md`](11_ITEMS_AND_RESOURCES.md) for the complete **`v0.3.0`** Mana resource system, recipe-based 44-item catalogue, and Part 13 edge-case decisions.
 
 > [!IMPORTANT]
 > Numerical values, ability scaling formulas, and most shop items listed as **Provisional** below have **not** yet been approved as final game design by Luís. Preserve that boundary when reviewing or suggesting changes.
@@ -11,24 +11,26 @@ This document was prepared for **independent architectural and game-design revie
 
 | Concern | Primary Source File(s) |
 | --- | --- |
-| Enums, `ScalingCurve`, `StatFormula`, `LaneNames`, 20-item Catalog, `LaneTuning` (`v0.2.8`), Snapshots | `prototype/Assets/LaneSlice/Runtime/LaneTypes.cs` |
+| Enums, `ScalingCurve`, `StatFormula`, `ResourceCostMode`, `LaneTuning` (`v0.3.0`), Snapshots | `prototype/Assets/LaneSlice/Runtime/LaneTypes.cs` |
+| **44-item Catalog, duplicate-aware `ResolvePurchase` recipes, passive normalization, legacy ID migration (`19→0`)** | `prototype/Assets/LaneSlice/Runtime/LaneItems.cs` |
 | Collision pushout sweep safety (up to `160` steps for extreme knockback) | `prototype/Assets/LaneSlice/Runtime/LaneMap.cs` |
-| Core 30 Hz authoritative sim, `ResistanceFactor`, `CooldownFactor`, Laser W overlap/refreshed slow anti-bypass, combat/tower/shop rules | `prototype/Assets/LaneSlice/Runtime/LaneMatch.cs` |
-| Hero stat recalculation, Global AS curve, Kindred Charm aura, Coward's Shield retreat tracking, Ogre / Miravel / Swordsman | `prototype/Assets/LaneSlice/Runtime/LaneHeroes.cs` |
-| Chain Laser Shooter passive chains, INT Q speed & W radius, animated E step-back & decoy blocking, R accumulator procs | `prototype/Assets/LaneSlice/Runtime/LaneHeroLaser.cs` |
-| Periodic creep waves, outer towers, Miravel Q orbs & R zones, illusion movement stop | `prototype/Assets/LaneSlice/Runtime/LaneMinionsAndTowers.cs` |
+| Core 30 Hz authoritative sim, RCR & Flat/Continuous Mana deduction, `AncientVitality`/`Heat`/`AdaptiveScales`/`CrescentStrike` hooks | `prototype/Assets/LaneSlice/Runtime/LaneMatch.cs` |
+| Hero stat recalculation, Global AS curve, `Wellspring`/`AstralSurge`/`DewSip`/`TidecallerFlow`, `FlightReflex`, Ogre/Miravel/Swordsman | `prototype/Assets/LaneSlice/Runtime/LaneHeroes.cs` |
+| Chain Laser Shooter passive chains, INT Q speed & W radius, Weightlessness W slow, animated E step-back & decoy blocking, R procs | `prototype/Assets/LaneSlice/Runtime/LaneHeroLaser.cs` |
+| Periodic creep waves, outer towers, Miravel Q orbs & R zones, `LingeringRestoration` / `BananaCrescent` combat hooks | `prototype/Assets/LaneSlice/Runtime/LaneMinionsAndTowers.cs` |
+| **Isolated Hero Guide RenderTexture Ability Demo sandbox (`y = -260`, live sliders, loop reset, off when closed)** | `prototype/Assets/LaneSlice/Runtime/LaneAbilityPreview.cs` |
 | Hero-specific control profiles, context-aware command catalog (`Global`, `ConventionalMoba`, `RtsMultiUnit`, future `FlightSteering` / `TwinStick`) | `prototype/Assets/LaneSlice/Runtime/LaneControls.cs` |
-| Extensible personal preferences & keybinding store (`personal_settings.json`), conflict resolution | `prototype/Assets/LaneSlice/Runtime/LaneSettings.cs` |
+| Extensible personal preferences & keybinding store (`personal_settings.json`, incl. `enableAbilityDemos`), conflict resolution | `prototype/Assets/LaneSlice/Runtime/LaneSettings.cs` |
 | RTS multi-unit selection, drag-box query, ownership filtering & control groups `1..4` | `prototype/Assets/LaneSlice/Runtime/LaneRtsSelection.cs` |
 | Scene lifecycle, Unity Relay / TCP wiring, input routing & marquee selection | `prototype/Assets/LaneSlice/Runtime/LaneScene.cs` |
-| Light/heavy Swordsman 3D blades, procedural blade/club SFX, dual-zone Q & R-scaled telegraphs, animated E step | `prototype/Assets/LaneSlice/Runtime/LaneWorld*.cs` |
-| IMGUI lobby, HUD, Ability Cards launcher, Fountain Shop, Settings & Keybind UI | `prototype/Assets/LaneSlice/Runtime/LaneHud.cs`, `LaneHud.Settings.cs` |
-| Data-driven Ability Cards with curve classification & `[Show Math]` formulas | `prototype/Assets/LaneSlice/Runtime/LaneHeroSheet.cs` |
+| Light/heavy Swordsman 3D blades, Banana Crescent ribbon arc, amber deferred damage / Heat / Scales HUD feedback | `prototype/Assets/LaneSlice/Runtime/LaneWorld*.cs` |
+| IMGUI lobby, HUD, two-pane Recipe Shop drawer, Hero Guide viewer (`Show Math` + demos), Settings UI | `prototype/Assets/LaneSlice/Runtime/LaneHud.cs`, `LaneHud.Settings.cs` |
+| Accessible & interactive Hero Guide builder (Mana/Resourceless, scaling rows, explicit `[Show Math]` formulas) | `prototype/Assets/LaneSlice/Runtime/LaneHeroSheet.cs` |
 | Unity Transport + Relay (`MOBA-LANE/1` codec) + Direct TCP fallback | `prototype/Assets/LaneSlice/Runtime/LaneNet.cs` |
 | GitHub static-manifest Windows updater (`latest.json`, rate-limit cooldown, SHA-256 + `ZipArchive` check, rollback recovery, browser fallback) | `prototype/Assets/LaneSlice/Runtime/LaneUpdater.cs` |
-| Sparring Bot AI, builds & dynamic E radius | `prototype/Assets/LaneSlice/Runtime/LaneBot.cs` |
-| Automated unit/net checks & Windows build script | `prototype/Assets/LaneSlice/Editor/LaneMatchChecks.cs`, `LaneNetChecks.cs`, `LaneEditor.cs` |
-| **Reusable automated balancing & stress-test harness (`RunBalanceExperiments`)** | `prototype/Assets/LaneSlice/Editor/LaneBalanceHarness.cs` |
+| Sparring Bot AI with leaf-first recursive recipe stepping via `ResolvePurchase` | `prototype/Assets/LaneSlice/Runtime/LaneBot.cs` |
+| Automated unit/resource/item/stress/preview/net checks & Windows build script | `prototype/Assets/LaneSlice/Editor/LaneMatchChecks.cs`, `LaneResourceAndItemChecks.cs`, `LaneNetChecks.cs`, `LaneEditor.cs` |
+| **Reusable automated balancing & stress-test harness (`balance_report_v030.txt`)** | `prototype/Assets/LaneSlice/Editor/LaneBalanceHarness.cs` |
 
 ---
 
@@ -97,41 +99,22 @@ Full mechanics for **Heroes 1–15** live in [`docs/02_HERO_DESIGNS.md`](02_HERO
 
 ---
 
-## 5. Prototype Items & Effects (`LaneItems.Catalog`, `20` Items — Provisional)
+## 5. Recipe-Based Shop Catalogue (`LaneItems.Catalog`, `44` Items — Approved Concepts & Provisional Numbers)
 
-Only **The Coward's Shield** (ID `12`) has a designer-authored concept (with provisional numbers); all other items, prices, tiers (`Starter` / `Core` / `Capstone`), and effects are provisional:
+> See [`docs/11_ITEMS_AND_RESOURCES.md`](11_ITEMS_AND_RESOURCES.md) for the complete 44-item recipe, price, direct-stat, passive formula, legacy ID migration (`19→0` retired; Forgotten Hourglass not implemented), and **Part 13** technical decisions table.
 
-| ID | Name | Tier | Cost | Stats & Passive | Provenance |
-| --- | --- | --- | --- | --- | --- |
-| `14` | Woodland Salve | Starter | `175g` | `+70 HP`; Moss Mend: `+4.5 HP/s` out of hero combat `5.0s` | AI Provisional |
-| `13` | Miner's Hatchet | Starter | `200g` | `+10 AD`; Cleaver: `+18` bonus physical dmg vs. minions | AI Provisional |
-| `15` | Brawler's Buckler | Starter | `225g` | `+80 HP, +12 Arm`; Sturdy: blocks `6` dmg from minion hits & hero basics | AI Provisional |
-| `3` | Vitality Vest | Starter | `250g` | `+160 HP, +1.4 Regen` | AI Provisional |
-| `1` | Iron Greatsword | Core | `275g` | `+26 AD` | AI Provisional |
-| `2` | Quickstep Dagger | Core | `275g` | `+30% AS` *(scales via `sqrt(1 + 2.4 × BonusAS)`)* | AI Provisional |
-| `4` | Stone Plate | Core | `300g` | `+30 Arm` | AI Provisional |
-| `5` | Null Mantle | Core | `300g` | `+30 MR` | AI Provisional |
-| `6` | Chrono Band | Core | `300g` | `+22 AH` | AI Provisional |
-| `8` | Titan's Knuckle | Core | `300g` | `+25 STR` *(pure scalar)* | AI Provisional |
-| `9` | Zephyr Feather | Core | `300g` | `+25 AGI` *(pure scalar)* | AI Provisional |
-| `10` | Arcane Lens | Core | `300g` | `+25 INT` *(pure scalar)* | AI Provisional |
-| `7` | Courier Boots | Core | `325g` | `+0.80 MS` | AI Provisional |
-| `11` | Kindred Charm | Core | `325g` | `+22% HealPower, +1.6 × HealPower HP/s` universal allied aura (`7.5u`) | AI Provisional (`v0.2.8` universal) |
-| `16` | Blighted Thorn | Core | `375g` | `+16 AD, +12 Arm`; `-35%` healing/regen on hero hit for `3.5s` | AI Provisional |
-| `12` | **The Coward's Shield** | Capstone | `450g` | `+15 Arm/MR, +12 AGI`; sustained retreat from recent hero attacker (`5.0s`) grants `+(20 + 0.85×AGI)` Arm/MR (`0.15s` commit, `1.55s` build, `0.75s` grace, `1.90s`/`0.85s` decay) | **Concept: Luís**; `v0.2.8` rework/numbers Provisional |
-| `17` | Momentum Greaves | Capstone | `575g` | `+0.85 MS, +18 AGI`; moving out of combat builds `+(0.45 + 0.65×AGI/(AGI+45))` MS | AI Provisional |
-| `18` | Colossus Pauldron | Capstone | `625g` | `+220 HP, +20 Arm, +20 STR`; inflicting Stun/KB or `<45% HP` grants `4s` `(65 + 2.0×STR)` shield (`12s` CD) | AI Provisional (`v0.2.8` wording) |
-| `19` | Spellweaver's Hourglass | Capstone | `625g` | `+18 AH, +25 INT`; next hero hit within `5s` after cast deals `+(28 + 85% INT)` magic (`4.5s` CD) | AI Provisional |
-| `20` | Executioner's Grudge | Capstone | `650g` | `+42 AD, +20% AS`; `+18%` damage vs. heroes `<40% HP` | AI Provisional |
+- **21 Approved Components (`101–121`, Mana-free, prices/exact numbers provisional):** `Small Axe (101)`, `Heavy Axe (102)`, `Short Sword (103)`, `Steel Sword (104)`, `Titanstone (105)`, `Windfeather (106)`, `Sage's Eye (107)`, `Life Crystal (108)`, `Heartstone (109)`, `Bloodstone (110, Wounded Strike)`, `Wooden Shield (111)`, `Silver Amulet (112)`, `Reinforced Shield (113)`, `Spring Water (114)`, `Sacred Pearl (115)`, `Healing Elixir (116, Lingering Restoration)`, `Dragon Scale (117, Adaptive Scales)`, `Primordial Blood (118, Primordial Vitality)`, `Iron Dagger (119)`, `Nimble Dagger (120, First Strike)`, `Winged Charm (121, Weightlessness)`.
+- **6 Approved Custom Advanced Items (`201–206`, Mana-free, prices/exact numbers provisional):** `Executioner's Axe (201, Final Judgment)`, `The Coward's Shield (202, Flight Reflex)`, `Chalice of Life (203, Fountain of Life + Lingering Restoration)`, `Draconic Blade (204, Shared Heat Dragonfire/Molten Edge + Adaptive Scales + Primordial Vitality)`, `The Giant's Heart (205, Ancient Vitality + Giant's Might + Immovable Mountain + Primordial Vitality)`, and `Banana Blade (206, Crescent Strike + Slippery Trickster + First Strike + Weightlessness)`.
+- **17 Provisional Starters, Components & Advanced Items (`301–305, 311–315, 401–407`):** Retained starters (`Woodland Salve 301`, `Miner's Hatchet 302`, `Brawler's Buckler 303`, `Vitality Vest 305`), upgraded provisional capstones (`Kindred Censer 401`, `Blighted Thorn 402`, `Momentum Greaves 406`, `Colossus Pauldron 407`), plus the new provisional Mana line (`Mana Dew Vial 304`, `Sapphire Shard 311`, `Dewdrop Charm 312`, `Runed Sigil 313`, `Clockwork Pin 314`, `Wellspring Flask 315`, `Astral Reservoir 403`, `Tidecaller Chalice 404`, `Economist's Tome 405`).
 
 ---
 
-## 6. Balance Experiments & Stress Results (`LaneBalanceHarness.cs` `v0.2.8`)
+## 6. Balance Experiments & Stress Results (`LaneBalanceHarness.cs` `v0.3.0`)
 
-Run `Moba.LaneSlice.LaneEditor.RunBalanceExperiments` to write `prototype/Artifacts/balance_report_v028.txt`:
-- **30 Hz Tick Resolution:** Confirms monotonic AS scaling up to `+1200% AS` (`5.46x`, `7.00/s` theoretical vs `6.00/s` simulated at `2+3` ticks/shot, `LaserRProc = 13.00/s` via accumulator loop) and Ogre AGI up to `400 AGI` (`3.13x`, `0.281s` → `9` ticks = `0.300s`).
-- **Comparable-Gold Build Matrix & 12 Bot Matchups:** Verifies distinct identity tradeoffs across Early (`600g`), Mid (`1500g`), Late (`2400g`), and Extreme 6-slot builds; `11/12` `150s` bot matchups go full time (`Miravel vs LaserShooter` ends at `150s` via Red tower push; Swordsman wins `2-1` vs LaserShooter; Ogre goes `2-2` / `0-1`).
-- **11 Stress Scenarios:** Miravel `0..6` Kindred Charm (`-1.30 → -4.73 HP/s` net enemy drain, `Q×HPwr×R` peak heal bounded `85.0 → 241.4`); Swordsman `0..150` INT W duration (`6.5s → 18.5s`, stays `< 26s` wave gap) & R execute (`24.0% → 41.0%`); Laser `4`/`12`/`20` clustered units under `[R]` (`464.7` → `952.5` → `1133.4` dmg on surviving `2040 HP` target, `0.009` → `0.059 ms/tick`); Ogre `0..150` STR W knockbacks (`2.72u → 7.33u`, `in-bounds=True`, `0` tunneling).
+Run `Moba.LaneSlice.LaneEditor.RunBalanceExperiments` to write `prototype/Artifacts/balance_report_v030.txt`:
+- **30 Hz Tick Resolution & First Strike Quantization:** Confirms monotonic AS scaling up to `+1200% AS` (`5.46x`, `7.00/s` theoretical vs `6.00/s` simulated at `2+3` ticks/shot, `LaserRProc = 13.00/s` via accumulator loop), Ogre AGI up to `400` (`3.13x`, `9` ticks = `0.300s`), and `FirstStrike` on `0.22s` Laser quantizing cleanly down to `2` ticks (`0.067s`) at `0.065s` floor without altering the approved global AS curve.
+- **Comparable-Gold Matrix & Burst vs. 12s Sustained / Disengage / 45s Mana Endurance:** Evaluates actual `ResolvePurchase` expenditure with post-loadout bot gold locked to zero across early/mid/late custom, Mana, and cross-role builds; verifies Coward's Shield chase mitigation (`+43.8` peak resists, `468.2` vs `434.0` HP) and clear 45s Laser Mana differentiation (`No Item` OOM `@24.0s` / `9` casts → `Mana Dew Vial` OOM `@40.5s` / `11` casts → `Wellspring Flask` Never OOM / `255` end Mana → `Astral Reservoir` Never OOM / `573` end Mana → `Economist's Tome` `-21% RCR + 12%` refund / `14` casts).
+- **12 Bot Matchups (150s) & Stress Scenarios:** Tracks `Adv` completion timings (`Miravel` finishes `Tidecaller Chalice` `@133s`), `LowMana` windows (`0–27.8s`), `0..6` Kindred Censer drain (`-1.30 → -5.67 HP/s` net enemy drain), `20`-unit Laser `[R]` cluster (`0.056 ms/tick`), Ogre `0..150` STR `[W]` knockbacks (`2.72u → 7.33u`, in-bounds), and combined 4-capstone multi-passive stress (`AD 172`, `1545 HP`, `Heat=8`, `Scales=6`, `Deferred=103.6`).
 
 ---
 

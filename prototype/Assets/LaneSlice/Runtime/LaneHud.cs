@@ -1058,7 +1058,7 @@ namespace Moba.LaneSlice
             if (item.AddMaxMana != 0f) parts.Add($"+{item.AddMaxMana:0} Max Mana");
             if (item.AddManaRegen != 0f) parts.Add($"+{item.AddManaRegen:0.#} Mana/s");
             if (item.AddPercentManaRegen != 0f) parts.Add($"+{item.AddPercentManaRegen * 100f:0.##}% Max Mana/s");
-            if (item.AddResourceCostReduction != 0f) parts.Add($"+{item.AddResourceCostReduction * 100f:0} RCR");
+            if (item.AddResourceCostReduction != 0f) parts.Add($"+{item.AddResourceCostReduction:0} RCR");
             return string.Join(" • ", parts);
         }
 

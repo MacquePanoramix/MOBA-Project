@@ -119,7 +119,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &773765346
+--- !u!1 &199912748
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -127,8 +127,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 773765348}
-  - component: {fileID: 773765347}
+  - component: {fileID: 199912750}
+  - component: {fileID: 199912749}
   m_Layer: 0
   m_Name: LaneController
   m_TagString: Untagged
@@ -136,13 +136,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &773765347
+--- !u!114 &199912749
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 773765346}
+  m_GameObject: {fileID: 199912748}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: efa4c4f76e3da3e4691312752fe3ed96, type: 3}
@@ -535,16 +535,121 @@ MonoBehaviour:
       halfPoint: 0
       minValue: 0
       maxValue: 0
-    spellweaverEchoFormula:
-      baseValue: 28
+    bloodstoneMaxAmp: 0.14
+    finalJudgmentFormula:
+      baseValue: 0.24
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 0.28
+      halfPoint: 65
+      minValue: 0
+      maxValue: 0
+    lingeringRestorationShare: 0.28
+    lingeringRestorationDuration: 3.5
+    fountainOfLifeFormula:
+      baseValue: 0.28
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 0.55
+      halfPoint: 0.65
+      minValue: 0
+      maxValue: 0
+    adaptiveScalesMaxStacks: 6
+    adaptiveScalesStackHalfPoint: 3
+    adaptiveScalesHoldDuration: 3.5
+    adaptiveScalesDecayStep: 1.2
+    adaptiveScalesMaxResistFormula:
+      baseValue: 20
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 35
+      halfPoint: 65
+      minValue: 0
+      maxValue: 0
+    primordialVitalityMaxRegen: 12
+    draconicHeatMaxStacks: 8
+    draconicHeatHalfPoint: 4
+    draconicHeatHoldDuration: 3.5
+    draconicHeatDecayStep: 1
+    dragonfireDpsFormula:
+      baseValue: 18
       perRank: 0
       curve: 0
-      coeffOrMaxBonus: 0.85
+      coeffOrMaxBonus: 0.55
       halfPoint: 0
       minValue: 0
       maxValue: 0
-    executionerGrudgeAmp: 0.18
-    executionerGrudgeThreshold: 0.4
+    moltenEdgeShredFormula:
+      baseValue: 14
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 26
+      halfPoint: 65
+      minValue: 0
+      maxValue: 0
+    ancientVitalityDeferFractionFormula:
+      baseValue: 0.16
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 0.34
+      halfPoint: 1800
+      minValue: 0
+      maxValue: 0.7
+    ancientVitalityDurationFormula:
+      baseValue: 2.4
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 2.6
+      halfPoint: 80
+      minValue: 0.5
+      maxValue: 0
+    giantsMightAdPerMaxHp: 0.03
+    immovableMountainFormula:
+      baseValue: 0
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 0.65
+      halfPoint: 70
+      minValue: 0
+      maxValue: 0.9
+    bananaCrescentCoeffFormula:
+      baseValue: 0.28
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 0.52
+      halfPoint: 70
+      minValue: 0
+      maxValue: 0
+    bananaCrescentRadiusFormula:
+      baseValue: 2.3
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 1.75
+      halfPoint: 75
+      minValue: 1.4
+      maxValue: 0
+    slipperyTricksterBonusFormula:
+      baseValue: 0.7
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 1.8
+      halfPoint: 60
+      minValue: 0
+      maxValue: 0
+    slipperyTricksterDuration: 2.2
+    slipperyTricksterCooldown: 14
+    firstStrikeInactivitySeconds: 3
+    firstStrikeReductionFormula:
+      baseValue: 0.22
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 0.43
+      halfPoint: 60
+      minValue: 0
+      maxValue: 0.75
+    firstStrikeMinRawWindup: 0.08
+    firstStrikeMinFinalWindup: 0.065
+    weightlessnessSlowReduction: 0.25
     laserSpeed: 4
     laserTurnRate: 560
     laserBasicRange: 6
@@ -670,13 +775,49 @@ MonoBehaviour:
       halfPoint: 50
       minValue: 0.5
       maxValue: 0
---- !u!4 &773765348
+    resourceCostReductionFormula:
+      baseValue: 0
+      perRank: 0
+      curve: 1
+      coeffOrMaxBonus: 0.65
+      halfPoint: 65
+      minValue: 0
+      maxValue: 0.65
+    fountainManaPerSec: 48
+    miravelBaseMana: 320
+    miravelManaPerLevel: 32
+    miravelBaseManaRegen: 2.6
+    miravelManaRegenPerLevel: 0.25
+    miravelWManaBase: 55
+    miravelWManaPerRank: 10
+    miravelEManaBase: 45
+    miravelEManaPerRank: 10
+    miravelRManaPerSecBase: 26
+    miravelRManaPerSecPerRank: 8
+    miravelRMinStartFraction: 0.25
+    laserBaseMana: 300
+    laserManaPerLevel: 28
+    laserBaseManaRegen: 2.2
+    laserManaRegenPerLevel: 0.22
+    laserQManaBase: 65
+    laserQManaPerRank: 13
+    laserWManaBase: 45
+    laserWManaPerRank: 7
+    laserEManaFlat: 35
+    laserRManaUpfront: 110
+    manaDewOutOfCombat: 5
+    manaDewOutOfCombatRegen: 1.5
+    wellspringPctManaRegen: 0.004
+    astralSurgePctManaRegen: 0.007
+    tidecallerMaxMissingManaRegen: 6
+    frugalFocusRefundRatio: 0.12
+--- !u!4 &199912750
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 773765346}
+  m_GameObject: {fileID: 199912748}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -685,7 +826,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1324698636
+--- !u!1 &278907180
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -693,8 +834,91 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1324698638}
-  - component: {fileID: 1324698637}
+  - component: {fileID: 278907182}
+  - component: {fileID: 278907181}
+  m_Layer: 0
+  m_Name: Main Camera
+  m_TagString: MainCamera
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!20 &278907181
+Camera:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 278907180}
+  m_Enabled: 1
+  serializedVersion: 2
+  m_ClearFlags: 1
+  m_BackGroundColor: {r: 0.11, g: 0.14, b: 0.12, a: 1}
+  m_projectionMatrixMode: 1
+  m_GateFitMode: 2
+  m_FOVAxisMode: 0
+  m_Iso: 200
+  m_ShutterSpeed: 0.005
+  m_Aperture: 16
+  m_FocusDistance: 10
+  m_FocalLength: 50
+  m_BladeCount: 5
+  m_Curvature: {x: 2, y: 11}
+  m_BarrelClipping: 0.25
+  m_Anamorphism: 0
+  m_SensorSize: {x: 36, y: 24}
+  m_LensShift: {x: 0, y: 0}
+  m_NormalizedViewPortRect:
+    serializedVersion: 2
+    x: 0
+    y: 0
+    width: 1
+    height: 1
+  near clip plane: 0.3
+  far clip plane: 1000
+  field of view: 45
+  orthographic: 0
+  orthographic size: 5
+  m_Depth: 0
+  m_CullingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_RenderingPath: -1
+  m_TargetTexture: {fileID: 0}
+  m_TargetDisplay: 0
+  m_TargetEye: 3
+  m_HDR: 1
+  m_AllowMSAA: 1
+  m_AllowDynamicResolution: 0
+  m_ForceIntoRT: 0
+  m_OcclusionCulling: 1
+  m_StereoConvergence: 10
+  m_StereoSeparation: 0.022
+--- !u!4 &278907182
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 278907180}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0.4461978, y: 0, z: 0, w: 0.89493436}
+  m_LocalPosition: {x: 0, y: 17.5, z: -13.2}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1986769674
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1986769676}
+  - component: {fileID: 1986769675}
   m_Layer: 0
   m_Name: Directional Light
   m_TagString: Untagged
@@ -702,13 +926,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!108 &1324698637
+--- !u!108 &1986769675
 Light:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1324698636}
+  m_GameObject: {fileID: 1986769674}
   m_Enabled: 1
   serializedVersion: 13
   m_Type: 1
@@ -767,99 +991,16 @@ Light:
   m_LightUnit: 1
   m_LuxAtDistance: 1
   m_EnableSpotReflector: 1
---- !u!4 &1324698638
+--- !u!4 &1986769676
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1324698636}
+  m_GameObject: {fileID: 1986769674}
   serializedVersion: 2
   m_LocalRotation: {x: 0.4213894, y: -0.24774122, z: 0.12083147, w: 0.8639763}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1867441571
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1867441573}
-  - component: {fileID: 1867441572}
-  m_Layer: 0
-  m_Name: Main Camera
-  m_TagString: MainCamera
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!20 &1867441572
-Camera:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1867441571}
-  m_Enabled: 1
-  serializedVersion: 2
-  m_ClearFlags: 1
-  m_BackGroundColor: {r: 0.11, g: 0.14, b: 0.12, a: 1}
-  m_projectionMatrixMode: 1
-  m_GateFitMode: 2
-  m_FOVAxisMode: 0
-  m_Iso: 200
-  m_ShutterSpeed: 0.005
-  m_Aperture: 16
-  m_FocusDistance: 10
-  m_FocalLength: 50
-  m_BladeCount: 5
-  m_Curvature: {x: 2, y: 11}
-  m_BarrelClipping: 0.25
-  m_Anamorphism: 0
-  m_SensorSize: {x: 36, y: 24}
-  m_LensShift: {x: 0, y: 0}
-  m_NormalizedViewPortRect:
-    serializedVersion: 2
-    x: 0
-    y: 0
-    width: 1
-    height: 1
-  near clip plane: 0.3
-  far clip plane: 1000
-  field of view: 45
-  orthographic: 0
-  orthographic size: 5
-  m_Depth: 0
-  m_CullingMask:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  m_RenderingPath: -1
-  m_TargetTexture: {fileID: 0}
-  m_TargetDisplay: 0
-  m_TargetEye: 3
-  m_HDR: 1
-  m_AllowMSAA: 1
-  m_AllowDynamicResolution: 0
-  m_ForceIntoRT: 0
-  m_OcclusionCulling: 1
-  m_StereoConvergence: 10
-  m_StereoSeparation: 0.022
---- !u!4 &1867441573
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1867441571}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0.4461978, y: 0, z: 0, w: 0.89493436}
-  m_LocalPosition: {x: 0, y: 17.5, z: -13.2}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -869,6 +1010,6 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 1324698638}
-  - {fileID: 1867441573}
-  - {fileID: 773765348}
+  - {fileID: 1986769676}
+  - {fileID: 278907182}
+  - {fileID: 199912750}

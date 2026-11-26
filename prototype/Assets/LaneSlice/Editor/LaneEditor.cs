@@ -100,37 +100,37 @@ namespace Moba.LaneSlice
    - Right-Click enemy hero/minion/tower: Continuous auto-attack (unavailable on Ogre, who approaches instead)
    - [A]: Quick-Cast Attack-Move toward cursor (acquires closest enemy near cursor or path; disabled on Ogre)
    - [S]: Stop movement & cancelable wind-up / Miravel R Sanctum (respects committed ability casts & Ogre/Laser R channels)
-   - [Q / W / E / R]: Quick-Cast abilities toward cursor ([Ctrl + key] or click [+] to level up)
-   - [F10] or Settings button: Personal Settings (Optional RTS Controls, customizable keybindings with conflict handling, saved outside update folder)
+   - [Q / W / E / R]: Quick-Cast abilities toward cursor ([Ctrl + key] or click [+] to level up; Miravel & Chain Laser spend Mana)
+   - [F10] or Settings button: Personal Settings (Optional RTS Controls, Ability Video Previews toggle, customizable keybindings stored outside the install directory so updates never wipe them)
    - Optional RTS Controls (off by default on conventional heroes; always enabled for RTS-required heroes like future Kobold King):
        Left-Drag box selection, Shift-click/add, [F2] Hero, [F3] All Units, [Tab] Cycle, [Ctrl+1..4] Assign Group, [1..4] Recall (double-tap centers)
-   - [B]: Toggle Fountain Shop (20 tiered Starter/Core/Capstone items + 70% sell refund inside Fountain or while Respawning)
-   - [C]: Toggle Hero Numbers & Scaling cards (all base stats, scaling rates, [Show Math] toggle, and live match numbers)
+   - [B]: Toggle Fountain Shop (44 recipe-based items across 21 Approved Components, 6 Approved Custom Advanced Items & 17 Provisional Starters/Components/Mana Capstones; 70% sell refund inside Fountain or while Respawning; expandable [Show Math] details)
+   - [C]: Toggle Interactive Hero Guide (accessible summary, scaling rows, explicit [Show Math] formulas, and isolated looping Ability Demo video previews with live stat sliders)
    - [Y]: Toggle Locked / Free Camera (Arrow keys, screen-edge, or Middle-Mouse drag to pan; [Space] centers)
    - [F1]: Toggle controls overlay
    - Lane Economy: Last-hitting enemy minions awards Gold + CS; being alive within 12u of an enemy minion death awards full 100% XP even without last-hitting.
 
-2. FOUR PLAYABLE HEROES (v0.2.8 — The Scaling Patch):
+2. FOUR PLAYABLE HEROES, RESOURCE SYSTEM & GLOBAL ATTACK SPEED:
    - Global Attack Speed: EffectiveAS = sqrt(1 + k × BonusAS) (unbounded diminishing returns, no hard cap; governs basic attacks, Swordsman 1st/2nd strikes, Ogre recovery speed, and Laser R proc frequency).
-   - Ogre: No basic attacks, CC-immune during casts. AD=damage, AGI=Wind-up speed (sqrt), Attack Speed=Recovery speed (sqrt), STR=Outer Q width / W sqrt knockback / E radius / Q&E stuns / R size multiplier (ability areas scale proportionally with R size!). Q features mutually exclusive Central slam (full dmg+stun) & Outer shockwave (reduced dmg, 0 CC).
-   - Miravel (Hero Luis): Heal Power (starts 100%, grows permanently on takedowns) scales Passive ally regen & enemy regen drain (can push enemy regen NEGATIVE for real HP loss!), Q orb heal/dmg, and R max heal/dmg amps. INT scales Aura/Orb/R radii and E curse DPS. [W] stealth + cursor decoy, [E] stealth-safe curse ward, [R] ramping sanctum.
-   - Old Man Swordsman: Asymmetric Twin-Blade: 1st Light strike (faster, lower AD) procs [W] Stance Temper (self+enemy resist stacks, INT scales durations separately); 2nd Heavy strike (slower heavy greatsword, higher AD; AGI speeds transition) procs [E] Vital Draw (STR % Max HP magic + Heal Power linear heal). [Q] AGI wind-up slow arc (fixed recovery), [R] AD dmg, STR execute, AGI dash speed, INT target memory.
-   - Chain Laser Shooter: Passive endless bounces (INT bounce radius & stack amp). [Q] AD dmg + INT sqrt beam extension speed, [W] INT shock dmg/radius + bounded/sqrt overlapping & refreshed slow, [E] animated calm single step-back deploying decoy upon completion (AGI speeds step, rank-only stun), [R] INT beam duration + AS proc rate + AGI move speed retention (<100%).
+   - Resource System: Miravel & Chain Laser use Mana (continuous regen inside & outside combat, bounded Resource Cost Reduction <65%); Ogre & Old Man Swordsman are Resourceless.
+   - Ogre (Resourceless): No basic attacks, CC-immune during casts. AD=damage, AGI=Wind-up speed (sqrt), Attack Speed=Recovery speed (sqrt), STR=Outer Q width / W sqrt knockback / E radius / Q&E stuns / R size multiplier (ability areas scale proportionally with R size!).
+   - Miravel (Hero Luis — Mana): Heal Power (starts 100%, grows permanently on takedowns) scales Passive ally regen & enemy regen drain (can push enemy regen NEGATIVE for real HP loss!), Mana-free Q orb heal/dmg, and R amps. INT scales radii & E curse DPS. [W] stealth + cursor decoy, [E] stealth-safe curse ward, [R] continuous Mana-drain ramping sanctum.
+   - Old Man Swordsman (Resourceless): Asymmetric Twin-Blade: 1st Light strike (faster, lower AD) procs [W] Stance Temper; 2nd Heavy strike (higher AD; AGI speeds transition) procs [E] Vital Draw (STR % Max HP magic + Heal Power heal). [Q] AGI wind-up slow arc, [R] AD dmg, STR execute, AGI dash speed, INT target memory.
+   - Chain Laser Shooter (Mana): Mana-free endless bouncing basic lasers (INT radius & stack amp). [Q] AD dmg + INT sqrt extension, [W] INT shock dmg/radius + overlapping slow, [E] animated calm single step-back deploying stun decoy, [R] upfront Mana cost, INT beam duration + AS proc rate + AGI move speed retention.
 
-3. ITEM HIGHLIGHTS:
-   - The Coward's Shield now requires sustained genuine movement away from a recent hero attacker (no stationary facing exploit; short grace period on brief stops/stuns; faster decay pursuing).
-   - Kindred Charm's allied regeneration aura now works on any hero purchasing it.
-   - Colossus Pauldron shield triggers when its owner inflicts Stun/Knockback (or drops <45% HP).
+3. ITEM & COMBAT FEEDBACK HIGHLIGHTS:
+   - 6 Approved Custom Advanced Items (Zero Mana stats): Executioner's Axe (Final Judgment), The Coward's Shield (Flight Reflex sustained retreat Arm/MR), Chalice of Life (Fountain of Life + Lingering Restoration), Draconic Blade (Shared Heat Dragonfire + Molten Edge + Adaptive Scales + Primordial Vitality), The Giant's Heart (Ancient Vitality amber deferred-damage HP bar + Giant's Might + Immovable Mountain), Banana Blade (Crescent Strike + Slippery Trickster + First Strike + Weightlessness).
+   - Provisional Mana Line (17 temporary starters/components/capstones): Mana Dew Vial, Sapphire Shard, Dewdrop Charm, Runed Sigil, Wellspring Flask, Astral Reservoir, Tidecaller Chalice, Economist's Tome.
+   - Status HUD Indicators: HEAT stacks, SCALES stacks, DEFERRED damage payout bar, FIRST STRIKE readiness, and SLIPPERY trickster speed/cooldown.
 
-3. MULTIPLAYER (UNITY RELAY OR DIRECT TCP):
+4. MULTIPLAYER (UNITY RELAY OR DIRECT TCP):
    - Unity Relay (Recommended): Host clicks 'Host Relay Room' -> Copy the 6-letter Room Code -> Guest clicks Paste & 'Join Code'. Zero port-forwarding or extra tools needed!
    - Direct TCP Fallback (:47777): Click 'Host TCP' (or pass '-laneHost 0.0.0.0:47777' / '-laneJoin <host>:47777').
 
-4. ONE-CLICK UPDATES & DIRECT DOWNLOAD FALLBACK:
-   - In the Lobby bottom bar, click 'Check for Updates'. Starting in v0.2.9, update checks read a free public static manifest (no GitHub REST API rate limits) and verify exact byte size + SHA-256 + ZIP integrity before installing.
+5. ONE-CLICK UPDATES & DIRECT DOWNLOAD FALLBACK:
+   - In the Lobby bottom bar, click 'Check for Updates'. Static-manifest checks avoid GitHub REST API rate limits and verify exact byte size + SHA-256 + ZIP integrity before installing.
    - If your network blocks or rate-limits GitHub, click 'Open Download Page' (or 'Releases') to download the latest zip directly in your browser without using the GitHub API:
      https://github.com/MacquePanoramix/MOBA-Project/releases/latest/download/WoodlandLane-Windows.zip
-   - Your personal settings & keybindings live outside the install folder and always survive updates.
 ";
             File.WriteAllText(Path.Combine(WindowsBuildDir, "HOW_TO_PLAY.txt"), howTo);
             File.WriteAllText(Path.Combine(WindowsBuildDir, "version.txt"), LaneUpdater.BuildVersion);

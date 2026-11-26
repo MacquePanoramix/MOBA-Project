@@ -304,6 +304,11 @@ namespace Moba.LaneSlice
             {
                 raw &= ~ItemPassiveFlags.WoundedStrike;
             }
+            // Provisional Mana upgrade rule (Stage F): Astral Reservoir's Astral Surge supersedes Wellspring Flask's Wellspring.
+            if ((raw & ItemPassiveFlags.AstralSurge) != 0)
+            {
+                raw &= ~ItemPassiveFlags.Wellspring;
+            }
             return raw;
         }
 
@@ -348,15 +353,59 @@ namespace Moba.LaneSlice
                 },
                 summary: "+80 HP, +12 Arm • Sturdy (Blocks 6 dmg vs basics/minions)"),
 
+            new LaneItemDef(LaneItemIds.ManaDewVial, "Mana Dew Vial", 200, LaneItemCategory.Starter, isApproved: false,
+                fantasy: "Morning-gathered arcane dew corked for steady lane casting.",
+                addMaxMana: 90f, addManaRegen: 1.2f,
+                passiveFlags: ItemPassiveFlags.DewSip,
+                passives: new[]
+                {
+                    new ItemPassiveDoc("Dew Sip", "Grants bonus Mana Regeneration while out of enemy hero combat for 5.0s.",
+                        new[] { "Trigger: Out of hero combat ≥5s • Fixed bonus regen" },
+                        "Out-of-combat sustain: +1.5 Mana/s after 5.0s without taking hero damage."),
+                },
+                summary: "+90 Max Mana, +1.2 Mana/s • Dew Sip (+1.5 Mana/s out of combat • Provisional)"),
+
             new LaneItemDef(LaneItemIds.VitalityVest, "Vitality Vest", 250, LaneItemCategory.Starter, isApproved: false,
                 fantasy: "Quilted jerkin sewn with hearty roots for simple early toughness.",
                 addMaxHp: 160f, addRegen: 1.5f,
                 summary: "+160 HP, +1.5 HP/s"),
 
+            new LaneItemDef(LaneItemIds.SapphireShard, "Sapphire Shard", 200, LaneItemCategory.ProvisionalComponent, isApproved: false,
+                fantasy: "Chipped blue prism expanding an arcanist's working reserve.",
+                addMaxMana: 160f,
+                summary: "+160 Max Mana (Provisional)"),
+
+            new LaneItemDef(LaneItemIds.DewdropCharm, "Dewdrop Charm", 220, LaneItemCategory.ProvisionalComponent, isApproved: false,
+                fantasy: "Porous talisman that condenses ambient ether into steady replenishment.",
+                addManaRegen: 2.8f,
+                summary: "+2.8 Mana/s (Provisional)"),
+
+            new LaneItemDef(LaneItemIds.RunedSigil, "Runed Sigil", 280, LaneItemCategory.ProvisionalComponent, isApproved: false,
+                fantasy: "Inscribed discipline seal that trims wasted spellcraft from every cast.",
+                addResourceCostReduction: 20f,
+                summary: "+20 RCR (Diminishing cost reduction <65% • Provisional)"),
+
             new LaneItemDef(LaneItemIds.ClockworkPin, "Clockwork Pin", 280, LaneItemCategory.ProvisionalComponent, isApproved: false,
                 fantasy: "Brass winding pin keeping ability rhythm crisp without granting attributes.",
                 addAbilityHaste: 22f,
                 summary: "+22 Ability Haste (CD = Base × 100 / (100 + AH) • Provisional)"),
+
+            new LaneItemDef(LaneItemIds.WellspringFlask, "Wellspring Flask", 520, LaneItemCategory.ProvisionalComponent, isApproved: false,
+                fantasy: "Pressurized crystal flask cycling a deeper reserve back into steady flow.",
+                addMaxMana: 180f, addManaRegen: 2.8f,
+                passiveFlags: ItemPassiveFlags.Wellspring,
+                recipe: new[]
+                {
+                    new RecipeIngredient(LaneItemIds.SapphireShard, 1),
+                    new RecipeIngredient(LaneItemIds.DewdropCharm, 1),
+                },
+                passives: new[]
+                {
+                    new ItemPassiveDoc("Wellspring", "Regenerates a percentage of your Maximum Mana every second (unique; replaced by Astral Surge).",
+                        new[] { "Max Mana → Flat Mana/s gain [Linear]" },
+                        "Bonus Mana/s = +0.4% × MaxMana/s (Sapphire Shard + Dewdrop Charm + 100g)."),
+                },
+                summary: "+180 Max Mana, +2.8 Mana/s • Wellspring (+0.4% Max Mana/s • Provisional)"),
 
             // =========================================================================
             // 21 APPROVED COMPONENTS (ZERO Mana / ManaRegen / RCR)
@@ -736,6 +785,59 @@ namespace Moba.LaneSlice
                         "Enemy healing & positive regen × 0.65 for 3.5s."),
                 },
                 summary: "+22 AD, +24 Arm • Wither (-35% enemy healing for 3.5s • Provisional)"),
+
+            new LaneItemDef(LaneItemIds.AstralReservoir, "Astral Reservoir", 1120, LaneItemCategory.ProvisionalAdvanced, isApproved: false,
+                fantasy: "Starlit vessel holding a deep arcane sea that endlessly feeds itself.",
+                addMaxMana: 340f, addManaRegen: 3.5f, addIntelligence: 30f,
+                passiveFlags: ItemPassiveFlags.AstralSurge,
+                recipe: new[]
+                {
+                    new RecipeIngredient(LaneItemIds.WellspringFlask, 1),
+                    new RecipeIngredient(LaneItemIds.SagesEye, 1),
+                },
+                passives: new[]
+                {
+                    new ItemPassiveDoc("Astral Surge", "Generates Percentage Maximum Mana Regeneration per second. Supersedes Wellspring Flask's Wellspring.",
+                        new[] { "Max Mana → Flat Mana/s gain [Linear]" },
+                        "Bonus Mana/s = +0.7% × MaxMana/s (supersedes Wellspring; Wellspring Flask + Sage's Eye + 300g)."),
+                },
+                summary: "+340 Max Mana, +3.5 Mana/s, +30 INT • Astral Surge (+0.7% Max Mana/s • Provisional)"),
+
+            new LaneItemDef(LaneItemIds.TidecallerChalice, "Tidecaller Chalice", 1080, LaneItemCategory.ProvisionalAdvanced, isApproved: false,
+                fantasy: "Tidal basin that rushes fresh Mana back as your reserves run dry.",
+                addManaRegen: 4.2f, addHealPower: 0.26f, addAbilityHaste: 25f,
+                passiveFlags: ItemPassiveFlags.TidecallerFlow,
+                recipe: new[]
+                {
+                    new RecipeIngredient(LaneItemIds.DewdropCharm, 1),
+                    new RecipeIngredient(LaneItemIds.SacredPearl, 1),
+                    new RecipeIngredient(LaneItemIds.ClockworkPin, 1),
+                },
+                passives: new[]
+                {
+                    new ItemPassiveDoc("Tidecaller Flow", "Grants extra Mana Regeneration scaling linearly as your current Mana percentage drops.",
+                        new[] { "Missing Mana % → Bonus Mana/s [Linear] • No attribute scaling" },
+                        "Bonus Mana/s = +6.0 × (1 − Mana/MaxMana) linearly."),
+                },
+                summary: "+4.2 Mana/s, +26% HealPower, +25 AH • Tidecaller Flow (+0–6 Mana/s missing Mana • Provisional)"),
+
+            new LaneItemDef(LaneItemIds.EconomistsTome, "Economist's Tome", 1160, LaneItemCategory.ProvisionalAdvanced, isApproved: false,
+                fantasy: "Marginalia-packed ledger that recycles spare magic back into your pool after every spell.",
+                addResourceCostReduction: 32f, addAbilityHaste: 25f, addIntelligence: 30f,
+                passiveFlags: ItemPassiveFlags.FrugalFocus,
+                recipe: new[]
+                {
+                    new RecipeIngredient(LaneItemIds.RunedSigil, 1),
+                    new RecipeIngredient(LaneItemIds.ClockworkPin, 1),
+                    new RecipeIngredient(LaneItemIds.SagesEye, 1),
+                },
+                passives: new[]
+                {
+                    new ItemPassiveDoc("Frugal Focus", "After casting a Flat-cost Mana ability, refunds 12% of the Mana actually spent. Does not reduce upfront cost or refund continuous/zero-cost skills.",
+                        new[] { "Actual Flat Mana spent → Immediate post-cast refund (clamped to Max Mana)" },
+                        "Post-cast refund = 12% × FlatManaSpent (requires full upfront cost first)."),
+                },
+                summary: "+32 RCR, +25 AH, +30 INT • Frugal Focus (12% Flat Mana refund • Provisional)"),
 
             new LaneItemDef(LaneItemIds.MomentumGreaves, "Momentum Greaves", 1100, LaneItemCategory.ProvisionalAdvanced, isApproved: false,
                 fantasy: "Feather-trimmed striders built for unhurried map rotations.",

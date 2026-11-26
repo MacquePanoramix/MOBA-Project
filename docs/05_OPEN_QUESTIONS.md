@@ -13,9 +13,18 @@
 - How are CC durations, tenacity, diminishing returns and cleansing balanced?
 - How should the three attributes relate thematically to certain mechanics, while keeping zero inherent bonuses?
 
-## Hero rules & v0.2.8 Open Policies
+## Hero rules & v0.2.8–v0.3.0 Open Policies
 
-- **Kindred Charm aura scope & stacking:** `v0.2.8` detaches Kindred Charm from Miravel and gives it a universal allied regen aura on any hero (`7.5u` provisional radius, `+1.6 × HealPower HP/s`), scaling with holder HealPower. Exact aura radius, whether allied aura sources stack when held by multiple heroes, and whether holder self-regen also includes it remain open.
+- **Part 13 Item & Resource Technical Defaults (`v0.3.0`, see [`docs/11_ITEMS_AND_RESOURCES.md`](11_ITEMS_AND_RESOURCES.md#L6-part-13-conservative-technical-decisions-open-for-designer-review)):**
+  - Unique named passive normalization vs. duplicate item stacking (`Final Judgment` supersedes `Wounded Strike`; `Astral Surge` supersedes `Wellspring`).
+  - `Lingering Restoration` excluded from triggering itself and from `Fountain of Life` amplification.
+  - `Ancient Vitality` shield-first order, unmitigated non-deferred even payout, sale/out-of-combat persistence, death reset, and original-attacker attribution.
+  - Shared per-attacker `Heat` (`Dragonfire` + flat `Molten Edge` shred vs. percentage shred) and per-attacker `Adaptive Scales` (excluding DoTs).
+  - `First Strike` windup-start consumption & 30 Hz discrete tick quantization around `0.065s–0.100s` floor vs. preserving approved global AS curve.
+  - `Weightlessness` multiplicative `-25%` slow-strength reduction preserving full durations, plus exact slow-stacking interaction order.
+  - **Forgotten Hourglass:** Intentionally **shelved** (legacy ID `19` retired) until Luís finalizes its fantasy & Borrowed Time identity.
+  - **Provisional `17` Shop Items & Mana Economy Numbers:** All item costs, stat budgets, `304/311–315/401–407` provisional items, and Miravel/Laser Mana pools, regen, and RCR curve parameters (`0.65 × RCR / (RCR + 65)`) remain open for collaborative review and human playtest tuning.
+- **Kindred Censer (formerly Charm) aura scope & stacking:** `v0.2.8` detached Kindred Censer from Miravel and gave it a universal allied regen aura on any hero (`7.5u` provisional radius, `+2.2 × HealPower HP/s` in `v0.3.0` recipe), scaling with holder HealPower. Exact aura radius, whether allied aura sources stack when held by multiple heroes, and whether holder self-regen also includes it remain open.
 - **Miravel negative natural regeneration:** `v0.2.8` fixes Miravel's passive so enemy HP/s can drop below `0` and kill targets (crediting Miravel with kill/gold/XP/takedown HealPower), bypassing Grievous Wounds/resistances/shields/`[E]` Ward provisionally as natural negative regeneration. Exact classification (natural regen loss vs. heal-reduction/DoT interaction and whether shields or MR absorb negative regen) remains open.
 - **Ogre animation CC immunity & `[R]`:** `ogreImmuneDuringRecovery` defaults `true` in `v0.2.8` (`ogreImmuneDuringRecovery` toggle in `LaneTuning`): does CC immunity end immediately at impact or extend into recovery (`BaseRecover / EffectiveAS`)? Also open: max `[R]` queue length beyond provisional `4`, incomplete-sequence rules, and `[E]` Ward stacking per strike (`ogreRStacksCursePerStrike = false`).
 - **Old Man Swordsman `[W]`/`[E]`/`[R]`:** `swordsmanDisplaceCancelsSecondHit` defaults `true` (interrupting Strike 2 via displacement or cancel denies `[E]` Vital Draw healing). Open: whether `[R]` Finishing Cross should also allow resetting cooldown on minion kills (in addition to hero kills) or remain hero-kill reset only; exact resistance rules for `[W]` Stance Temper; and whether `[R]` execute threshold checks before or after slash damage.

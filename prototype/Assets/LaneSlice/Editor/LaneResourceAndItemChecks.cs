@@ -25,7 +25,12 @@ namespace Moba.LaneSlice
             CheckGiantsHeartPassives();
             CheckBananaBladeNimbleDaggerAndWingedCharmPassives();
 
-            Debug.Log("[LaneResourceAndItemChecks] All Stage C-E Resource, Recipe, Component & Custom Item checks passed.");
+            // Stage F & G (Part 12.4 + 12.5 + Provisional Mana Catalogue & Bot Recipe Stepping)
+            CheckProvisionalManaItemsAndBotStepping();
+            CheckScalingStressAndTickBounds();
+            CheckHeroGuidePreviewAndCatalogConsistency();
+
+            Debug.Log("[LaneResourceAndItemChecks] All Stage C-G Resource, Recipe, Item, Scaling Stress, and Preview checks passed.");
         }
 
         private static void CheckResourceRegenerationInAndOutOfCombatAndPercentMax()
@@ -899,6 +904,359 @@ namespace Moba.LaneSlice
             HeroSnap swSnap = GetHero(mSlowWing.Snapshot(), LaneTeam.Blue);
             AssertClose(swSnap.slowAmount, sbSnap.slowAmount * 0.75f, "Weightlessness must reduce incoming slow strength by 25%", 0.01f);
             AssertClose(swSnap.slowTimer, sbSnap.slowTimer, "Weightlessness must NOT shorten incoming slow duration", 0.05f);
+        }
+
+        private static void CheckProvisionalManaItemsAndBotStepping()
+        {
+            // Approved components (101-121) and custom advanced items (201-206) must stay Mana-free; ID 19 stays retired.
+            for (int id = 101; id <= 121; id++)
+            {
+                Assert(LaneItems.TryGet(id, out LaneItemDef c) && c.IsApproved, $"Expected approved component {id}");
+                Assert(c.AddMaxMana == 0f && c.AddManaRegen == 0f && c.AddPercentManaRegen == 0f && c.AddResourceCostReduction == 0f,
+                    $"Approved component {c.Name} must have zero Mana stats");
+            }
+            for (int id = 201; id <= 206; id++)
+            {
+                Assert(LaneItems.TryGet(id, out LaneItemDef a) && a.IsApproved, $"Expected approved advanced item {id}");
+                Assert(a.AddMaxMana == 0f && a.AddManaRegen == 0f && a.AddPercentManaRegen == 0f && a.AddResourceCostReduction == 0f,
+                    $"Approved advanced item {a.Name} must have zero Mana stats");
+            }
+            Assert(LaneItems.MigrateItemId(19) == 0 && !LaneItems.TryGet(19, out _), "Legacy item ID 19 must remain retired");
+
+            int[] provisionalManaIds =
+            {
+                LaneItemIds.ManaDewVial, LaneItemIds.SapphireShard, LaneItemIds.DewdropCharm,
+                LaneItemIds.RunedSigil, LaneItemIds.WellspringFlask, LaneItemIds.AstralReservoir,
+                LaneItemIds.TidecallerChalice, LaneItemIds.EconomistsTome
+            };
+            for (int i = 0; i < provisionalManaIds.Length; i++)
+            {
+                Assert(LaneItems.TryGet(provisionalManaIds[i], out LaneItemDef pm) && !pm.IsApproved,
+                    $"Provisional Mana item {provisionalManaIds[i]} missing or marked approved");
+            }
+
+            // 1. Mana Dew Vial (Dew Sip): +1.5 Mana/s after 5s out of enemy hero combat
+            var t = new LaneTuning { startingGold = 4000, passiveGoldPerSecond = 0f, waveFirstSpawnDelay = 999f };
+            var m = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Swordsman, t);
+            Assert(m.TryBuyItem(LaneTeam.Blue, LaneItemIds.ManaDewVial, out _), "Buy Mana Dew Vial");
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(0f, 0f) });
+            m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.Move, point = new Vector2(2f, 0f) });
+            Step(m, 1.0f);
+            m.ApplyDamageForTest(LaneTeam.Blue, 5f, false, false, LaneTeam.Red);
+            m.SetHeroManaForTest(LaneTeam.Blue, 100f);
+            Step(m, 2.0f);
+            float inCombatGain = GetHero(m.Snapshot(), LaneTeam.Blue).mana - 100f;
+            float baseRatePerSec = GetHero(m.Snapshot(), LaneTeam.Blue).manaRegen;
+            AssertClose(inCombatGain, baseRatePerSec * 2.0f, "Dew Sip must stay inactive while recently hit by hero", 0.2f);
+
+            Step(m, 3.6f); // lastHeroDamageAge now > 5.0s
+            m.SetHeroManaForTest(LaneTeam.Blue, 100f);
+            Step(m, 2.0f);
+            float outCombatGain = GetHero(m.Snapshot(), LaneTeam.Blue).mana - 100f;
+            AssertClose(outCombatGain, (baseRatePerSec + t.manaDewOutOfCombatRegen) * 2.0f,
+                "Dew Sip must add out-of-combat Mana regen after 5s", 0.2f);
+
+            // 2. Wellspring Flask (+0.4% MaxMana/s) vs Astral Reservoir (+0.7% MaxMana/s, supersedes Wellspring)
+            var ma = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Ogre, t);
+            Assert(ma.TryBuyItem(LaneTeam.Blue, LaneItemIds.WellspringFlask, out _), "Buy Wellspring Flask");
+            HeroSnap ws = GetHero(ma.Snapshot(), LaneTeam.Blue);
+            float expectedWsRegen = t.laserBaseManaRegen + 2.8f + ws.maxMana * t.wellspringPctManaRegen;
+            AssertClose(ws.manaRegen, expectedWsRegen, "Wellspring manaRegen total (+0.4% MaxMana/s) mismatch", 0.05f);
+
+            Assert(ma.TryBuyItem(LaneTeam.Blue, LaneItemIds.AstralReservoir, out _), "Upgrade Wellspring into Astral Reservoir");
+            // Even with a second Wellspring Flask held alongside Astral Reservoir, Astral Surge must supersede Wellspring.
+            Assert(ma.TryBuyItem(LaneTeam.Blue, LaneItemIds.WellspringFlask, out _), "Buy extra Wellspring Flask");
+            HeroSnap astral = GetHero(ma.Snapshot(), LaneTeam.Blue);
+            float expectedAstralRegen = t.laserBaseManaRegen + 3.5f + 2.8f + astral.maxMana * t.astralSurgePctManaRegen;
+            AssertClose(astral.manaRegen, expectedAstralRegen, "Astral Surge must supersede Wellspring (+0.7%, not +1.1%)", 0.05f);
+
+            // 3. Tidecaller Chalice (Tidecaller Flow): linear scaling with missing Mana %
+            var mt = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            mt.DisableTowersForPreview();
+            Assert(mt.TryBuyItem(LaneTeam.Blue, LaneItemIds.TidecallerChalice, out _), "Buy Tidecaller Chalice");
+            mt.ConfigurePreviewHero(LaneTeam.Blue, new Vector2(0f, 0f), 90f);
+            mt.ConfigurePreviewHero(LaneTeam.Red, new Vector2(12f, 0f), 270f);
+            HeroSnap tcFull = GetHero(mt.Snapshot(), LaneTeam.Blue);
+            float startHighMana = tcFull.maxMana * 0.96f;
+            mt.SetHeroManaForTest(LaneTeam.Blue, startHighMana);
+            mt.Tick(1f / 30f);
+            float highRegenRate = (GetHero(mt.Snapshot(), LaneTeam.Blue).mana - startHighMana) * 30f;
+
+            float startLowMana = tcFull.maxMana * 0.05f;
+            mt.SetHeroManaForTest(LaneTeam.Blue, startLowMana);
+            mt.Tick(1f / 30f);
+            float lowRegenRate = (GetHero(mt.Snapshot(), LaneTeam.Blue).mana - startLowMana) * 30f;
+            float expectedDeltaRate = t.tidecallerMaxMissingManaRegen * (0.96f - 0.05f);
+            AssertClose(lowRegenRate - highRegenRate, expectedDeltaRate, "Tidecaller Flow must scale linearly with missing Mana %", 0.2f);
+
+            // 4. Economist's Tome (Frugal Focus): 12% post-cast refund on Flat Mana costs only, requires full upfront cost
+            var me = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Ogre, t);
+            me.DisableTowersForPreview();
+            Assert(me.TryBuyItem(LaneTeam.Blue, LaneItemIds.EconomistsTome, out _), "Buy Economist's Tome");
+            Assert(me.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q), "Level Laser Q");
+            me.ConfigurePreviewHero(LaneTeam.Blue, new Vector2(-2f, 0f), 90f);
+            me.ConfigurePreviewHero(LaneTeam.Red, new Vector2(8f, 0f), 270f);
+            HeroSnap ecSnap = GetHero(me.Snapshot(), LaneTeam.Blue);
+            Assert(ecSnap.rcrStat >= 32f && ecSnap.rcrPct > 0.20f && ecSnap.rcrPct < 0.65f, "RCR scaling must apply from Economist's Tome");
+            float qCost = me.ComputeEffectiveAbilityCost(LaneTeam.Blue, LaneAbilitySlot.Q);
+            me.SetHeroManaForTest(LaneTeam.Blue, qCost - 1.5f);
+            me.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(2f, 0f) });
+            me.Tick(1f / 30f);
+            HeroSnap rejectedQ = GetHero(me.Snapshot(), LaneTeam.Blue);
+            Assert(rejectedQ.cdQ <= 0f && rejectedQ.mana >= qCost - 1.5f,
+                "Frugal Focus must NOT lower upfront Mana check below full effective cost");
+            me.SetHeroManaForTest(LaneTeam.Blue, qCost + 25f);
+            me.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastQ, point = new Vector2(2f, 0f) });
+            me.Tick(1f / 30f);
+            HeroSnap postQ = GetHero(me.Snapshot(), LaneTeam.Blue);
+            Assert(postQ.cdQ > 0f, "Cast Laser Q must succeed with full cost available");
+            float expectedAfterRefund = 25f + qCost * t.frugalFocusRefundRatio + postQ.manaRegen / 30f;
+            AssertClose(postQ.mana, expectedAfterRefund,
+                "Frugal Focus must refund 12% of Flat Mana spent immediately after cast", 0.15f);
+
+            // Verify Frugal Focus does NOT trigger during Miravel R continuous channel
+            var mr = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            mr.DisableTowersForPreview();
+            mr.GrantXpForTest(LaneTeam.Blue, 1200f);
+            Assert(mr.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R), "Level Miravel R");
+            Assert(mr.TryBuyItem(LaneTeam.Blue, LaneItemIds.EconomistsTome, out _), "Buy Economist's Tome on Miravel");
+            mr.ConfigurePreviewHero(LaneTeam.Blue, new Vector2(0f, 0f), 90f);
+            mr.ConfigurePreviewHero(LaneTeam.Red, new Vector2(12f, 0f), 270f);
+            float rRate = mr.ComputeEffectiveAbilityCost(LaneTeam.Blue, LaneAbilitySlot.R);
+            float baseRegen = GetHero(mr.Snapshot(), LaneTeam.Blue).manaRegen;
+            mr.SetHeroManaForTest(LaneTeam.Blue, 200f);
+            mr.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastR, point = Vector2.zero });
+            mr.Tick(1f / 30f);
+            Assert(GetHero(mr.Snapshot(), LaneTeam.Blue).phase == LanePhase.Channeling, "Miravel R must channel cleanly");
+            Step(mr, 1.0f);
+            HeroSnap postChannel = GetHero(mr.Snapshot(), LaneTeam.Blue);
+            float expectedDrainMana = 200f + (baseRegen - rRate) * (31f / 30f);
+            AssertClose(postChannel.mana, expectedDrainMana, "Frugal Focus must NOT refund ContinuousPerSecond drain", 0.5f);
+
+            // 5. Bot leaf-first recipe stepping through ResolvePurchase
+            int[] plan = { LaneItemIds.ManaDewVial, LaneItemIds.TidecallerChalice };
+            int[] inv = new int[LaneItems.MaxSlots];
+            Assert(LaneBot.SelectNextBotPurchaseId(plan, inv, 190) == 0, "Wait at 190g for Mana Dew Vial (200g)");
+            Assert(LaneBot.SelectNextBotPurchaseId(plan, inv, 200) == LaneItemIds.ManaDewVial, "Buy Mana Dew Vial at 200g");
+            inv[0] = LaneItemIds.ManaDewVial;
+            Assert(LaneBot.SelectNextBotPurchaseId(plan, inv, 230) == LaneItemIds.DewdropCharm, "Buy first Tidecaller leaf Dewdrop Charm at 230g");
+            inv[1] = LaneItemIds.DewdropCharm;
+            Assert(LaneBot.SelectNextBotPurchaseId(plan, inv, 250) == LaneItemIds.SacredPearl, "Buy Sacred Pearl leaf next");
+            inv[2] = LaneItemIds.SacredPearl;
+            Assert(LaneBot.SelectNextBotPurchaseId(plan, inv, 290) == LaneItemIds.ClockworkPin, "Buy Clockwork Pin leaf next");
+            inv[3] = LaneItemIds.ClockworkPin;
+            Assert(LaneBot.SelectNextBotPurchaseId(plan, inv, 340) == LaneItemIds.TidecallerChalice, "Complete Tidecaller Chalice for exact 340g combine cost");
+        }
+
+        private static void CheckScalingStressAndTickBounds()
+        {
+            var t = new LaneTuning { startingGold = 10000, passiveGoldPerSecond = 0f, waveFirstSpawnDelay = 999f };
+
+            // 1. Linear curves remain strictly linear across wide stat sweeps
+            var m = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Ogre, t);
+            Assert(m.TryBuyItem(LaneTeam.Blue, LaneItemIds.GiantsHeart, out _), "Buy Giant's Heart for MaxHP->AD test");
+            float ad0 = GetHero(m.Snapshot(), LaneTeam.Blue).attackDamage;
+            m.SetPreviewStatOverrides(LaneTeam.Blue, new PreviewStatOverrides { enabled = true, bonusMaxHp = 1000f });
+            float ad1000 = GetHero(m.Snapshot(), LaneTeam.Blue).attackDamage;
+            m.SetPreviewStatOverrides(LaneTeam.Blue, new PreviewStatOverrides { enabled = true, bonusMaxHp = 2000f });
+            float ad2000 = GetHero(m.Snapshot(), LaneTeam.Blue).attackDamage;
+            AssertClose(ad1000 - ad0, 1000f * t.giantsMightAdPerMaxHp, "Giant's Might +1000 HP linearity", 0.05f);
+            AssertClose(ad2000 - ad1000, 1000f * t.giantsMightAdPerMaxHp, "Giant's Might +2000 HP linearity", 0.05f);
+
+            // MaxHP item purchase and sale dynamically updates Giant's Might AD immediately
+            m.SetPreviewStatOverrides(LaneTeam.Blue, default);
+            float adBeforeLc = GetHero(m.Snapshot(), LaneTeam.Blue).attackDamage;
+            Assert(m.TryBuyItem(LaneTeam.Blue, LaneItemIds.LifeCrystal, out _), "Buy extra Life Crystal");
+            float adAfterLc = GetHero(m.Snapshot(), LaneTeam.Blue).attackDamage;
+            AssertClose(adAfterLc - adBeforeLc, 160f * t.giantsMightAdPerMaxHp, "Buying Life Crystal increases Giant's Might AD", 0.05f);
+            int lcSlot = -1;
+            int[] items = GetHero(m.Snapshot(), LaneTeam.Blue).items;
+            for (int i = 0; i < items.Length; i++) if (items[i] == LaneItemIds.LifeCrystal) lcSlot = i;
+            Assert(lcSlot >= 0 && m.TrySellItem(LaneTeam.Blue, lcSlot, out _), "Sell extra Life Crystal");
+            AssertClose(GetHero(m.Snapshot(), LaneTeam.Blue).attackDamage, adBeforeLc, "Selling Life Crystal removes extra Giant's Might AD", 0.05f);
+
+            // 2. Bounded diminishing limits never breach asymptotes or create zero costs / full displacement immunity
+            var extremeOv = new PreviewStatOverrides
+            {
+                enabled = true,
+                level = 8,
+                abilityRank = 3,
+                bonusStrength = 2000f,
+                bonusAgility = 2000f,
+                bonusIntelligence = 2000f,
+                bonusAttackDamage = 500f,
+                bonusAttackSpeed = 12.0f,
+                bonusAbilityHaste = 1000f,
+                bonusHealPower = 4.0f,
+                bonusMaxHp = 10000f,
+                bonusMaxMana = 4000f,
+                bonusResourceCostReduction = 1000f,
+            };
+
+            var mLaser = new LaneMatch(LaneHeroId.LaserShooter, LaneHeroId.Ogre, t);
+            Assert(mLaser.TryBuyItem(LaneTeam.Blue, LaneItemIds.EconomistsTome, out _), "Equip Economist's Tome on extreme Laser");
+            Assert(mLaser.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q), "Level Laser Q");
+            mLaser.SetPreviewStatOverrides(LaneTeam.Blue, extremeOv);
+            HeroSnap extremeLaser = GetHero(mLaser.Snapshot(), LaneTeam.Blue);
+            Assert(extremeLaser.rcrPct > 0.60f && extremeLaser.rcrPct < 0.65f, $"Extreme RCR must stay <65% (got {extremeLaser.rcrPct})");
+            float qMinCost = mLaser.ComputeEffectiveAbilityCost(LaneTeam.Blue, LaneAbilitySlot.Q);
+            Assert(!float.IsNaN(qMinCost) && qMinCost > 15f, $"Extreme RCR+FrugalFocus cost must stay well above 0 (got {qMinCost})");
+            float effAsExtreme = LaneTuning.EffectiveAttackSpeed(extremeLaser.bonusAttackSpeed, t.attackSpeedCurveK);
+            Assert(!float.IsNaN(effAsExtreme) && effAsExtreme > 3.5f, "Global sqrt Attack Speed remains unbounded at extreme AS");
+
+            // Displacement resistance stays strictly below 65%
+            var mOgre = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Swordsman, t);
+            mOgre.DisableTowersForPreview();
+            Assert(mOgre.TryBuyItem(LaneTeam.Red, LaneItemIds.GiantsHeart, out _), "Give Red Giant's Heart");
+            mOgre.ConfigurePreviewHero(LaneTeam.Blue, new Vector2(-10f, 0f), 90f);
+            mOgre.ConfigurePreviewHero(LaneTeam.Red, new Vector2(0f, 0f), 180f);
+            mOgre.SetPreviewStatOverrides(LaneTeam.Red, extremeOv);
+            float moved = mOgre.ApplyDisplacementForTest(LaneTeam.Red, Vector2.right, 4.0f, LaneTeam.Blue);
+            float evalMaxResist = t.immovableMountainFormula.Evaluate(1, 2000f);
+            Assert(evalMaxResist < 0.65f && moved > 4.0f * (1f - 0.65f) && moved < 2.0f,
+                $"Immovable Mountain at extreme STR must reduce <65% without full immunity (moved {moved:0.00}u/4.00u, resist={evalMaxResist:0.000})");
+
+            // First Strike windup floor & valid simulation stability under +1200% AS + Banana Blade + Draconic Blade on multi-targets
+            var mStress = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Ogre, t);
+            mStress.DisableTowersForPreview();
+            Assert(mStress.TryBuyItem(LaneTeam.Blue, LaneItemIds.BananaBlade, out _), "Equip Banana Blade on Swordsman");
+            Assert(mStress.TryBuyItem(LaneTeam.Blue, LaneItemIds.DraconicBlade, out _), "Equip Draconic Blade on Swordsman");
+            mStress.ConfigurePreviewHero(LaneTeam.Blue, new Vector2(0f, 0f), 90f);
+            mStress.ConfigurePreviewHero(LaneTeam.Red, new Vector2(12f, 0f), 270f);
+            mStress.SetPreviewStatOverrides(LaneTeam.Blue, extremeOv);
+            int d1 = mStress.SpawnPreviewDummyMinion(LaneTeam.Red, new Vector2(1.0f, 0f), maxHp: 4000f);
+            mStress.SpawnPreviewDummyMinion(LaneTeam.Red, new Vector2(1.8f, 0.4f), maxHp: 4000f);
+            mStress.SpawnPreviewDummyMinion(LaneTeam.Red, new Vector2(1.8f, -0.4f), maxHp: 4000f);
+            mStress.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackMinion, targetId = d1 });
+            Step(mStress, 3.0f);
+            HeroSnap postStress = GetHero(mStress.Snapshot(), LaneTeam.Blue);
+            Assert(!float.IsNaN(postStress.hp) && postStress.hp > 0f && !float.IsInfinity(postStress.attackDamage),
+                "Extreme AS + Banana Blade + Draconic Blade must remain numerically valid with zero recursion");
+        }
+
+        private static void CheckHeroGuidePreviewAndCatalogConsistency()
+        {
+            var t = new LaneTuning();
+            LaneHeroId[] heroes = { LaneHeroId.Ogre, LaneHeroId.Miravel, LaneHeroId.Swordsman, LaneHeroId.LaserShooter };
+            LaneAbilitySlot[] slots = { LaneAbilitySlot.Q, LaneAbilitySlot.W, LaneAbilitySlot.E, LaneAbilitySlot.R };
+
+            // 1. All 4 hero guides readable & live formula consistency
+            for (int h = 0; h < heroes.Length; h++)
+            {
+                var mLive = new LaneMatch(heroes[h], LaneHeroId.Ogre, t);
+                HeroSnap liveSnap = GetHero(mLive.Snapshot(), LaneTeam.Blue);
+                LaneHeroSheet.HeroGuideData g = LaneHeroSheet.BuildHeroGuide(heroes[h], t, liveSnap);
+                Assert(!string.IsNullOrEmpty(g.Title) && !string.IsNullOrEmpty(g.BaseStatsLine), $"Guide empty for {heroes[h]}");
+                Assert(g.Cards.Count >= 5 && g.RuleLines.Count >= 5, $"Guide cards/rules incomplete for {heroes[h]}");
+                if (heroes[h] == LaneHeroId.Miravel || heroes[h] == LaneHeroId.LaserShooter)
+                {
+                    Assert(g.BaseStatsLine.Contains("Mana") && g.LiveStatsLine.Contains("Mana"), $"{heroes[h]} guide must display Mana");
+                    LaneHeroSheet.AbilityCardData wTip = LaneHeroSheet.BuildAbilityTooltip(heroes[h], LaneAbilitySlot.W, t, liveSnap);
+                    float wCost = mLive.ComputeEffectiveAbilityCost(LaneTeam.Blue, LaneAbilitySlot.W);
+                    Assert(wTip != null && wCost > 0f, $"Tooltip & cost missing for {heroes[h]} W");
+                }
+                else
+                {
+                    Assert(g.Cards[0].MetaRight.Contains("Resourceless"), $"{heroes[h]} guide must mark Resourceless");
+                }
+            }
+
+            // 2. Preview isolation, loop reset, override reactivity, and stop-when-closed
+            var externalMatch = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, t);
+            HeroSnap extBefore = GetHero(externalMatch.Snapshot(), LaneTeam.Blue);
+            using (var preview = new LaneAbilityPreview(t, enableRenderVisuals: false))
+            {
+                for (int h = 0; h < heroes.Length; h++)
+                {
+                    for (int s = 0; s < slots.Length; s++)
+                    {
+                        preview.Select(heroes[h], slots[s]);
+                        int ticksBefore = preview.SimulationTickCount;
+                        for (int step = 0; step < 4; step++) preview.Tick(1f / 30f, shouldRun: true);
+                        Assert(preview.SimulationTickCount > ticksBefore && preview.LatestPreviewSnapshot != null,
+                            $"Preview must advance simulation for {heroes[h]} {slots[s]}");
+                    }
+                }
+
+                // Live stat overrides update preview without mutating external match
+                preview.Select(LaneHeroId.Miravel, LaneAbilitySlot.E);
+                var ov = preview.Overrides;
+                LaneAbilityPreview.SetOverrideValue(ref ov, PreviewStatField.Intelligence, 100f);
+                preview.ApplyLiveOverrides(ov);
+                AssertClose(GetHero(preview.LatestPreviewSnapshot, LaneTeam.Blue).intelligence, 100f,
+                    "Preview override +100 INT must update preview snapshot immediately", 0.1f);
+                AssertClose(GetHero(externalMatch.Snapshot(), LaneTeam.Blue).intelligence, extBefore.intelligence,
+                    "Preview override must NEVER mutate active external match state", 0.01f);
+
+                // Clean loop restart after LoopDuration
+                int loopTicks = Mathf.CeilToInt((preview.LoopDuration + 0.15f) * 30f);
+                for (int i = 0; i < loopTicks; i++) preview.Tick(1f / 30f, shouldRun: true);
+                Assert(preview.ElapsedInLoop < 0.6f, $"Preview must loop cleanly after LoopDuration (elapsed={preview.ElapsedInLoop})");
+
+                // Closing preview stops simulation work immediately
+                preview.Tick(1f / 30f, shouldRun: false);
+                Assert(!preview.IsActive, "Preview must deactivate when shouldRun is false");
+                int frozenCount = preview.SimulationTickCount;
+                for (int i = 0; i < 6; i++) preview.Tick(1f / 30f, shouldRun: false);
+                Assert(preview.SimulationTickCount == frozenCount, "Closed preview must perform zero simulation ticks");
+            }
+
+            // 3. Preview animation setting persistence roundtrip
+            string tempSettings = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"moba_preview_setting_{Guid.NewGuid():N}.json");
+            try
+            {
+                var stSave = new PlayerSettingsStore(tempSettings, persistToDisk: true);
+                stSave.Data.enableAbilityDemos = false;
+                stSave.Save();
+
+                var stLoad = new PlayerSettingsStore(tempSettings, persistToDisk: true);
+                stLoad.Load();
+                Assert(!stLoad.Data.enableAbilityDemos, "enableAbilityDemos=false must persist across reloads");
+
+                stLoad.Data.enableAbilityDemos = true;
+                stLoad.Save();
+                var stReload = new PlayerSettingsStore(tempSettings, persistToDisk: true);
+                stReload.Load();
+                Assert(stReload.Data.enableAbilityDemos, "enableAbilityDemos=true must persist across reloads");
+            }
+            finally
+            {
+                if (System.IO.File.Exists(tempSettings)) System.IO.File.Delete(tempSettings);
+            }
+
+            // 4. Full item catalog recipe, price & passive doc consistency
+            var seenIds = new HashSet<int>();
+            for (int i = 0; i < LaneItems.Catalog.Length; i++)
+            {
+                LaneItemDef item = LaneItems.Catalog[i];
+                Assert(seenIds.Add(item.Id), $"Duplicate item ID {item.Id}");
+                Assert(item.Cost > 0 && !string.IsNullOrWhiteSpace(item.Name) && !string.IsNullOrWhiteSpace(item.Fantasy) && !string.IsNullOrWhiteSpace(item.Summary),
+                    $"Catalog metadata incomplete for item {item.Id}");
+                if (item.PassiveFlags != ItemPassiveFlags.None)
+                {
+                    Assert(item.Passives != null && item.Passives.Length > 0, $"Item {item.Name} has passive flags without ItemPassiveDoc");
+                }
+                if (item.Recipe != null && item.Recipe.Length > 0)
+                {
+                    int componentSum = 0;
+                    for (int r = 0; r < item.Recipe.Length; r++)
+                    {
+                        RecipeIngredient req = item.Recipe[r];
+                        Assert(req.Quantity >= 1, $"Invalid recipe quantity on {item.Name}");
+                        Assert(LaneItems.TryGet(req.ItemId, out LaneItemDef sub),
+                            $"Invalid recipe ingredient {req.ItemId} on {item.Name}");
+                        componentSum += sub.Cost * req.Quantity;
+                    }
+                    Assert(item.Cost >= componentSum, $"Item {item.Name} cost ({item.Cost}g) cannot be lower than ingredient sum ({componentSum}g)");
+                }
+            }
+        }
+
+        private static void Step(LaneMatch m, float seconds)
+        {
+            const float dt = 1f / 30f;
+            int steps = Mathf.Max(1, Mathf.CeilToInt(seconds / dt));
+            for (int i = 0; i < steps; i++) m.Tick(dt);
         }
 
         private static HeroSnap GetHero(LaneSnapshot snap, LaneTeam team)

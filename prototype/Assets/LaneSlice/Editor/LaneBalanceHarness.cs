@@ -10,10 +10,12 @@ using Debug = UnityEngine.Debug;
 namespace Moba.LaneSlice
 {
     /// <summary>
-    /// Reusable headless balancing & stress-test suite (v0.2.8+) evaluating curve math,
-    /// 30Hz simulation tick resolution under extreme stats, comparable-gold build packages,
-    /// ability leveling orders, 12 hero matchups, and all 11 targeted stress scenarios.
-    /// Outputs structured findings to prototype/Artifacts/balance_report_v028.txt.
+    /// Reusable headless balancing & stress-test suite (v0.3.0) evaluating curve math,
+    /// 30Hz simulation tick resolution under extreme stats (including First Strike quantization),
+    /// comparable-gold build packages (actual gold spent, custom & Mana items, cross-role builds),
+    /// burst vs sustained combat, Coward's Shield disengage, 45s Mana endurance, 12 hero matchups
+    /// with item completion & OOM timings, leveling orders, and targeted stress scenarios.
+    /// Outputs structured findings to prototype/Artifacts/balance_report_v030.txt.
     /// </summary>
     public static class LaneBalanceHarness
     {
@@ -23,33 +25,42 @@ namespace Moba.LaneSlice
         {
             public string Label;
             public int[] Items;
-            public int TargetGoldBudget;
         }
 
         public static void RunAll()
         {
-            var sb = new StringBuilder();
-            var t = new LaneTuning();
-            sb.AppendLine($"=== ULTIMATE FREE MOBA v0.2.8 SCALING & BALANCE REPORT ({DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC) ===");
-            sb.AppendLine($"TickHz = {t.tickHz}, Global AS k = {t.attackSpeedCurveK} (EffAS = sqrt(1 + {t.attackSpeedCurveK} * BonusAS))");
-            sb.AppendLine();
+            var prevCulture = System.Threading.Thread.CurrentThread.CurrentCulture;
+            System.Threading.Thread.CurrentThread.CurrentCulture = Inv;
+            try
+            {
+                var sb = new StringBuilder();
+                var t = new LaneTuning();
+                sb.AppendLine($"=== ULTIMATE FREE MOBA v0.3.0 SCALING, RESOURCE & ITEM BALANCE REPORT ({DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC) ===");
+                sb.AppendLine($"TickHz = {t.tickHz}, Global AS k = {t.attackSpeedCurveK} (EffAS = sqrt(1 + {t.attackSpeedCurveK} * BonusAS))");
+                sb.AppendLine();
 
-            RunTickResolutionAndAsAudit(sb, t);
-            RunComparableGoldBuildMatrix(sb);
-            RunLevelingOrderAndMatchupSuite(sb);
-            RunStressScenarios(sb);
+                RunTickResolutionAndAsAudit(sb, t);
+                RunComparableGoldBuildMatrix(sb);
+                RunSustainedDisengageAndManaEndurance(sb);
+                RunLevelingOrderAndMatchupSuite(sb);
+                RunStressScenarios(sb);
 
-            string outDir = Path.Combine(Application.dataPath, "..", "Artifacts");
-            if (!Directory.Exists(outDir)) Directory.CreateDirectory(outDir);
-            string outPath = Path.GetFullPath(Path.Combine(outDir, "balance_report_v028.txt"));
-            File.WriteAllText(outPath, sb.ToString(), Encoding.UTF8);
-            Debug.Log($"[LaneBalanceHarness] Report written to {outPath}");
-            Debug.Log(sb.ToString());
+                string outDir = Path.Combine(Application.dataPath, "..", "Artifacts");
+                if (!Directory.Exists(outDir)) Directory.CreateDirectory(outDir);
+                string outPath = Path.GetFullPath(Path.Combine(outDir, "balance_report_v030.txt"));
+                File.WriteAllText(outPath, sb.ToString(), Encoding.UTF8);
+                Debug.Log($"[LaneBalanceHarness] Report written to {outPath}");
+                Debug.Log(sb.ToString());
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = prevCulture;
+            }
         }
 
         private static void RunTickResolutionAndAsAudit(StringBuilder sb, LaneTuning t)
         {
-            sb.AppendLine("--- 1. GLOBAL ATTACK SPEED & 30Hz TICK-RESOLUTION AUDIT ---");
+            sb.AppendLine("--- 1. GLOBAL ATTACK SPEED, FIRST STRIKE & 30Hz TICK-RESOLUTION AUDIT ---");
             float dt = 1f / t.tickHz;
             float[] asBonuses = { 0f, 0.30f, 0.60f, 0.90f, 1.80f, 5.00f, 12.00f };
             for (int i = 0; i < asBonuses.Length; i++)
@@ -66,15 +77,14 @@ namespace Moba.LaneSlice
                 sb.AppendLine($"  BonusAS={b * 100f,5:0}% | EffAS={eff,5:0.00}x | Miravel Basic: {mirWind:0.000}+{mirRec:0.000}s ({ticksWind}+{ticksRec} ticks @30Hz) | Theo={theoAps:0.00}/s vs Sim30Hz={sim30Aps:0.00}/s | LaserRProc={1f / rProcInt:0.00}/s");
             }
 
-            // Live simulated Miravel attack count check with 0, 1, 2, 6 Quickstep Daggers
+            // Live simulated Miravel attack count check with 0, 1, 2, 6 Iron Daggers
             int[] daggerCounts = { 0, 1, 2, 6 };
             for (int c = 0; c < daggerCounts.Length; c++)
             {
                 var tm = new LaneTuning { startingGold = 3000, waveFirstSpawnDelay = 999f, passiveGoldPerSecond = 0f };
                 var m = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Ogre, tm);
-                for (int d = 0; d < daggerCounts[c]; d++) m.TryBuyItem(LaneTeam.Blue, 2, out _);
+                for (int d = 0; d < daggerCounts[c]; d++) m.TryBuyItem(LaneTeam.Blue, LaneItemIds.IronDagger, out _);
                 PlacePair(m, new Vector2(-2f, 0f), new Vector2(2f, 0f));
-                // Give Ogre high HP via Stone Plates? Even simpler: keep shooting Ogre and revive/count shot events
                 int shots = 0;
                 HeroSnap target = GetHero(m.Snapshot(), LaneTeam.Red);
                 m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = target.id });
@@ -90,7 +100,7 @@ namespace Moba.LaneSlice
                     if (GetHero(snap, LaneTeam.Red).phase == LanePhase.Dead) break;
                 }
                 HeroSnap h = GetHero(m.Snapshot(), LaneTeam.Blue);
-                sb.AppendLine($"  Sim Check ({daggerCounts[c]} Daggers, +{h.bonusAttackSpeed * 100f:0}% AS, Eff={h.attackSpeed:0.00}x): {shots} bolts over {m.MatchTime:0.00}s ({shots / Mathf.Max(0.1f, m.MatchTime):0.00} attacks/s)");
+                sb.AppendLine($"  Sim Check ({daggerCounts[c]} Iron Daggers, +{h.bonusAttackSpeed * 100f:0}% AS, Eff={h.attackSpeed:0.00}x): {shots} bolts over {m.MatchTime:0.00}s ({shots / Mathf.Max(0.1f, m.MatchTime):0.00} attacks/s)");
             }
 
             // Ogre Extreme AGI Windup + AS Recovery quantization
@@ -102,45 +112,60 @@ namespace Moba.LaneSlice
                 int ticks = Mathf.Max(1, Mathf.CeilToInt(qWind / dt));
                 sb.AppendLine($"  Ogre AGI={agis[i],3}: WindSpd={windSpd:0.00}x | Q Windup={qWind:0.000}s ({ticks} ticks @ 30Hz = {ticks * dt:0.000}s effective)");
             }
+
+            // Part 12.4 First Strike 30Hz Tick-Quantization Audit (without altering approved global AS curve)
+            float[] fsAsScales = { 0f, 0.50f, 1.50f };
+            for (int a = 0; a < fsAsScales.Length; a++)
+            {
+                float effAs = LaneTuning.EffectiveAttackSpeed(fsAsScales[a], t.attackSpeedCurveK);
+                for (int i = 0; i < agis.Length; i++)
+                {
+                    float red = Mathf.Clamp(t.firstStrikeReductionFormula.Evaluate(1, agis[i]), 0f, 0.90f);
+                    float rawReduced = Mathf.Max(t.firstStrikeMinRawWindup, t.laserBasicWindup * (1f - red));
+                    float theoFinal = Mathf.Max(t.firstStrikeMinFinalWindup, rawReduced / effAs);
+                    int ticks = Mathf.Max(1, Mathf.CeilToInt(theoFinal / dt));
+                    sb.AppendLine($"  FirstStrike(Laser 0.22s) BonusAS={fsAsScales[a] * 100f,3:0}% AGI={agis[i],3}: Red={red * 100f,4:0.0}% Theo={theoFinal:0.000}s | Quant30Hz={ticks}t ({ticks * dt:0.000}s)");
+                }
+            }
             sb.AppendLine();
         }
 
         private static void RunComparableGoldBuildMatrix(StringBuilder sb)
         {
-            sb.AppendLine("--- 2. COMPARABLE-GOLD BUILD MATRIX (DPS / 3s BURST / SUSTAIN / 60s FARM / TTK) ---");
+            sb.AppendLine("--- 2. COMPARABLE-GOLD BUILD MATRIX (ACTUAL GOLD SPENT / BURST / DPS / SUSTAIN / 60s FARM / TTK) ---");
             var buildsByHero = new Dictionary<LaneHeroId, BuildSpec[]>
             {
                 [LaneHeroId.Ogre] = new[]
                 {
-                    new BuildSpec { Label = "Early(600g: Buckler+Greatsword)", Items = new[] { 15, 1 }, TargetGoldBudget = 600 },
-                    new BuildSpec { Label = "Mid-Conv(1500g: Buckler+GS+Dagger+STR)", Items = new[] { 15, 1, 2, 8 }, TargetGoldBudget = 1500 },
-                    new BuildSpec { Label = "Mid-AGI/AS(1500g: GS+Dagger+3xFeather)", Items = new[] { 1, 2, 9, 9, 9 }, TargetGoldBudget = 1500 },
-                    new BuildSpec { Label = "Late-Hybrid(2400g: Buckler+2xGS+Dagger+STR+Colossus)", Items = new[] { 15, 1, 1, 2, 8, 18 }, TargetGoldBudget = 2400 },
-                    new BuildSpec { Label = "Extreme-STR(6xKnuckle/Colossus 2450g)", Items = new[] { 8, 8, 8, 8, 18, 18 }, TargetGoldBudget = 2450 },
+                    new BuildSpec { Label = "Early(Buckler+SteelSword)", Items = new[] { LaneItemIds.BrawlersBuckler, LaneItemIds.SteelSword } },
+                    new BuildSpec { Label = "Mid-Colossus(1360g)+SmallAxe", Items = new[] { LaneItemIds.ColossusPauldron, LaneItemIds.SmallAxe } },
+                    new BuildSpec { Label = "Mid-Conv(HeavyAxe+Titan+Feather)", Items = new[] { LaneItemIds.HeavyAxe, LaneItemIds.Titanstone, LaneItemIds.Windfeather } },
+                    new BuildSpec { Label = "Late-Juggernaut(GiantsHeart+Buckler)", Items = new[] { LaneItemIds.GiantsHeart, LaneItemIds.BrawlersBuckler } },
+                    new BuildSpec { Label = "Late-Cross(DraconicBlade+Buckler)", Items = new[] { LaneItemIds.DraconicBlade, LaneItemIds.BrawlersBuckler } },
                 },
                 [LaneHeroId.Miravel] = new[]
                 {
-                    new BuildSpec { Label = "Early(600g: Salve+Kindred)", Items = new[] { 14, 11 }, TargetGoldBudget = 600 },
-                    new BuildSpec { Label = "Mid-HealPwr(1500g: 3xKindred+Lens)", Items = new[] { 11, 11, 11, 10 }, TargetGoldBudget = 1500 },
-                    new BuildSpec { Label = "Mid-INT/AH(1500g: 3xLens+2xBand)", Items = new[] { 10, 10, 10, 6, 6 }, TargetGoldBudget = 1500 },
-                    new BuildSpec { Label = "Late-Hybrid(2400g: Salve+2xCenser+Eye+Coward)", Items = new[] { LaneItemIds.WoodlandSalve, LaneItemIds.KindredCenser, LaneItemIds.KindredCenser, LaneItemIds.SagesEye, LaneItemIds.CowardsShield }, TargetGoldBudget = 2400 },
-                    new BuildSpec { Label = "Extreme-HealPwr(6xKindred 1950g)", Items = new[] { 11, 11, 11, 11, 11, 11 }, TargetGoldBudget = 1950 },
+                    new BuildSpec { Label = "Early(ManaDew+SacredPearl+Spring)", Items = new[] { LaneItemIds.ManaDewVial, LaneItemIds.SacredPearl, LaneItemIds.SpringWater } },
+                    new BuildSpec { Label = "Mid-Sustain(ChaliceOfLife+Salve)", Items = new[] { LaneItemIds.ChaliceOfLife, LaneItemIds.WoodlandSalve } },
+                    new BuildSpec { Label = "Mid-ManaFlow(TidecallerChalice+Charm)", Items = new[] { LaneItemIds.TidecallerChalice, LaneItemIds.WingedCharm } },
+                    new BuildSpec { Label = "Late-Hybrid(Chalice+Coward+Dew)", Items = new[] { LaneItemIds.ChaliceOfLife, LaneItemIds.CowardsShield, LaneItemIds.ManaDewVial } },
+                    new BuildSpec { Label = "Late-Efficiency(Astral+Economist)", Items = new[] { LaneItemIds.AstralReservoir, LaneItemIds.EconomistsTome } },
                 },
                 [LaneHeroId.Swordsman] = new[]
                 {
-                    new BuildSpec { Label = "Early(600g: Hatchet+GS)", Items = new[] { 13, 1 }, TargetGoldBudget = 600 },
-                    new BuildSpec { Label = "Mid-Conv(1500g: GS+Dagger+Knuckle+Thorn)", Items = new[] { 1, 2, 8, 16 }, TargetGoldBudget = 1500 },
-                    new BuildSpec { Label = "Mid-INT/AS(1500g: 2xLens+2xDagger)", Items = new[] { 10, 10, 2, 2 }, TargetGoldBudget = 1500 },
-                    new BuildSpec { Label = "Late-Hybrid(2400g: GS+Dagger+Thorn+Colossus+Grudge)", Items = new[] { 1, 2, 16, 18, 20 }, TargetGoldBudget = 2400 },
-                    new BuildSpec { Label = "Extreme-STR/HP(6xKnuckle+Colossus)", Items = new[] { 8, 8, 8, 18, 18, 11 }, TargetGoldBudget = 2450 },
+                    new BuildSpec { Label = "Early(Hatchet+SteelSword)", Items = new[] { LaneItemIds.MinersHatchet, LaneItemIds.SteelSword } },
+                    new BuildSpec { Label = "Mid-Executioner(ExecutionersAxe)", Items = new[] { LaneItemIds.ExecutionersAxe } },
+                    new BuildSpec { Label = "Mid-CrossCrescent(NimbleDagger+Thorn)", Items = new[] { LaneItemIds.NimbleDagger, LaneItemIds.BlightedThorn } },
+                    new BuildSpec { Label = "Late-Draconic(Draconic+Hatchet)", Items = new[] { LaneItemIds.DraconicBlade, LaneItemIds.MinersHatchet } },
+                    new BuildSpec { Label = "Late-CrossTitan(GiantsHeart+Hatchet)", Items = new[] { LaneItemIds.GiantsHeart, LaneItemIds.MinersHatchet } },
                 },
                 [LaneHeroId.LaserShooter] = new[]
                 {
-                    new BuildSpec { Label = "Early(600g: Hatchet+GS)", Items = new[] { 13, 1 }, TargetGoldBudget = 600 },
-                    new BuildSpec { Label = "Mid-AS/AD(1500g: 2xGS+2xDagger+Lens)", Items = new[] { 1, 1, 2, 2, 10 }, TargetGoldBudget = 1500 },
-                    new BuildSpec { Label = "Mid-INT(1500g: 3xLens+Band)", Items = new[] { 10, 10, 10, 6 }, TargetGoldBudget = 1500 },
-                    new BuildSpec { Label = "Late-Hybrid(2400g: GS+Dagger+Lens+Greaves+Grudge)", Items = new[] { 1, 2, 10, 17, 20 }, TargetGoldBudget = 2400 },
-                    new BuildSpec { Label = "Extreme-AS(6xDagger 1650g)", Items = new[] { 2, 2, 2, 2, 2, 2 }, TargetGoldBudget = 1650 },
+                    new BuildSpec { Label = "Early(ManaDew+ShortSword+Dagger)", Items = new[] { LaneItemIds.ManaDewVial, LaneItemIds.ShortSword, LaneItemIds.IronDagger } },
+                    new BuildSpec { Label = "Mid-Tempo(Astral+Dagger+Short)", Items = new[] { LaneItemIds.AstralReservoir, LaneItemIds.IronDagger, LaneItemIds.ShortSword } },
+                    new BuildSpec { Label = "Mid-Economist(Economist+Dagger)", Items = new[] { LaneItemIds.EconomistsTome, LaneItemIds.IronDagger } },
+                    new BuildSpec { Label = "Late-Banana(BananaBlade+Dew)", Items = new[] { LaneItemIds.BananaBlade, LaneItemIds.ManaDewVial } },
+                    new BuildSpec { Label = "Late-CrossAxe(Executioner+Dew+Dagger)", Items = new[] { LaneItemIds.ExecutionersAxe, LaneItemIds.ManaDewVial, LaneItemIds.IronDagger } },
                 },
             };
 
@@ -151,9 +176,8 @@ namespace Moba.LaneSlice
                 for (int b = 0; b < kv.Value.Length; b++)
                 {
                     BuildSpec spec = kv.Value[b];
-                    int heroLvl = spec.TargetGoldBudget <= 650 ? 2 : (spec.TargetGoldBudget <= 1600 ? 4 : 6);
-                    MeasureHeroBuild(hero, spec, heroLvl, out float burst3s, out float dps6s, out float selfHealS, out int farmCs, out int farmGold, out float ccTotal, out float ttkSec);
-                    sb.AppendLine($"    L{heroLvl} {spec.Label,-46} | Burst3s={burst3s,5:0} | DPS6s={dps6s,5:0.0} | Sustain={selfHealS,4:0.0}/s | CC={ccTotal,4:0.00}s | 60sFarm={farmCs,2}CS/{farmGold,4}g | TTK={ttkSec:0.00}s");
+                    MeasureHeroBuild(hero, spec, out int heroLvl, out int goldSpent, out float burst3s, out float dps6s, out float selfHealS, out int farmCs, out int farmGold, out float ccTotal, out float ttkSec);
+                    sb.AppendLine($"    L{heroLvl} ({goldSpent,4}g) {spec.Label,-39} | Burst3s={burst3s,5:0} | DPS6s={dps6s,5:0.0} | Sustain={selfHealS,4:0.0}/s | CC={ccTotal,4:0.00}s | 60sFarm={farmCs,2}CS/{farmGold,4}g | TTK={ttkSec:0.00}s");
                 }
             }
             sb.AppendLine();
@@ -162,7 +186,8 @@ namespace Moba.LaneSlice
         private static void MeasureHeroBuild(
             LaneHeroId hero,
             BuildSpec spec,
-            int level,
+            out int level,
+            out int goldSpent,
             out float burst3s,
             out float dps6s,
             out float selfHealPerSec,
@@ -172,32 +197,31 @@ namespace Moba.LaneSlice
             out float ttkSec)
         {
             float dt = 1f / 30f;
+            const int startBudget = 10000;
             var t = new LaneTuning
             {
-                startingGold = 4000,
+                startingGold = startBudget,
                 passiveGoldPerSecond = 0f,
                 waveFirstSpawnDelay = 999f,
                 ultMinLevel = 4,
             };
-            // Evaluate combat against a baseline dummy Red Swordsman
             var m = new LaneMatch(hero, LaneHeroId.Swordsman, t);
             for (int i = 0; i < spec.Items.Length; i++) m.TryBuyItem(LaneTeam.Blue, spec.Items[i], out _);
+            goldSpent = startBudget - GetHero(m.Snapshot(), LaneTeam.Blue).gold;
+            level = goldSpent <= 700 ? 2 : (goldSpent <= 1650 ? 4 : 6);
+            m.SetHeroGoldForTest(LaneTeam.Blue, 0);
+            m.SetHeroGoldForTest(LaneTeam.Red, 0);
 
-            // Reach requested level by feeding quick low-HP test creeps
             LevelHeroCleanly(m, LaneTeam.Blue, level);
             AutoMaxSkills(m, LaneTeam.Blue, new[] { LaneAbilitySlot.Q, LaneAbilitySlot.W, LaneAbilitySlot.E });
 
-            // Re-place cleanly within melee chip distance so all heroes lose ~35-55 HP to measure real sustain
             PlacePair(m, new Vector2(-1.5f, 0f), new Vector2(-0.2f, 0f));
 
-            float enemyMaxHp = GetHero(m.Snapshot(), LaneTeam.Red).maxHp;
-            float dmgTakenBefore = 0f;
             burst3s = 0f;
             ccApplied = 0f;
             ttkSec = 6.00f;
             bool killed = false;
 
-            // Chip attacker (~35-55 HP) so passive/heal sustain is actually measurable for ranged heroes too
             m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.AttackHero, targetId = 1 });
             Step(m, 0.70f);
             m.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.Stop });
@@ -238,21 +262,20 @@ namespace Moba.LaneSlice
                     ttkSec = s * dt;
                 }
                 if (s == step3s) burst3s = totalDmgDealt;
-                if (killed && dmgTakenBefore == 0f) dmgTakenBefore = enemyMaxHp;
             }
             dps6s = totalDmgDealt / Mathf.Max(0.2f, ttkSec);
             selfHealPerSec = totalHealed / 6.0f;
 
-            // Separate 60s solo farming test with standard waves
-            var tf = new LaneTuning { startingGold = 4000, passiveGoldPerSecond = 0f, waveFirstSpawnDelay = 0.2f };
+            var tf = new LaneTuning { startingGold = startBudget, passiveGoldPerSecond = 0f, waveFirstSpawnDelay = 0.2f };
             var mf = new LaneMatch(hero, LaneHeroId.Miravel, tf);
             for (int i = 0; i < spec.Items.Length; i++) mf.TryBuyItem(LaneTeam.Blue, spec.Items[i], out _);
+            mf.SetHeroGoldForTest(LaneTeam.Blue, 0);
+            mf.SetHeroGoldForTest(LaneTeam.Red, 0);
             LevelHeroCleanly(mf, LaneTeam.Blue, level);
             AutoMaxSkills(mf, LaneTeam.Blue, new[] { LaneAbilitySlot.Q, LaneAbilitySlot.W, LaneAbilitySlot.E });
-            PlacePair(mf, new Vector2(-2f, 0f), new Vector2(21f, 0f)); // park Red away in fountain
+            PlacePair(mf, new Vector2(-2f, 0f), new Vector2(21f, 0f));
             var farmBot = new LaneBot(LaneTeam.Blue);
             int farmSteps = Mathf.RoundToInt(60f / dt);
-            int startGold = GetHero(mf.Snapshot(), LaneTeam.Blue).gold;
             for (int s = 0; s < farmSteps; s++)
             {
                 farmBot.Tick(mf, dt);
@@ -260,12 +283,177 @@ namespace Moba.LaneSlice
             }
             HeroSnap postFarm = GetHero(mf.Snapshot(), LaneTeam.Blue);
             farmCs = postFarm.creepScore;
-            farmGold = postFarm.gold - startGold;
+            farmGold = postFarm.gold;
+        }
+
+        private static void RunSustainedDisengageAndManaEndurance(StringBuilder sb)
+        {
+            sb.AppendLine("--- 3. BURST VS SUSTAINED (12s), DISENGAGE SURVIVABILITY & 45s MANA ENDURANCE ---");
+            float dt = 1f / 30f;
+
+            // A. Burst (3s) vs Sustained (12s) vs Durable Target Dummy (4x Heartstone)
+            var combatCases = new[]
+            {
+                (hero: LaneHeroId.Swordsman, label: "Swordsman (Executioner+SteelSword)", items: new[] { LaneItemIds.ExecutionersAxe, LaneItemIds.SteelSword }),
+                (hero: LaneHeroId.Swordsman, label: "Swordsman (DraconicBlade+SmallAxe)", items: new[] { LaneItemIds.DraconicBlade, LaneItemIds.SmallAxe }),
+                (hero: LaneHeroId.Swordsman, label: "Swordsman (BananaBlade)", items: new[] { LaneItemIds.BananaBlade }),
+                (hero: LaneHeroId.Ogre, label: "Ogre (GiantsHeart+SmallAxe)", items: new[] { LaneItemIds.GiantsHeart, LaneItemIds.SmallAxe }),
+                (hero: LaneHeroId.LaserShooter, label: "LaserShooter (BananaBlade+ManaDew)", items: new[] { LaneItemIds.BananaBlade, LaneItemIds.ManaDewVial }),
+                (hero: LaneHeroId.Miravel, label: "Miravel (ChaliceOfLife+Tidecaller)", items: new[] { LaneItemIds.ChaliceOfLife, LaneItemIds.TidecallerChalice }),
+            };
+            for (int c = 0; c < combatCases.Length; c++)
+            {
+                var tc = new LaneTuning { startingGold = 10000, passiveGoldPerSecond = 0f, waveFirstSpawnDelay = 999f, ultMinLevel = 4 };
+                var mc = new LaneMatch(combatCases[c].hero, LaneHeroId.Ogre, tc);
+                for (int it = 0; it < combatCases[c].items.Length; it++) mc.TryBuyItem(LaneTeam.Blue, combatCases[c].items[it], out _);
+                for (int hs = 0; hs < 4; hs++) mc.TryBuyItem(LaneTeam.Red, LaneItemIds.Heartstone, out _);
+                int goldSpent = 10000 - GetHero(mc.Snapshot(), LaneTeam.Blue).gold;
+                mc.SetHeroGoldForTest(LaneTeam.Blue, 0);
+                mc.SetHeroGoldForTest(LaneTeam.Red, 0);
+                LevelHeroCleanly(mc, LaneTeam.Blue, 6);
+                AutoMaxSkills(mc, LaneTeam.Blue, new[] { LaneAbilitySlot.Q, LaneAbilitySlot.W, LaneAbilitySlot.E });
+                PlacePair(mc, new Vector2(-1.5f, 0f), new Vector2(1.2f, 0f));
+
+                var bot = new LaneBot(LaneTeam.Blue);
+                float startDummyHp = GetHero(mc.Snapshot(), LaneTeam.Red).hp;
+                float prevDummyHp = startDummyHp;
+                float dealt3s = 0f, dealt12s = 0f;
+                int steps12 = Mathf.RoundToInt(12f / dt);
+                int step3 = Mathf.RoundToInt(3f / dt);
+                for (int s = 1; s <= steps12; s++)
+                {
+                    bot.Tick(mc, dt);
+                    mc.Tick(dt);
+                    HeroSnap d = GetHero(mc.Snapshot(), LaneTeam.Red);
+                    float dlt = prevDummyHp - d.hp;
+                    if (dlt > 0f) dealt12s += dlt;
+                    prevDummyHp = d.hp;
+                    if (s == step3) dealt3s = dealt12s;
+                    if (d.hp < 800f) mc.SetHeroHpForTest(LaneTeam.Red, startDummyHp);
+                    prevDummyHp = GetHero(mc.Snapshot(), LaneTeam.Red).hp;
+                }
+                sb.AppendLine($"  [Burst vs 12s Sust] {combatCases[c].label,-34} ({goldSpent,4}g) | 3s={dealt3s,6:0} ({dealt3s / 3f,5:0.0}/s) | 12s={dealt12s,6:0} ({dealt12s / 12f,5:0.0}/s)");
+            }
+
+            // B. Coward's Shield Disengage Survivability (Miravel retreating 4.0s from chasing Swordsman)
+            for (int hasCoward = 0; hasCoward <= 1; hasCoward++)
+            {
+                var td = new LaneTuning { startingGold = 3000, passiveGoldPerSecond = 0f, waveFirstSpawnDelay = 999f };
+                var md = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.Swordsman, td);
+                if (hasCoward == 1) md.TryBuyItem(LaneTeam.Blue, LaneItemIds.CowardsShield, out _);
+                md.TryBuyItem(LaneTeam.Red, LaneItemIds.SteelSword, out _);
+                md.TryBuyItem(LaneTeam.Red, LaneItemIds.IronDagger, out _);
+                PlacePair(md, new Vector2(-2f, 0f), new Vector2(0f, 0f));
+                md.ApplyDamageForTest(LaneTeam.Blue, 20f, false, false, LaneTeam.Red);
+                md.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Move, point = new Vector2(-18f, 0f) });
+                float peakBonusArm = 0f;
+                int redId = GetHero(md.Snapshot(), LaneTeam.Red).id;
+                int bId = GetHero(md.Snapshot(), LaneTeam.Blue).id;
+                int chaseSteps = Mathf.RoundToInt(4.0f / dt);
+                for (int s = 0; s < chaseSteps; s++)
+                {
+                    if (s % 4 == 0) md.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.AttackHero, targetId = bId });
+                    md.Tick(dt);
+                    HeroSnap b = GetHero(md.Snapshot(), LaneTeam.Blue);
+                    if (b.cowardShieldBonus > peakBonusArm) peakBonusArm = b.cowardShieldBonus;
+                }
+                HeroSnap endMir = GetHero(md.Snapshot(), LaneTeam.Blue);
+                sb.AppendLine($"  [Disengage 4s] Miravel {(hasCoward == 1 ? "WITH Coward's Shield" : "NO Coward's Shield  ")}: HP={endMir.hp,5:0.0}/{endMir.maxHp:0} | PeakFlightResist=+{peakBonusArm:0.0}");
+            }
+
+            // C. 45s Mana Endurance & Casts-to-OOM
+            LaneHeroId[] manaHeroes = { LaneHeroId.Miravel, LaneHeroId.LaserShooter };
+            var manaLoadouts = new[]
+            {
+                (label: "No Mana Items", itemId: 0),
+                (label: "Mana Dew Vial (200g)", itemId: LaneItemIds.ManaDewVial),
+                (label: "Wellspring Flask (520g)", itemId: LaneItemIds.WellspringFlask),
+                (label: "Tidecaller Chalice (1080g)", itemId: LaneItemIds.TidecallerChalice),
+                (label: "Astral Reservoir (1120g)", itemId: LaneItemIds.AstralReservoir),
+                (label: "Economist's Tome (1160g)", itemId: LaneItemIds.EconomistsTome),
+            };
+            for (int h = 0; h < manaHeroes.Length; h++)
+            {
+                for (int p = 0; p < manaLoadouts.Length; p++)
+                {
+                    var tm = new LaneTuning { startingGold = 3000, passiveGoldPerSecond = 0f, waveFirstSpawnDelay = 999f };
+                    var mm = new LaneMatch(manaHeroes[h], LaneHeroId.Ogre, tm);
+                    if (manaLoadouts[p].itemId > 0) mm.TryBuyItem(LaneTeam.Blue, manaLoadouts[p].itemId, out _);
+                    mm.SetHeroGoldForTest(LaneTeam.Blue, 0);
+                    LevelHeroCleanly(mm, LaneTeam.Blue, 4);
+                    AutoMaxSkills(mm, LaneTeam.Blue, new[] { LaneAbilitySlot.Q, LaneAbilitySlot.W, LaneAbilitySlot.E });
+                    PlacePair(mm, new Vector2(-1f, 0f), new Vector2(2f, 0f));
+
+                    // For Chain Laser, land 1 Mana-free basic attack first so Ogre holds a Laser stack for W shockwave casts
+                    if (manaHeroes[h] == LaneHeroId.LaserShooter)
+                    {
+                        int targetId = GetHero(mm.Snapshot(), LaneTeam.Red).id;
+                        mm.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = targetId });
+                        Step(mm, 0.50f);
+                        mm.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.Stop });
+                    }
+
+                    int castsOk = 0;
+                    float firstOomSec = -1f;
+                    int endSteps = Mathf.RoundToInt(45f / dt);
+                    for (int s = 0; s < endSteps; s++)
+                    {
+                        int phaseMod = s % 60;
+                        LaneAbilitySlot slotToTry = LaneAbilitySlot.None;
+                        LaneOrderKind orderKind = LaneOrderKind.Stop;
+                        if (phaseMod == 0 && manaHeroes[h] == LaneHeroId.LaserShooter)
+                        {
+                            slotToTry = LaneAbilitySlot.Q;
+                            orderKind = LaneOrderKind.CastQ;
+                        }
+                        else if (phaseMod == 15)
+                        {
+                            slotToTry = LaneAbilitySlot.W;
+                            orderKind = LaneOrderKind.CastW;
+                        }
+                        else if (phaseMod == 30)
+                        {
+                            slotToTry = LaneAbilitySlot.E;
+                            orderKind = LaneOrderKind.CastE;
+                        }
+
+                        HeroSnap preCast = slotToTry != LaneAbilitySlot.None ? GetHero(mm.Snapshot(), LaneTeam.Blue) : null;
+                        float preCd = preCast == null ? 99f : (slotToTry == LaneAbilitySlot.Q ? preCast.cdQ : (slotToTry == LaneAbilitySlot.W ? preCast.cdW : preCast.cdE));
+                        float slotCost = slotToTry != LaneAbilitySlot.None ? mm.ComputeEffectiveAbilityCost(LaneTeam.Blue, slotToTry) : 0f;
+                        if (preCast != null && preCast.phase != LanePhase.Dead && preCd <= 0f)
+                        {
+                            mm.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = orderKind, point = new Vector2(2f, 0f) });
+                        }
+
+                        mm.Tick(dt);
+
+                        if (preCast != null && preCast.phase != LanePhase.Dead && preCd <= 0f)
+                        {
+                            LaneSnapshot postSnap = mm.Snapshot();
+                            HeroSnap postCast = GetHero(postSnap, LaneTeam.Blue);
+                            float postCd = slotToTry == LaneAbilitySlot.Q ? postCast.cdQ : (slotToTry == LaneAbilitySlot.W ? postCast.cdW : postCast.cdE);
+                            bool started = postCd > 0f || postCast.phase == LanePhase.Windup || postCast.mana < preCast.mana - 1f;
+                            if (started)
+                            {
+                                castsOk++;
+                            }
+                            else if (firstOomSec < 0f && preCast.mana + 0.001f < slotCost)
+                            {
+                                firstOomSec = s * dt;
+                            }
+                        }
+                    }
+                    HeroSnap finalM = GetHero(mm.Snapshot(), LaneTeam.Blue);
+                    string oomLabel = firstOomSec < 0f ? "Never OOM" : $"OOM@{firstOomSec:0.0}s";
+                    sb.AppendLine($"  [Mana 45s {manaHeroes[h],-12}] {manaLoadouts[p].label,-27}: Casts={castsOk,2} | EndMana={finalM.mana,5:0}/{finalM.maxMana:0} ({finalM.manaRegen,4:0.0}/s, RCR -{finalM.rcrPct * 100f,2:0}%) | {oomLabel}");
+                }
+            }
+            sb.AppendLine();
         }
 
         private static void RunLevelingOrderAndMatchupSuite(StringBuilder sb)
         {
-            sb.AppendLine("--- 3. 12-MATCHUP BOT DUELS (150s) & LEVELING ORDER CHECKS ---");
+            sb.AppendLine("--- 4. 12-MATCHUP BOT DUELS (150s), ITEM COMPLETIONS, OOM TIME & LEVELING ORDERS ---");
             LaneHeroId[] heroes = { LaneHeroId.Ogre, LaneHeroId.Miravel, LaneHeroId.Swordsman, LaneHeroId.LaserShooter };
             float dt = 1f / 30f;
             int steps = Mathf.RoundToInt(150f / dt);
@@ -278,11 +466,22 @@ namespace Moba.LaneSlice
                     var m = new LaneMatch(heroes[i], heroes[j], new LaneTuning());
                     var botB = new LaneBot(LaneTeam.Blue);
                     var botR = new LaneBot(LaneTeam.Red);
+                    float firstAdvB = -1f, firstAdvR = -1f;
+                    float lowManaTimeB = 0f, lowManaTimeR = 0f;
+
                     for (int s = 0; s < steps && !m.IsGameOver; s++)
                     {
                         botB.Tick(m, dt);
                         botR.Tick(m, dt);
                         m.Tick(dt);
+
+                        LaneSnapshot snapStep = m.Snapshot();
+                        HeroSnap sbStep = GetHero(snapStep, LaneTeam.Blue);
+                        HeroSnap srStep = GetHero(snapStep, LaneTeam.Red);
+                        if (firstAdvB < 0f && CountCompletedAdvanced(sbStep.items) > 0) firstAdvB = m.MatchTime;
+                        if (firstAdvR < 0f && CountCompletedAdvanced(srStep.items) > 0) firstAdvR = m.MatchTime;
+                        if (sbStep.resourceKind == HeroResourceKind.Mana && sbStep.maxMana > 0f && sbStep.mana / sbStep.maxMana < 0.20f) lowManaTimeB += dt;
+                        if (srStep.resourceKind == HeroResourceKind.Mana && srStep.maxMana > 0f && srStep.mana / srStep.maxMana < 0.20f) lowManaTimeR += dt;
                     }
                     LaneSnapshot snap = m.Snapshot();
                     HeroSnap b = GetHero(snap, LaneTeam.Blue);
@@ -290,7 +489,9 @@ namespace Moba.LaneSlice
                     float bTw = snap.towers[0].alive ? snap.towers[0].hp : 0f;
                     float rTw = snap.towers[1].alive ? snap.towers[1].hp : 0f;
                     string win = snap.gameOver ? ((LaneTeam)snap.winnerTeam).ToString() : "Draw";
-                    sb.AppendLine($"  {heroes[i],-12} vs {heroes[j],-12} | K {b.kills}-{r.kills} | Lvl {b.level}-{r.level} | CS {b.creepScore,2}-{r.creepScore,2} | Gold {b.gold,4}-{r.gold,4} | Tw {bTw,4:0}-{rTw,4:0} | {win}");
+                    string b1 = firstAdvB < 0f ? "-" : $"{firstAdvB:0}s";
+                    string r1 = firstAdvR < 0f ? "-" : $"{firstAdvR:0}s";
+                    sb.AppendLine($"  {heroes[i],-12} vs {heroes[j],-12} | K {b.kills}-{r.kills} | Lvl {b.level}-{r.level} | CS {b.creepScore,2}-{r.creepScore,2} | Adv {CountCompletedAdvanced(b.items)}({b1})-{CountCompletedAdvanced(r.items)}({r1}) | LowMana {lowManaTimeB,4:0.0}s/{lowManaTimeR,4:0.0}s | Tw {bTw,4:0}-{rTw,4:0} | {win}");
                 }
             }
 
@@ -325,16 +526,27 @@ namespace Moba.LaneSlice
             sb.AppendLine();
         }
 
+        private static int CountCompletedAdvanced(int[] items)
+        {
+            if (items == null) return 0;
+            int n = 0;
+            for (int i = 0; i < items.Length; i++)
+            {
+                if (LaneItems.TryGet(items[i], out LaneItemDef d) && d.IsAdvancedOrCapstone) n++;
+            }
+            return n;
+        }
+
         private static void RunStressScenarios(StringBuilder sb)
         {
-            sb.AppendLine("--- 4. ALL 11 TARGETED STRESS SCENARIOS ---");
+            sb.AppendLine("--- 5. TARGETED & MULTI-PASSIVE STRESS SCENARIOS ---");
 
             // S1 & S2: Miravel Negative Regen + Permanent HealPower Growth + R * HealPower * Q Interaction
             int[] charms = { 0, 2, 4, 6 };
             for (int i = 0; i < charms.Length; i++)
             {
-                var m = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.LaserShooter, new LaneTuning { startingGold = 3000, waveFirstSpawnDelay = 999f, ultMinLevel = 1, passiveGoldPerSecond = 0f });
-                for (int k = 0; k < charms[i]; k++) m.TryBuyItem(LaneTeam.Blue, 11, out _);
+                var m = new LaneMatch(LaneHeroId.Miravel, LaneHeroId.LaserShooter, new LaneTuning { startingGold = 10000, waveFirstSpawnDelay = 999f, ultMinLevel = 1, passiveGoldPerSecond = 0f });
+                for (int k = 0; k < charms[i]; k++) m.TryBuyItem(LaneTeam.Blue, LaneItemIds.KindredCenser, out _);
                 m.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.Q);
                 m.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R);
                 HeroSnap mir = GetHero(m.Snapshot(), LaneTeam.Blue);
@@ -366,7 +578,7 @@ namespace Moba.LaneSlice
                 ml.TryBuyItem(LaneTeam.Blue, LaneItemIds.SteelSword, out _);
                 ml.TryBuyItem(LaneTeam.Blue, LaneItemIds.SagesEye, out _);
                 ml.TryBuyItem(LaneTeam.Blue, LaneItemIds.IronDagger, out _);
-                for (int hpIt = 0; hpIt < 6; hpIt++) ml.TryBuyItem(LaneTeam.Red, LaneItemIds.ColossusPauldron, out _); // +2700 HP +168 Arm on target dummy so Ogre survives to measure full 3.2s chain stacking
+                for (int hpIt = 0; hpIt < 6; hpIt++) ml.TryBuyItem(LaneTeam.Red, LaneItemIds.ColossusPauldron, out _);
                 ml.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.R);
                 PlacePair(ml, new Vector2(-3.5f, 0f), new Vector2(1.5f, 0f));
                 for (int u = 0; u < densities[i]; u++)
@@ -385,11 +597,11 @@ namespace Moba.LaneSlice
             }
 
             // S7 & S8: Ogre Extreme STR Knockback & R Geometry
-            int[] strCounts = { 0, 2, 4, 6 }; // 0, 50, 100, 150 STR
+            int[] strCounts = { 0, 2, 4, 6 };
             for (int i = 0; i < strCounts.Length; i++)
             {
                 var mo = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, new LaneTuning { startingGold = 3000, waveFirstSpawnDelay = 999f, ultMinLevel = 1, passiveGoldPerSecond = 0f });
-                for (int k = 0; k < strCounts[i]; k++) mo.TryBuyItem(LaneTeam.Blue, 8, out _);
+                for (int k = 0; k < strCounts[i]; k++) mo.TryBuyItem(LaneTeam.Blue, LaneItemIds.Titanstone, out _);
                 mo.TryLevelAbility(LaneTeam.Blue, LaneAbilitySlot.W);
                 PlacePair(mo, new Vector2(-8f, 0f), new Vector2(-6.2f, 0f));
                 mo.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.CastW, point = new Vector2(0f, 0f) });
@@ -400,6 +612,22 @@ namespace Moba.LaneSlice
                 float rScale = mo.Tuning.ogreRScaleFormula.Evaluate(1, og.strength);
                 sb.AppendLine($"  [Ogre STR Stress] STR={og.strength,3}: W TheoKB={mo.Tuning.ogreWKnockbackFormula.Evaluate(1, og.strength):0.00}u | ActualMoved={pushDist:0.00}u (in-bounds={Mathf.Abs(mir.x) <= 23.6f && Mathf.Abs(mir.y) <= 7.8f}) | R_Scale={rScale:0.00}x");
             }
+
+            // S9: Multi-Passive Capstone Stack Stress (Giant's Heart + Draconic Blade + Chalice of Life + Banana Blade)
+            var mp = new LaneMatch(LaneHeroId.Swordsman, LaneHeroId.Ogre, new LaneTuning { startingGold = 12000, waveFirstSpawnDelay = 999f, ultMinLevel = 1, passiveGoldPerSecond = 0f });
+            mp.TryBuyItem(LaneTeam.Blue, LaneItemIds.GiantsHeart, out _);
+            mp.TryBuyItem(LaneTeam.Blue, LaneItemIds.DraconicBlade, out _);
+            mp.TryBuyItem(LaneTeam.Blue, LaneItemIds.ChaliceOfLife, out _);
+            mp.TryBuyItem(LaneTeam.Blue, LaneItemIds.BananaBlade, out _);
+            mp.TryBuyItem(LaneTeam.Red, LaneItemIds.GiantsHeart, out _);
+            mp.TryBuyItem(LaneTeam.Red, LaneItemIds.DraconicBlade, out _);
+            PlacePair(mp, new Vector2(-1.2f, 0f), new Vector2(0.2f, 0f));
+            mp.SpawnPreviewDummyMinion(LaneTeam.Red, new Vector2(1.1f, 0.35f), maxHp: 3000f);
+            mp.EnqueueOrApplyOrder(new LaneOrder { team = LaneTeam.Blue, kind = LaneOrderKind.AttackHero, targetId = 2 });
+            Step(mp, 4.0f);
+            HeroSnap sbMp = GetHero(mp.Snapshot(), LaneTeam.Blue);
+            HeroSnap srMp = GetHero(mp.Snapshot(), LaneTeam.Red);
+            sb.AppendLine($"  [Multi-Passive Capstone Stress] Swordsman(GH+DB+CoL+BB) AD={sbMp.attackDamage:0} MaxHP={sbMp.maxHp:0} | vs Ogre(GH+DB) Heat={srMp.heatStacks} Scales={srMp.adaptiveScalesStacks} Deferred={srMp.deferredDamageTotal:0.0}");
         }
 
         private static void LevelHeroCleanly(LaneMatch m, LaneTeam team, int targetLevel)

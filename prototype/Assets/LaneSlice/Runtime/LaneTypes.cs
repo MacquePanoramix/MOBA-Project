@@ -654,6 +654,14 @@ namespace Moba.LaneSlice
         public float laserWManaPerRank = 7f;
         public float laserEManaFlat = 35f;
         public float laserRManaUpfront = 110f;
+
+        // Provisional Mana item passives (Stage F / v0.3.0)
+        public float manaDewOutOfCombat = 5.0f;
+        public float manaDewOutOfCombatRegen = 1.5f;
+        public float wellspringPctManaRegen = 0.004f;
+        public float astralSurgePctManaRegen = 0.007f;
+        public float tidecallerMaxMissingManaRegen = 6.0f;
+        public float frugalFocusRefundRatio = 0.12f;
     }
 
     [Serializable]

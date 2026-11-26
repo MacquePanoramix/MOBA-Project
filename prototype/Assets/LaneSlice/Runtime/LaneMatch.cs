@@ -2315,6 +2315,12 @@ namespace Moba.LaneSlice
             h.mana = h.resourceKind == HeroResourceKind.Mana ? Mathf.Clamp(manaAmount, 0f, h.maxMana) : 0f;
         }
 
+        public void SetHeroGoldForTest(LaneTeam team, int gold)
+        {
+            HeroState h = GetHero(team);
+            h.goldExact = Mathf.Max(0, gold);
+        }
+
         public void SetHeroHpForTest(LaneTeam team, float hpAmount)
         {
             HeroState h = GetHero(team);
@@ -2370,6 +2376,10 @@ namespace Moba.LaneSlice
             }
             spent = Mathf.Min(h.mana, cost);
             h.mana = Mathf.Max(0f, h.mana - spent);
+            if (spent > 0f && spec.Mode == ResourceCostMode.Flat && h.HasPassive(ItemPassiveFlags.FrugalFocus))
+            {
+                h.mana = Mathf.Min(h.maxMana, h.mana + spent * tuning.frugalFocusRefundRatio);
+            }
             return true;
         }
 

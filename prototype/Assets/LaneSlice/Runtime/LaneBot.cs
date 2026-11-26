@@ -10,10 +10,10 @@ namespace Moba.LaneSlice
     /// </summary>
     public sealed class LaneBot
     {
-        private static readonly int[] OgreBuild = { LaneItemIds.BrawlersBuckler, LaneItemIds.SteelSword, LaneItemIds.IronDagger, LaneItemIds.Windfeather, LaneItemIds.Titanstone, LaneItemIds.ColossusPauldron };
-        private static readonly int[] MiravelBuild = { LaneItemIds.WoodlandSalve, LaneItemIds.KindredCenser, LaneItemIds.SagesEye, LaneItemIds.ClockworkPin, LaneItemIds.CowardsShield, LaneItemIds.ChaliceOfLife };
-        private static readonly int[] SwordsmanBuild = { LaneItemIds.MinersHatchet, LaneItemIds.SteelSword, LaneItemIds.IronDagger, LaneItemIds.BlightedThorn, LaneItemIds.DraconicBlade, LaneItemIds.ExecutionersAxe };
-        private static readonly int[] LaserBuild = { LaneItemIds.MinersHatchet, LaneItemIds.SteelSword, LaneItemIds.IronDagger, LaneItemIds.SagesEye, LaneItemIds.BananaBlade, LaneItemIds.ExecutionersAxe };
+        private static readonly int[] OgreBuild = { LaneItemIds.BrawlersBuckler, LaneItemIds.ColossusPauldron, LaneItemIds.GiantsHeart, LaneItemIds.ExecutionersAxe };
+        private static readonly int[] MiravelBuild = { LaneItemIds.ManaDewVial, LaneItemIds.TidecallerChalice, LaneItemIds.ChaliceOfLife, LaneItemIds.CowardsShield };
+        private static readonly int[] SwordsmanBuild = { LaneItemIds.MinersHatchet, LaneItemIds.DraconicBlade, LaneItemIds.ExecutionersAxe, LaneItemIds.BlightedThorn };
+        private static readonly int[] LaserBuild = { LaneItemIds.ManaDewVial, LaneItemIds.BananaBlade, LaneItemIds.AstralReservoir, LaneItemIds.ExecutionersAxe };
 
         private readonly LaneTeam team;
         private float decideAccum;
@@ -595,26 +595,115 @@ namespace Moba.LaneSlice
                 : (self.heroId == LaneHeroId.Miravel ? MiravelBuild
                 : (self.heroId == LaneHeroId.Swordsman ? SwordsmanBuild : LaserBuild));
 
+            int nextPurchaseId = SelectNextBotPurchaseId(order, self.items, self.gold);
+            if (nextPurchaseId > 0)
+            {
+                match.EnqueueOrApplyOrder(new LaneOrder { team = team, kind = LaneOrderKind.BuyItem, param = nextPurchaseId });
+            }
+        }
+
+        public static int SelectNextBotPurchaseId(int[] order, int[] inventory, int currentGold)
+        {
+            if (order == null || order.Length == 0 || inventory == null) return 0;
+
+            int[] remaining = new int[inventory.Length];
+            for (int s = 0; s < inventory.Length; s++)
+            {
+                remaining[s] = LaneItems.MigrateItemId(inventory[s]);
+            }
+
             for (int i = 0; i < order.Length; i++)
             {
-                int id = order[i];
-                bool owned = false;
-                for (int s = 0; s < self.items.Length; s++)
+                int targetId = LaneItems.MigrateItemId(order[i]);
+                if (targetId <= 0) continue;
+
+                int completedSlot = -1;
+                for (int s = 0; s < remaining.Length; s++)
                 {
-                    if (self.items[s] == id)
+                    if (remaining[s] == targetId)
                     {
-                        owned = true;
+                        completedSlot = s;
                         break;
                     }
                 }
-                if (owned) continue;
-
-                if (LaneItems.TryGet(id, out LaneItemDef def) && self.gold >= def.Cost)
+                if (completedSlot >= 0)
                 {
-                    match.EnqueueOrApplyOrder(new LaneOrder { team = team, kind = LaneOrderKind.BuyItem, param = id });
+                    remaining[completedSlot] = -1;
+                    continue;
                 }
+
+                // Target is not yet completed: buy full item/combine if affordable first.
+                PurchasePlan directPlan = LaneItems.ResolvePurchase(targetId, inventory, currentGold);
+                if (directPlan.CanPurchase)
+                {
+                    return targetId;
+                }
+
+                // Otherwise step through missing recipe components, preferring completed sub-recipes (shallower depth) before deeper leaves.
+                var treeWorking = new int[remaining.Length];
+                for (int s = 0; s < remaining.Length; s++) treeWorking[s] = remaining[s];
+
+                var candidates = new List<(int itemId, int depth)>();
+                int maxDepth = CollectMissingRecipeCandidates(targetId, treeWorking, 1, candidates);
+                for (int d = 1; d <= maxDepth; d++)
+                {
+                    for (int c = 0; c < candidates.Count; c++)
+                    {
+                        if (candidates[c].depth != d) continue;
+                        PurchasePlan subPlan = LaneItems.ResolvePurchase(candidates[c].itemId, inventory, currentGold);
+                        if (subPlan.CanPurchase)
+                        {
+                            return candidates[c].itemId;
+                        }
+                    }
+                }
+
+                // Wait for more gold rather than skipping ahead in the build path.
                 break;
             }
+            return 0;
+        }
+
+        private static int CollectMissingRecipeCandidates(
+            int targetId,
+            int[] workingInventory,
+            int depth,
+            List<(int itemId, int depth)> candidates)
+        {
+            if (!LaneItems.TryGet(targetId, out LaneItemDef def) || def.Recipe == null || def.Recipe.Length == 0)
+            {
+                return depth - 1;
+            }
+
+            int maxDepth = depth;
+            for (int r = 0; r < def.Recipe.Length; r++)
+            {
+                RecipeIngredient req = def.Recipe[r];
+                for (int q = 0; q < req.Quantity; q++)
+                {
+                    int directSlot = -1;
+                    for (int s = 0; s < workingInventory.Length; s++)
+                    {
+                        if (workingInventory[s] == req.ItemId)
+                        {
+                            directSlot = s;
+                            break;
+                        }
+                    }
+
+                    if (directSlot >= 0)
+                    {
+                        workingInventory[directSlot] = -1;
+                    }
+                    else
+                    {
+                        candidates.Add((req.ItemId, depth));
+                        int subDepth = CollectMissingRecipeCandidates(req.ItemId, workingInventory, depth + 1, candidates);
+                        if (subDepth > maxDepth) maxDepth = subDepth;
+                    }
+                }
+            }
+            return maxDepth;
         }
 
         private bool TryStepOnOrb(LaneSnapshot snap, HeroSnap self, Vector2 selfPos, TowerSnap enemyTower, out Vector2 orbPos)

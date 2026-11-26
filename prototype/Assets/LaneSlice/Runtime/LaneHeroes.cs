@@ -181,7 +181,10 @@ namespace Moba.LaneSlice
                 h.rcrStat = Mathf.Max(0f, itemRcr + ovRcr);
                 h.rcrPct = Mathf.Clamp(tuning.resourceCostReductionFormula.Evaluate(1, h.rcrStat), 0f, 0.99f);
                 h.maxMana = Mathf.Max(1f, bMana + mPerLvl * lvlOffset + itemMaxMana + ovMaxMana);
-                h.percentManaRegenPerSec = Mathf.Max(0f, itemPctManaRegen + ovPctManaRegen);
+                float passivePctManaRegen = h.HasPassive(ItemPassiveFlags.AstralSurge)
+                    ? tuning.astralSurgePctManaRegen
+                    : (h.HasPassive(ItemPassiveFlags.Wellspring) ? tuning.wellspringPctManaRegen : 0f);
+                h.percentManaRegenPerSec = Mathf.Max(0f, itemPctManaRegen + ovPctManaRegen + passivePctManaRegen);
                 float flatRegen = Mathf.Max(0f, bRegen + rPerLvl * lvlOffset + itemManaRegen + ovManaRegen);
                 h.manaRegen = flatRegen + h.maxMana * h.percentManaRegenPerSec;
                 h.mana = preserveHpRatio ? Mathf.Clamp(h.maxMana * manaRatio, 0f, h.maxMana) : h.maxMana;
@@ -588,11 +591,17 @@ namespace Moba.LaneSlice
             }
             if (h.lowManaPopupCd > 0f) h.lowManaPopupCd = Mathf.Max(0f, h.lowManaPopupCd - dt);
 
-            // Continuous Mana regeneration (active inside and outside combat) + fountain recovery
+            // Continuous Mana regeneration (active inside and outside combat) + fountain recovery + Mana passives
             if (h.resourceKind == HeroResourceKind.Mana && h.maxMana > 0f)
             {
                 float fountainMana = map.IsInFountain(h.team, h.motor.Position) ? tuning.fountainManaPerSec : 0f;
-                float totalManaRegen = h.manaRegen + fountainMana;
+                float dewSipMana = (h.HasPassive(ItemPassiveFlags.DewSip) && h.lastHeroDamageAge >= tuning.manaDewOutOfCombat)
+                    ? tuning.manaDewOutOfCombatRegen
+                    : 0f;
+                float tidecallerMana = h.HasPassive(ItemPassiveFlags.TidecallerFlow)
+                    ? tuning.tidecallerMaxMissingManaRegen * (1f - Mathf.Clamp01(h.mana / Mathf.Max(1f, h.maxMana)))
+                    : 0f;
+                float totalManaRegen = h.manaRegen + dewSipMana + tidecallerMana + fountainMana;
                 if (totalManaRegen > 0f)
                 {
                     h.mana = Mathf.Min(h.maxMana, h.mana + totalManaRegen * dt);

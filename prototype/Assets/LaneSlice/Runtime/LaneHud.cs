@@ -45,6 +45,9 @@ namespace Moba.LaneSlice
         private int shopTierFilter = -1; // -1=All, 0=Starter, 1=Components, 2=Specialized, 3=Advanced, 4=Provisional
         private string hoverTooltipText;
         private Rect hoverTooltipAnchor;
+        private readonly LaneHeroSheet.HeroGuideCache heroGuideCache = new LaneHeroSheet.HeroGuideCache();
+        private static readonly LaneHeroId[] AllHeroOrder = { LaneHeroId.Ogre, LaneHeroId.Miravel, LaneHeroId.Swordsman, LaneHeroId.LaserShooter };
+        private static readonly LaneAbilitySlot[] AbilitySlotOrder = { LaneAbilitySlot.None, LaneAbilitySlot.Q, LaneAbilitySlot.W, LaneAbilitySlot.E, LaneAbilitySlot.R };
 
         public bool ShopOpen { get; set; }
         public bool HeroSheetOpen { get; set; }
@@ -62,6 +65,13 @@ namespace Moba.LaneSlice
             previewPaneScroll = Vector2.zero;
             previewSlot = LaneAbilitySlot.Q;
             scene.AbilityPreview?.Select(hero, previewSlot, 0);
+        }
+
+        internal void BenchSelectPreviewSlot(LaneHeroId hero, LaneAbilitySlot slot, int exampleIndex = 0)
+        {
+            inspectedHero = hero;
+            previewSlot = slot;
+            scene.AbilityPreview?.Select(hero, slot, exampleIndex);
         }
 
         public void OpenSettings()
@@ -1140,8 +1150,9 @@ namespace Moba.LaneSlice
             GUILayout.BeginHorizontal();
             GUILayout.Label($"<color={LaneHeroSheet.ColText}><b><size=15>HERO GUIDE, PREVIEW & SCALING SANDBOX</size></b></color>");
             GUILayout.FlexibleSpace();
-            foreach (LaneHeroId id in new[] { LaneHeroId.Ogre, LaneHeroId.Miravel, LaneHeroId.Swordsman, LaneHeroId.LaserShooter })
+            for (int hi = 0; hi < AllHeroOrder.Length; hi++)
             {
+                LaneHeroId id = AllHeroOrder[hi];
                 bool active = inspectedHero == id;
                 GUI.backgroundColor = active ? new Color(0.32f, 0.76f, 0.52f) : new Color(0.75f, 0.80f, 0.88f);
                 if (GUILayout.Button(LaneNames.ShortName(id), GUILayout.Width(76f), GUILayout.Height(25f)))
@@ -1168,11 +1179,9 @@ namespace Moba.LaneSlice
 
             bool hasLiveMatchHero = liveSelf != null && liveSelf.heroId == inspectedHero;
             bool usingSandbox = !hasLiveMatchHero || previewSandboxMode;
-            HeroSnap displayedSnap = hasLiveMatchHero && !usingSandbox
-                ? liveSelf
-                : (preview != null ? LaneHeroSheet.EvaluatePreviewHeroSnap(inspectedHero, tuning, preview.Overrides) : null);
-
-            LaneHeroSheet.HeroGuideData guide = LaneHeroSheet.BuildHeroGuide(inspectedHero, tuning, displayedSnap);
+            PreviewStatOverrides activeOverrides = preview != null ? preview.Overrides : default;
+            LaneHeroSheet.HeroGuideData guide = heroGuideCache.GetOrBuild(
+                inspectedHero, tuning, liveSelf, usingSandbox, activeOverrides, out _);
 
             GUILayout.BeginHorizontal();
 
@@ -1343,8 +1352,9 @@ namespace Moba.LaneSlice
 
             // Slot Selector Row
             GUILayout.BeginHorizontal();
-            foreach (LaneAbilitySlot slotOpt in new[] { LaneAbilitySlot.None, LaneAbilitySlot.Q, LaneAbilitySlot.W, LaneAbilitySlot.E, LaneAbilitySlot.R })
+            for (int si = 0; si < AbilitySlotOrder.Length; si++)
             {
+                LaneAbilitySlot slotOpt = AbilitySlotOrder[si];
                 string lbl = slotOpt == LaneAbilitySlot.None ? "Passive" : slotOpt.ToString();
                 GUI.backgroundColor = previewSlot == slotOpt ? new Color(0.34f, 0.64f, 0.94f) : new Color(0.72f, 0.78f, 0.85f);
                 if (GUILayout.Button(lbl, GUILayout.Height(22f)))

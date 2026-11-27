@@ -350,10 +350,10 @@ namespace Moba.LaneSlice
         public bool IsGameOver => gameOver;
         public int WinnerTeam => winnerTeam;
 
-        public LaneMatch(LaneHeroId blueHero, LaneHeroId redHero, LaneTuning customTuning = null)
+        public LaneMatch(LaneHeroId blueHero, LaneHeroId redHero, LaneTuning customTuning = null, LaneMap sharedMap = null)
         {
             tuning = customTuning ?? new LaneTuning();
-            map = new LaneMap(tuning);
+            map = sharedMap ?? new LaneMap(tuning);
 
             heroes[0] = CreateHero(1, LaneTeam.Blue, blueHero, map.SpawnPos(LaneTeam.Blue), 90f);
             heroes[1] = CreateHero(2, LaneTeam.Red, redHero, map.SpawnPos(LaneTeam.Red), 270f);

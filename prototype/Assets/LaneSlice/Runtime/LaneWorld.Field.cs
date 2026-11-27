@@ -99,7 +99,10 @@ namespace Moba.LaneSlice
             floorObj.transform.SetParent(root, false);
             floorObj.transform.localPosition = worldOffset;
             floorObj.AddComponent<MeshFilter>().sharedMesh = floorMesh;
-            floorObj.AddComponent<MeshRenderer>().sharedMaterial = vertexMat;
+            var floorMr = floorObj.AddComponent<MeshRenderer>();
+            floorMr.sharedMaterial = vertexMat;
+            floorMr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            floorMr.receiveShadows = false;
 
             foreach (float rad in new[] { 2f, 4f, 6f })
             {
@@ -156,7 +159,7 @@ namespace Moba.LaneSlice
             lr.positionCount = 2;
             lr.startWidth = 0.09f;
             lr.endWidth = 0.04f;
-            var mat = new Material(Shader.Find("Sprites/Default"));
+            var mat = new Material(spritesDefaultShader);
             ownedMaterials.Add(mat);
             mat.color = teamColor;
             lr.sharedMaterial = mat;

@@ -1,6 +1,13 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Text;
+using Unity.Profiling;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace Moba.LaneSlice
 {
@@ -41,6 +48,12 @@ namespace Moba.LaneSlice
         private string cliStatus = string.Empty;
         private bool hostStartSent;
         private bool headlessMode;
+        private string perfBenchOutPath;
+        private string uiShotsOutDir;
+        private bool benchMeasureActive;
+        private float benchUpdateMsAccum;
+        private float benchOnGuiMsAccum;
+        private readonly Stopwatch benchSw = new Stopwatch();
 
         private PlayerSettingsStore settingsStore;
         private readonly LaneRtsSelection rtsSelection = new LaneRtsSelection();
@@ -128,6 +141,23 @@ namespace Moba.LaneSlice
                     JoinTcp(args[i + 1]);
                     return;
                 }
+                if (string.Equals(args[i], "-perfBench", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                {
+                    perfBenchOutPath = args[i + 1];
+                }
+                else if (string.Equals(args[i], "-uiShots", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                {
+                    uiShotsOutDir = args[i + 1];
+                }
+            }
+
+            if (!string.IsNullOrEmpty(perfBenchOutPath) && !headlessMode)
+            {
+                StartCoroutine(RunPerfBenchRoutine(perfBenchOutPath));
+            }
+            else if (!string.IsNullOrEmpty(uiShotsOutDir) && !headlessMode)
+            {
+                StartCoroutine(RunUiShotsRoutine(uiShotsOutDir));
             }
         }
 
@@ -367,6 +397,7 @@ namespace Moba.LaneSlice
 
         private void Update()
         {
+            if (benchMeasureActive) benchSw.Restart();
             if (link != null)
             {
                 link.Tick();
@@ -443,6 +474,11 @@ namespace Moba.LaneSlice
                 bool runPreview = !headlessMode && hud != null && hud.HeroSheetOpen && !hud.SettingsOpen &&
                                   (settingsStore == null || settingsStore.Data.enableAbilityDemos);
                 abilityPreview.Tick(Time.deltaTime, runPreview);
+            }
+            if (benchMeasureActive)
+            {
+                benchSw.Stop();
+                benchUpdateMsAccum += (float)benchSw.Elapsed.TotalMilliseconds;
             }
         }
 
@@ -874,6 +910,14 @@ namespace Moba.LaneSlice
         private void OnGUI()
         {
             if (headlessMode || hud == null) return;
+            if (benchMeasureActive)
+            {
+                benchSw.Restart();
+                hud.Draw(mainCam, world.CameraLocked);
+                benchSw.Stop();
+                benchOnGuiMsAccum += (float)benchSw.Elapsed.TotalMilliseconds;
+                return;
+            }
             hud.Draw(mainCam, world.CameraLocked);
         }
 
@@ -882,6 +926,269 @@ namespace Moba.LaneSlice
             abilityPreview?.Dispose();
             abilityPreview = null;
             CleanupLink();
+        }
+
+        private IEnumerator RunPerfBenchRoutine(string outPath)
+        {
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = 300;
+            CultureInfo inv = CultureInfo.InvariantCulture;
+            bool origDemos = settingsStore == null || settingsStore.Data.enableAbilityDemos;
+
+            ProfilerRecorder mainThreadRec = ProfilerRecorder.StartNew(ProfilerCategory.Internal, "Main Thread", 15);
+            ProfilerRecorder gcAllocRec = ProfilerRecorder.StartNew(ProfilerCategory.Memory, "GC Allocated In Frame", 15);
+            ProfilerRecorder drawCallsRec = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Draw Calls Count", 15);
+            ProfilerRecorder setPassRec = ProfilerRecorder.StartNew(ProfilerCategory.Render, "SetPass Calls Count", 15);
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"=== WINDOWED PERF BENCH ({LaneUpdater.BuildVersion}, {Screen.width}x{Screen.height}, Gfx={SystemInfo.graphicsDeviceName}, Quality={QualitySettings.names[QualitySettings.GetQualityLevel()]}) ===");
+            sb.AppendLine($"TimestampUTC={DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss", inv)} | ProfilerValid(MainThread={mainThreadRec.Valid}, DrawCalls={drawCallsRec.Valid}, GCAlloc={gcAllocRec.Valid})");
+            sb.AppendLine();
+
+            yield return null;
+            yield return null;
+
+            IEnumerator MeasurePhase(string label, int warmupFrames, int measureFrames, Action<int> perFrameAct)
+            {
+                for (int w = 0; w < warmupFrames; w++)
+                {
+                    perFrameAct?.Invoke(-1 - w);
+                    yield return new WaitForEndOfFrame();
+                }
+
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                int gen0Start = GC.CollectionCount(0);
+                long memStart = GC.GetTotalMemory(false);
+                int meshesStart = Resources.FindObjectsOfTypeAll<Mesh>().Length;
+                int matsStart = Resources.FindObjectsOfTypeAll<Material>().Length;
+
+                var frameTimes = new double[measureFrames];
+                double updateSum = 0;
+                double onGuiSum = 0;
+                double profMainSum = 0;
+                double drawCallSum = 0;
+                double setPassSum = 0;
+                double gcFrameSum = 0;
+
+                benchMeasureActive = true;
+                var frameSw = new Stopwatch();
+                for (int f = 0; f < measureFrames; f++)
+                {
+                    benchUpdateMsAccum = 0f;
+                    benchOnGuiMsAccum = 0f;
+                    frameSw.Restart();
+                    perFrameAct?.Invoke(f);
+                    yield return new WaitForEndOfFrame();
+                    frameSw.Stop();
+
+                    frameTimes[f] = frameSw.Elapsed.TotalMilliseconds;
+                    updateSum += benchUpdateMsAccum;
+                    onGuiSum += benchOnGuiMsAccum;
+                    if (mainThreadRec.Valid) profMainSum += mainThreadRec.LastValue / 1_000_000.0;
+                    if (drawCallsRec.Valid) drawCallSum += drawCallsRec.LastValue;
+                    if (setPassRec.Valid) setPassSum += setPassRec.LastValue;
+                    if (gcAllocRec.Valid) gcFrameSum += gcAllocRec.LastValue / 1024.0;
+                }
+                benchMeasureActive = false;
+
+                long memEnd = GC.GetTotalMemory(false);
+                int gen0End = GC.CollectionCount(0);
+                int meshesEnd = Resources.FindObjectsOfTypeAll<Mesh>().Length;
+                int matsEnd = Resources.FindObjectsOfTypeAll<Material>().Length;
+
+                Array.Sort(frameTimes);
+                double sum = 0;
+                for (int i = 0; i < frameTimes.Length; i++) sum += frameTimes[i];
+                double avgMs = sum / measureFrames;
+                double p95Ms = frameTimes[Math.Clamp((int)Math.Floor(measureFrames * 0.95) - 1, 0, measureFrames - 1)];
+                double maxMs = frameTimes[measureFrames - 1];
+                double fps = avgMs > 0.001 ? 1000.0 / avgMs : 0;
+
+                string profExtra = drawCallsRec.Valid
+                    ? $" | ProfMain={(profMainSum / measureFrames).ToString("0.00", inv)}ms Draws={(drawCallSum / measureFrames).ToString("0.0", inv)} SetPass={(setPassSum / measureFrames).ToString("0.0", inv)} FrameGC={(gcFrameSum / measureFrames).ToString("0.0", inv)}KB"
+                    : string.Empty;
+
+                sb.AppendLine(
+                    $"{label,-34} | FPS={fps.ToString("0.0", inv),6} | Frame Avg={avgMs.ToString("0.00", inv),6}ms P95={p95Ms.ToString("0.00", inv),6}ms Max={maxMs.ToString("0.00", inv),6}ms | " +
+                    $"UpdateAvg={(updateSum / measureFrames).ToString("0.00", inv),6}ms OnGuiAvg={(onGuiSum / measureFrames).ToString("0.00", inv),6}ms | " +
+                    $"Heap+={(Math.Max(0L, memEnd - memStart) / 1024L),5}KB Gen0={Math.Max(0, gen0End - gen0Start)} Mesh+={(meshesEnd - meshesStart),3} Mat+={(matsEnd - matsStart),3}{profExtra}");
+            }
+
+            // 1. Lobby with Hero Guide Closed
+            hud.HeroSheetOpen = false;
+            yield return MeasurePhase("1_Lobby_GuideClosed", 15, 60, null);
+
+            // 2. Lobby with Hero Guide Open, Demos OFF
+            if (settingsStore != null) settingsStore.Data.enableAbilityDemos = false;
+            hud.OpenHeroSheet(LaneHeroId.Ogre);
+            yield return MeasurePhase("2_Lobby_GuideOpen_DemosOFF", 15, 60, null);
+
+            // 3. Lobby with Hero Guide Open, Demos ON + Ability Switch + Slider Adjust
+            if (settingsStore != null) settingsStore.Data.enableAbilityDemos = true;
+            hud.OpenHeroSheet(LaneHeroId.LaserShooter);
+            var switchSlots = new[] { LaneAbilitySlot.Q, LaneAbilitySlot.W, LaneAbilitySlot.E, LaneAbilitySlot.R, LaneAbilitySlot.None };
+            yield return MeasurePhase("3_Lobby_GuideOpen_DemosON", 15, 90, f =>
+            {
+                if (f >= 0 && f % 20 == 19)
+                {
+                    LaneAbilitySlot nextSlot = switchSlots[(f / 20) % switchSlots.Length];
+                    hud.BenchSelectPreviewSlot(LaneHeroId.LaserShooter, nextSlot, 0);
+                }
+                else if (f >= 0 && f % 6 == 3 && abilityPreview != null)
+                {
+                    PreviewStatOverrides ov = abilityPreview.Overrides;
+                    ov.bonusIntelligence = (f * 3f) % 150f;
+                    ov.bonusAgility = (f * 2f) % 120f;
+                    abilityPreview.ApplyLiveOverrides(ov);
+                }
+            });
+
+            // 4. Live Match with Hero Guide Closed
+            hud.HeroSheetOpen = false;
+            abilityPreview?.Deactivate();
+            StartPractice();
+            yield return MeasurePhase("4_Match_GuideClosed", 15, 60, null);
+
+            // 5. Live Match with Hero Guide Open, Demos ON
+            hud.OpenHeroSheet(LaneHeroId.Miravel);
+            hud.BenchSelectPreviewSlot(LaneHeroId.Miravel, LaneAbilitySlot.R, 0);
+            yield return MeasurePhase("5_Match_GuideOpen_DemosON", 15, 90, null);
+
+            if (settingsStore != null) settingsStore.Data.enableAbilityDemos = origDemos;
+            mainThreadRec.Dispose();
+            gcAllocRec.Dispose();
+            drawCallsRec.Dispose();
+            setPassRec.Dispose();
+
+            string dir = Path.GetDirectoryName(outPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(outPath, sb.ToString(), new UTF8Encoding(false));
+            Debug.Log($"[LaneScene] Perf bench written to {outPath}");
+            Application.Quit(0);
+        }
+
+        private IEnumerator RunUiShotsRoutine(string outDir)
+        {
+            // Expanded in Stage C-F; capture baseline Lobby & Hero Guide if invoked
+            if (!Directory.Exists(outDir)) Directory.CreateDirectory(outDir);
+            yield return new WaitForSeconds(0.4f);
+            hud.OpenHeroSheet(LaneHeroId.Ogre);
+            yield return new WaitForSeconds(0.6f);
+            yield return new WaitForEndOfFrame();
+            CaptureScreenPng(Path.Combine(outDir, "hero_guide.png"));
+            Application.Quit(0);
+        }
+
+        private static void CaptureScreenPng(string path)
+        {
+            var tex = new Texture2D(Screen.width, Screen.height, TextureFormat.RGBA32, false);
+            tex.ReadPixels(new Rect(0, 0, Screen.width, Screen.height), 0, 0);
+            tex.Apply();
+            byte[] png = EncodeRgbaToPng(tex.GetPixels32(), tex.width, tex.height);
+            File.WriteAllBytes(path, png);
+            UnityEngine.Object.Destroy(tex);
+        }
+
+        private static byte[] EncodeRgbaToPng(Color32[] pixels, int w, int h)
+        {
+            using (var raw = new MemoryStream())
+            {
+                // PNG filters: 0 (None) per scanline top-down
+                for (int y = h - 1; y >= 0; y--)
+                {
+                    raw.WriteByte(0);
+                    int row = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        Color32 c = pixels[row + x];
+                        raw.WriteByte(c.r);
+                        raw.WriteByte(c.g);
+                        raw.WriteByte(c.b);
+                        raw.WriteByte(c.a);
+                    }
+                }
+                byte[] scan = raw.ToArray();
+                byte[] zlib;
+                using (var zms = new MemoryStream())
+                {
+                    zms.WriteByte(0x78);
+                    zms.WriteByte(0x01);
+                    using (var def = new System.IO.Compression.DeflateStream(zms, System.IO.Compression.CompressionLevel.Fastest, true))
+                    {
+                        def.Write(scan, 0, scan.Length);
+                    }
+                    uint adler = ComputeAdler32(scan);
+                    WriteBigEndianUInt(zms, adler);
+                    zlib = zms.ToArray();
+                }
+
+                using (var png = new MemoryStream())
+                {
+                    byte[] sig = { 137, 80, 78, 71, 13, 10, 26, 10 };
+                    png.Write(sig, 0, sig.Length);
+
+                    using (var ihdr = new MemoryStream(13))
+                    {
+                        WriteBigEndianUInt(ihdr, (uint)w);
+                        WriteBigEndianUInt(ihdr, (uint)h);
+                        ihdr.WriteByte(8); // bit depth
+                        ihdr.WriteByte(6); // RGBA
+                        ihdr.WriteByte(0);
+                        ihdr.WriteByte(0);
+                        ihdr.WriteByte(0);
+                        WritePngChunk(png, "IHDR", ihdr.ToArray());
+                    }
+                    WritePngChunk(png, "IDAT", zlib);
+                    WritePngChunk(png, "IEND", Array.Empty<byte>());
+                    return png.ToArray();
+                }
+            }
+        }
+
+        private static void WriteBigEndianUInt(Stream s, uint v)
+        {
+            s.WriteByte((byte)((v >> 24) & 0xFF));
+            s.WriteByte((byte)((v >> 16) & 0xFF));
+            s.WriteByte((byte)((v >> 8) & 0xFF));
+            s.WriteByte((byte)(v & 0xFF));
+        }
+
+        private static uint ComputeAdler32(byte[] data)
+        {
+            uint a = 1, b = 0;
+            for (int i = 0; i < data.Length; i++)
+            {
+                a = (a + data[i]) % 65521;
+                b = (b + a) % 65521;
+            }
+            return (b << 16) | a;
+        }
+
+        private static void WritePngChunk(Stream s, string type, byte[] data)
+        {
+            WriteBigEndianUInt(s, (uint)data.Length);
+            byte[] t = Encoding.ASCII.GetBytes(type);
+            s.Write(t, 0, 4);
+            if (data.Length > 0) s.Write(data, 0, data.Length);
+            uint crc = 0xFFFFFFFFu;
+            crc = UpdateCrc32(crc, t, 0, 4);
+            crc = UpdateCrc32(crc, data, 0, data.Length);
+            WriteBigEndianUInt(s, crc ^ 0xFFFFFFFFu);
+        }
+
+        private static uint UpdateCrc32(uint crc, byte[] buf, int off, int len)
+        {
+            for (int i = off; i < off + len; i++)
+            {
+                crc ^= buf[i];
+                for (int b = 0; b < 8; b++)
+                {
+                    crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : (crc >> 1);
+                }
+            }
+            return crc;
         }
     }
 }

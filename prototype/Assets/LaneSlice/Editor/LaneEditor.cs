@@ -71,6 +71,12 @@ namespace Moba.LaneSlice
             LaneBalanceHarness.RunAll();
         }
 
+        [MenuItem("Moba/Woodland Lane/Run Preview Perf Bench")]
+        public static void RunPreviewPerfBench()
+        {
+            LanePerfBench.RunPreviewPerfBench();
+        }
+
         [MenuItem("Moba/Woodland Lane/Build Windows Player")]
         public static void BuildWindows()
         {

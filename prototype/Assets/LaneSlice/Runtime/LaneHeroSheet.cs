@@ -324,6 +324,26 @@ namespace Moba.LaneSlice
             card.StatLines.Add(bullet);
         }
 
+        private static LaneMap cachedEvalMap;
+        private static float cachedEvalHalfLen;
+        private static float cachedEvalHalfWidth;
+        private static float cachedEvalFountainRadius;
+
+        private static LaneMap GetSharedEvalMap(LaneTuning t)
+        {
+            if (cachedEvalMap == null ||
+                !Mathf.Approximately(cachedEvalHalfLen, t.laneHalfLength) ||
+                !Mathf.Approximately(cachedEvalHalfWidth, t.laneHalfWidth) ||
+                !Mathf.Approximately(cachedEvalFountainRadius, t.fountainRadius))
+            {
+                cachedEvalHalfLen = t.laneHalfLength;
+                cachedEvalHalfWidth = t.laneHalfWidth;
+                cachedEvalFountainRadius = t.fountainRadius;
+                cachedEvalMap = new LaneMap(t);
+            }
+            return cachedEvalMap;
+        }
+
         public static HeroSnap EvaluatePreviewHeroSnap(LaneHeroId hero, LaneTuning t, PreviewStatOverrides ov)
         {
             LaneTuning safeTuning = t ?? new LaneTuning
@@ -332,7 +352,7 @@ namespace Moba.LaneSlice
                 passiveGoldPerSecond = 0f,
                 startingGold = 0,
             };
-            var previewSim = new LaneMatch(hero, LaneHeroId.Swordsman, safeTuning);
+            var previewSim = new LaneMatch(hero, LaneHeroId.Swordsman, safeTuning, GetSharedEvalMap(safeTuning));
             previewSim.SetPreviewStatOverrides(LaneTeam.Blue, ov);
             LaneSnapshot snap = previewSim.Snapshot();
             for (int i = 0; i < snap.heroes.Count; i++)
@@ -340,6 +360,71 @@ namespace Moba.LaneSlice
                 if (snap.heroes[i].team == LaneTeam.Blue) return snap.heroes[i];
             }
             return null;
+        }
+
+        public sealed class HeroGuideCache
+        {
+            private LaneHeroId cachedHero;
+            private LaneTuning cachedTuning;
+            private bool cachedUsingSandbox;
+            private HeroSnap cachedLiveRef;
+            private PreviewStatOverrides cachedOverrides;
+            private HeroSnap cachedDisplayedSnap;
+            private HeroGuideData cachedGuide;
+            private bool hasEntry;
+
+            public HeroGuideData GetOrBuild(
+                LaneHeroId hero,
+                LaneTuning tuning,
+                HeroSnap liveSelf,
+                bool usingSandbox,
+                PreviewStatOverrides overrides,
+                out HeroSnap displayedSnap)
+            {
+                bool sameInputs = hasEntry &&
+                    cachedHero == hero &&
+                    ReferenceEquals(cachedTuning, tuning) &&
+                    cachedUsingSandbox == usingSandbox &&
+                    (usingSandbox ? OverridesEqual(in cachedOverrides, in overrides) : ReferenceEquals(cachedLiveRef, liveSelf));
+
+                if (!sameInputs)
+                {
+                    cachedHero = hero;
+                    cachedTuning = tuning;
+                    cachedUsingSandbox = usingSandbox;
+                    cachedLiveRef = liveSelf;
+                    cachedOverrides = overrides;
+                    cachedDisplayedSnap = (liveSelf != null && !usingSandbox)
+                        ? liveSelf
+                        : EvaluatePreviewHeroSnap(hero, tuning, overrides);
+                    cachedGuide = BuildHeroGuide(hero, tuning, cachedDisplayedSnap);
+                    hasEntry = true;
+                }
+
+                displayedSnap = cachedDisplayedSnap;
+                return cachedGuide;
+            }
+
+            public void Invalidate() => hasEntry = false;
+
+            public static bool OverridesEqual(in PreviewStatOverrides a, in PreviewStatOverrides b)
+            {
+                return a.enabled == b.enabled &&
+                       a.level == b.level &&
+                       a.abilityRank == b.abilityRank &&
+                       Mathf.Approximately(a.bonusStrength, b.bonusStrength) &&
+                       Mathf.Approximately(a.bonusAgility, b.bonusAgility) &&
+                       Mathf.Approximately(a.bonusIntelligence, b.bonusIntelligence) &&
+                       Mathf.Approximately(a.bonusAttackDamage, b.bonusAttackDamage) &&
+                       Mathf.Approximately(a.bonusAttackSpeed, b.bonusAttackSpeed) &&
+                       Mathf.Approximately(a.bonusAbilityHaste, b.bonusAbilityHaste) &&
+                       Mathf.Approximately(a.bonusHealPower, b.bonusHealPower) &&
+                       Mathf.Approximately(a.bonusMaxHp, b.bonusMaxHp) &&
+                       Mathf.Approximately(a.bonusMaxMana, b.bonusMaxMana) &&
+                       Mathf.Approximately(a.bonusManaRegen, b.bonusManaRegen) &&
+                       Mathf.Approximately(a.bonusPercentManaRegen, b.bonusPercentManaRegen) &&
+                       Mathf.Approximately(a.bonusResourceCostReduction, b.bonusResourceCostReduction);
+            }
         }
 
         public static HeroGuideData BuildHeroGuide(LaneHeroId hero, LaneTuning t, HeroSnap liveSelf = null)

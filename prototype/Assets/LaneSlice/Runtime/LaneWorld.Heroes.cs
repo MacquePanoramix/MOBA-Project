@@ -17,11 +17,153 @@ namespace Moba.LaneSlice
             public MeshRenderer[] renderers;
         }
 
-        private static HeroRig BuildHeroRig(LaneHeroId heroId, string name, Transform parent, Material mat)
+        private sealed class HeroRigMeshSet
+        {
+            public Mesh legMesh;
+            public Mesh torsoMesh;
+            public Mesh leftArmMesh;
+            public Mesh rightArmMesh;
+        }
+
+        private readonly Dictionary<LaneHeroId, HeroRigMeshSet> heroRigMeshCache = new Dictionary<LaneHeroId, HeroRigMeshSet>();
+
+        private HeroRigMeshSet GetOrBuildHeroRigMeshes(LaneHeroId heroId)
+        {
+            if (heroRigMeshCache.TryGetValue(heroId, out HeroRigMeshSet cached))
+            {
+                return cached;
+            }
+
+            var set = new HeroRigMeshSet();
+            void Register(Mesh m)
+            {
+                if (m != null) ownedMeshes.Add(m);
+            }
+
+            if (heroId == LaneHeroId.Ogre)
+            {
+                Color skin = new Color(0.42f, 0.56f, 0.34f);
+                Color leather = new Color(0.36f, 0.24f, 0.16f);
+                Color club = new Color(0.48f, 0.31f, 0.18f);
+
+                var legGeo = new DuelGeometry();
+                legGeo.Column(new Vector3(0f, -0.72f, 0f), 0.72f, new Vector2(0.22f, 0.22f), new Vector2(0.18f, 0.18f), 7, leather);
+                set.legMesh = legGeo.Bake("OgreLeg");
+
+                var bodyGeo = new DuelGeometry();
+                bodyGeo.Column(Vector3.zero, 0.92f, new Vector2(0.54f, 0.44f), new Vector2(0.44f, 0.36f), 8, skin);
+                bodyGeo.Column(new Vector3(0f, 0.86f, 0.08f), 0.42f, new Vector2(0.26f, 0.24f), new Vector2(0.22f, 0.20f), 8, skin * 1.06f);
+                bodyGeo.Column(new Vector3(0f, 0.04f, 0f), 0.16f, new Vector2(0.55f, 0.45f), new Vector2(0.53f, 0.43f), 8, leather);
+                set.torsoMesh = bodyGeo.Bake("OgreTorso");
+
+                var lArmGeo = new DuelGeometry();
+                lArmGeo.Beam(Vector3.zero, new Vector3(-0.08f, -0.50f, 0.24f), 0.15f, 0.12f, skin, 7);
+                set.leftArmMesh = lArmGeo.Bake("OgreLeftArm");
+
+                var rArmGeo = new DuelGeometry();
+                rArmGeo.Beam(Vector3.zero, new Vector3(0.04f, -0.34f, 0.22f), 0.15f, 0.12f, skin, 7);
+                rArmGeo.Beam(new Vector3(0.04f, -0.34f, 0.22f), new Vector3(0.08f, -0.52f, 1.12f), 0.09f, 0.19f, club, 7);
+                set.rightArmMesh = rArmGeo.Bake("OgreClubArm");
+            }
+            else if (heroId == LaneHeroId.Miravel)
+            {
+                Color robe = new Color(0.25f, 0.62f, 0.76f);
+                Color shawl = new Color(0.86f, 0.90f, 0.75f);
+                Color staff = new Color(0.55f, 0.38f, 0.20f);
+                Color gem = new Color(0.38f, 1f, 0.72f);
+
+                var bodyGeo = new DuelGeometry();
+                bodyGeo.Column(Vector3.zero, 1.25f, new Vector2(0.38f, 0.38f), new Vector2(0.22f, 0.22f), 8, robe);
+                bodyGeo.Column(new Vector3(0f, 1.25f, 0.02f), 0.36f, new Vector2(0.20f, 0.20f), new Vector2(0.16f, 0.16f), 8, shawl);
+                set.torsoMesh = bodyGeo.Bake("MiravelRobe");
+
+                var lGeo = new DuelGeometry();
+                lGeo.Beam(Vector3.zero, new Vector3(-0.06f, -0.30f, 0.26f), 0.07f, 0.055f, robe, 6);
+                lGeo.Column(new Vector3(-0.06f, -0.32f, 0.28f), 0.10f, new Vector2(0.06f, 0.06f), new Vector2(0.05f, 0.05f), 6, shawl);
+                set.leftArmMesh = lGeo.Bake("MiravelLeftArm");
+
+                var rGeo = new DuelGeometry();
+                rGeo.Beam(new Vector3(0f, -0.64f, 0.02f), new Vector3(0.05f, 0.72f, 0.36f), 0.045f, 0.045f, staff, 6);
+                rGeo.Column(new Vector3(0.05f, 0.72f, 0.36f), 0.20f, new Vector2(0.12f, 0.12f), new Vector2(0.05f, 0.05f), 6, gem);
+                set.rightArmMesh = rGeo.Bake("MiravelStaffArm");
+            }
+            else if (heroId == LaneHeroId.Swordsman)
+            {
+                Color tunic = new Color(0.24f, 0.26f, 0.34f);
+                Color sash = new Color(0.82f, 0.66f, 0.28f);
+                Color strawHat = new Color(0.76f, 0.64f, 0.40f);
+                Color darkIron = new Color(0.28f, 0.31f, 0.38f);
+                Color heavyEdge = new Color(0.95f, 0.78f, 0.42f);
+                Color lightSteel = new Color(0.76f, 0.94f, 1.0f);
+
+                var legGeo = new DuelGeometry();
+                legGeo.Column(new Vector3(0f, -0.56f, 0f), 0.56f, new Vector2(0.14f, 0.14f), new Vector2(0.12f, 0.12f), 6, tunic * 0.85f);
+                set.legMesh = legGeo.Bake("SwordLeg");
+
+                var bodyGeo = new DuelGeometry();
+                bodyGeo.Column(Vector3.zero, 0.64f, new Vector2(0.30f, 0.26f), new Vector2(0.25f, 0.22f), 8, tunic);
+                bodyGeo.Column(new Vector3(0f, 0.12f, 0f), 0.18f, new Vector2(0.29f, 0.25f), new Vector2(0.29f, 0.25f), 8, sash);
+                bodyGeo.Column(new Vector3(0f, 0.64f, 0.04f), 0.28f, new Vector2(0.16f, 0.16f), new Vector2(0.15f, 0.15f), 8, sash * 1.1f);
+                bodyGeo.Column(new Vector3(0f, 0.90f, 0.02f), 0.22f, new Vector2(0.46f, 0.46f), new Vector2(0.06f, 0.06f), 10, strawHat);
+                set.torsoMesh = bodyGeo.Bake("SwordTorso");
+
+                var lGeo = new DuelGeometry();
+                lGeo.Beam(Vector3.zero, new Vector3(-0.10f, -0.02f, 1.18f), 0.092f, 0.056f, darkIron, 6);
+                lGeo.Beam(new Vector3(-0.02f, 0.01f, 0.24f), new Vector3(-0.10f, 0.01f, 1.16f), 0.044f, 0.022f, heavyEdge, 5);
+                lGeo.Column(new Vector3(-0.02f, -0.04f, 0.16f), 0.10f, new Vector2(0.10f, 0.10f), new Vector2(0.10f, 0.10f), 6, sash);
+                set.leftArmMesh = lGeo.Bake("SwordLeftBladeHeavy");
+
+                var rGeo = new DuelGeometry();
+                rGeo.Beam(Vector3.zero, new Vector3(0.06f, -0.02f, 0.84f), 0.030f, 0.014f, lightSteel, 5);
+                rGeo.Column(new Vector3(0.01f, -0.04f, 0.12f), 0.06f, new Vector2(0.055f, 0.055f), new Vector2(0.055f, 0.055f), 6, sash);
+                set.rightArmMesh = rGeo.Bake("SwordRightBladeLight");
+            }
+            else
+            {
+                Color coat = new Color(0.16f, 0.24f, 0.38f);
+                Color trim = new Color(0.36f, 0.56f, 0.74f);
+                Color prism = new Color(0.26f, 0.95f, 1.0f);
+                Color gunmetal = new Color(0.22f, 0.26f, 0.32f);
+
+                var legGeo = new DuelGeometry();
+                legGeo.Column(new Vector3(0f, -0.54f, 0f), 0.54f, new Vector2(0.12f, 0.13f), new Vector2(0.10f, 0.10f), 6, gunmetal);
+                legGeo.Column(new Vector3(0f, -0.18f, 0.03f), 0.08f, new Vector2(0.11f, 0.11f), new Vector2(0.11f, 0.11f), 6, prism);
+                set.legMesh = legGeo.Bake("LaserLeg");
+
+                var bodyGeo = new DuelGeometry();
+                bodyGeo.Column(Vector3.zero, 0.66f, new Vector2(0.26f, 0.22f), new Vector2(0.23f, 0.20f), 8, coat);
+                bodyGeo.Column(new Vector3(0f, 0.28f, -0.22f), 0.34f, new Vector2(0.16f, 0.10f), new Vector2(0.14f, 0.09f), 6, gunmetal);
+                bodyGeo.Column(new Vector3(0f, 0.38f, -0.24f), 0.16f, new Vector2(0.11f, 0.07f), new Vector2(0.09f, 0.06f), 6, prism);
+                bodyGeo.Column(new Vector3(0f, 0.66f, 0.02f), 0.28f, new Vector2(0.17f, 0.17f), new Vector2(0.15f, 0.15f), 8, trim);
+                bodyGeo.Column(new Vector3(0f, 0.78f, 0.10f), 0.09f, new Vector2(0.16f, 0.12f), new Vector2(0.15f, 0.11f), 6, prism);
+                set.torsoMesh = bodyGeo.Bake("LaserTorso");
+
+                var lGeo = new DuelGeometry();
+                lGeo.Beam(Vector3.zero, new Vector3(0.08f, -0.10f, 0.36f), 0.06f, 0.05f, coat, 6);
+                lGeo.Column(new Vector3(0.08f, -0.10f, 0.36f), 0.08f, new Vector2(0.06f, 0.06f), new Vector2(0.05f, 0.05f), 6, prism);
+                set.leftArmMesh = lGeo.Bake("LaserLeftArm");
+
+                var rGeo = new DuelGeometry();
+                rGeo.Beam(Vector3.zero, new Vector3(-0.04f, -0.06f, 0.32f), 0.06f, 0.055f, coat, 6);
+                rGeo.Beam(new Vector3(-0.04f, -0.04f, 0.18f), new Vector3(-0.04f, -0.04f, 1.04f), 0.065f, 0.052f, gunmetal, 6);
+                rGeo.Beam(new Vector3(-0.04f, 0.02f, 0.56f), new Vector3(-0.04f, 0.02f, 1.12f), 0.036f, 0.026f, prism, 6);
+                set.rightArmMesh = rGeo.Bake("LaserPrismRifle");
+            }
+
+            Register(set.legMesh);
+            Register(set.torsoMesh);
+            Register(set.leftArmMesh);
+            Register(set.rightArmMesh);
+            heroRigMeshCache[heroId] = set;
+            return set;
+        }
+
+        private HeroRig BuildHeroRig(LaneHeroId heroId, string name, Transform parent, Material mat)
         {
             var go = new GameObject(name);
             go.transform.SetParent(parent, false);
             var renderers = new List<MeshRenderer>();
+            HeroRigMeshSet meshes = GetOrBuildHeroRigMeshes(heroId);
 
             var rig = new HeroRig { root = go.transform };
 
@@ -33,6 +175,8 @@ namespace Moba.LaneSlice
                 p.AddComponent<MeshFilter>().sharedMesh = mesh;
                 var mr = p.AddComponent<MeshRenderer>();
                 mr.sharedMaterial = mat;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
                 renderers.Add(mr);
                 return mr;
             }
@@ -47,142 +191,65 @@ namespace Moba.LaneSlice
 
             if (heroId == LaneHeroId.Ogre)
             {
-                Color skin = new Color(0.42f, 0.56f, 0.34f);
-                Color leather = new Color(0.36f, 0.24f, 0.16f);
-                Color club = new Color(0.48f, 0.31f, 0.18f);
-
                 rig.leftLegPivot = NewPivot("LeftLegPivot", go.transform, new Vector3(-0.24f, 0.72f, 0f));
                 rig.rightLegPivot = NewPivot("RightLegPivot", go.transform, new Vector3(0.24f, 0.72f, 0f));
-                var legGeo = new DuelGeometry();
-                legGeo.Column(new Vector3(0f, -0.72f, 0f), 0.72f, new Vector2(0.22f, 0.22f), new Vector2(0.18f, 0.18f), 7, leather);
-                Mesh legMesh = legGeo.Bake("OgreLeg");
-                AddPart("LeftLeg", rig.leftLegPivot, Vector3.zero, legMesh);
-                AddPart("RightLeg", rig.rightLegPivot, Vector3.zero, legMesh);
+                AddPart("LeftLeg", rig.leftLegPivot, Vector3.zero, meshes.legMesh);
+                AddPart("RightLeg", rig.rightLegPivot, Vector3.zero, meshes.legMesh);
 
                 rig.bodyPivot = NewPivot("BodyPivot", go.transform, new Vector3(0f, 0.66f, 0f));
-                var bodyGeo = new DuelGeometry();
-                bodyGeo.Column(Vector3.zero, 0.92f, new Vector2(0.54f, 0.44f), new Vector2(0.44f, 0.36f), 8, skin);
-                bodyGeo.Column(new Vector3(0f, 0.86f, 0.08f), 0.42f, new Vector2(0.26f, 0.24f), new Vector2(0.22f, 0.20f), 8, skin * 1.06f);
-                bodyGeo.Column(new Vector3(0f, 0.04f, 0f), 0.16f, new Vector2(0.55f, 0.45f), new Vector2(0.53f, 0.43f), 8, leather);
-                AddPart("Torso", rig.bodyPivot, Vector3.zero, bodyGeo.Bake("OgreTorso"));
+                AddPart("Torso", rig.bodyPivot, Vector3.zero, meshes.torsoMesh);
 
                 rig.leftArmPivot = NewPivot("LeftArmPivot", rig.bodyPivot, new Vector3(-0.48f, 0.72f, 0.04f));
-                var lArmGeo = new DuelGeometry();
-                lArmGeo.Beam(Vector3.zero, new Vector3(-0.08f, -0.50f, 0.24f), 0.15f, 0.12f, skin, 7);
-                AddPart("LeftArm", rig.leftArmPivot, Vector3.zero, lArmGeo.Bake("OgreLeftArm"));
+                AddPart("LeftArm", rig.leftArmPivot, Vector3.zero, meshes.leftArmMesh);
 
                 rig.rightArmPivot = NewPivot("RightArmPivot", rig.bodyPivot, new Vector3(0.48f, 0.72f, 0.04f));
-                var rArmGeo = new DuelGeometry();
-                rArmGeo.Beam(Vector3.zero, new Vector3(0.04f, -0.34f, 0.22f), 0.15f, 0.12f, skin, 7);
-                rArmGeo.Beam(new Vector3(0.04f, -0.34f, 0.22f), new Vector3(0.08f, -0.52f, 1.12f), 0.09f, 0.19f, club, 7);
-                AddPart("RightArmClub", rig.rightArmPivot, Vector3.zero, rArmGeo.Bake("OgreClubArm"));
+                AddPart("RightArmClub", rig.rightArmPivot, Vector3.zero, meshes.rightArmMesh);
             }
             else if (heroId == LaneHeroId.Miravel)
             {
-                Color robe = new Color(0.25f, 0.62f, 0.76f);
-                Color shawl = new Color(0.86f, 0.90f, 0.75f);
-                Color staff = new Color(0.55f, 0.38f, 0.20f);
-                Color gem = new Color(0.38f, 1f, 0.72f);
-
                 rig.leftLegPivot = NewPivot("LeftLegPivot", go.transform, new Vector3(-0.14f, 0.45f, 0f));
                 rig.rightLegPivot = NewPivot("RightLegPivot", go.transform, new Vector3(0.14f, 0.45f, 0f));
                 rig.bodyPivot = NewPivot("BodyPivot", go.transform, Vector3.zero);
 
-                var bodyGeo = new DuelGeometry();
-                bodyGeo.Column(Vector3.zero, 1.25f, new Vector2(0.38f, 0.38f), new Vector2(0.22f, 0.22f), 8, robe);
-                bodyGeo.Column(new Vector3(0f, 1.25f, 0.02f), 0.36f, new Vector2(0.20f, 0.20f), new Vector2(0.16f, 0.16f), 8, shawl);
-                AddPart("Robe", rig.bodyPivot, Vector3.zero, bodyGeo.Bake("MiravelRobe"));
+                AddPart("Robe", rig.bodyPivot, Vector3.zero, meshes.torsoMesh);
 
                 rig.leftArmPivot = NewPivot("LeftArmPivot", rig.bodyPivot, new Vector3(-0.30f, 1.02f, 0.06f));
-                var lGeo = new DuelGeometry();
-                lGeo.Beam(Vector3.zero, new Vector3(-0.06f, -0.30f, 0.26f), 0.07f, 0.055f, robe, 6);
-                lGeo.Column(new Vector3(-0.06f, -0.32f, 0.28f), 0.10f, new Vector2(0.06f, 0.06f), new Vector2(0.05f, 0.05f), 6, shawl);
-                AddPart("LeftArm", rig.leftArmPivot, Vector3.zero, lGeo.Bake("MiravelLeftArm"));
+                AddPart("LeftArm", rig.leftArmPivot, Vector3.zero, meshes.leftArmMesh);
 
                 rig.rightArmPivot = NewPivot("RightArmPivot", rig.bodyPivot, new Vector3(0.32f, 1.02f, 0.08f));
-                var rGeo = new DuelGeometry();
-                rGeo.Beam(new Vector3(0f, -0.64f, 0.02f), new Vector3(0.05f, 0.72f, 0.36f), 0.045f, 0.045f, staff, 6);
-                rGeo.Column(new Vector3(0.05f, 0.72f, 0.36f), 0.20f, new Vector2(0.12f, 0.12f), new Vector2(0.05f, 0.05f), 6, gem);
-                AddPart("StaffArm", rig.rightArmPivot, Vector3.zero, rGeo.Bake("MiravelStaffArm"));
+                AddPart("StaffArm", rig.rightArmPivot, Vector3.zero, meshes.rightArmMesh);
             }
-            else if (heroId == LaneHeroId.Swordsman) // Old Man Swordsman
+            else if (heroId == LaneHeroId.Swordsman)
             {
-                Color tunic = new Color(0.24f, 0.26f, 0.34f);
-                Color sash = new Color(0.82f, 0.66f, 0.28f);
-                Color strawHat = new Color(0.76f, 0.64f, 0.40f);
-                Color steel = new Color(0.88f, 0.92f, 0.98f);
-
                 rig.leftLegPivot = NewPivot("LeftLegPivot", go.transform, new Vector3(-0.16f, 0.56f, 0f));
                 rig.rightLegPivot = NewPivot("RightLegPivot", go.transform, new Vector3(0.16f, 0.56f, 0f));
-                var legGeo = new DuelGeometry();
-                legGeo.Column(new Vector3(0f, -0.56f, 0f), 0.56f, new Vector2(0.14f, 0.14f), new Vector2(0.12f, 0.12f), 6, tunic * 0.85f);
-                Mesh legMesh = legGeo.Bake("SwordLeg");
-                AddPart("LeftLeg", rig.leftLegPivot, Vector3.zero, legMesh);
-                AddPart("RightLeg", rig.rightLegPivot, Vector3.zero, legMesh);
+                AddPart("LeftLeg", rig.leftLegPivot, Vector3.zero, meshes.legMesh);
+                AddPart("RightLeg", rig.rightLegPivot, Vector3.zero, meshes.legMesh);
 
                 rig.bodyPivot = NewPivot("BodyPivot", go.transform, new Vector3(0f, 0.50f, 0f));
-                var bodyGeo = new DuelGeometry();
-                bodyGeo.Column(Vector3.zero, 0.64f, new Vector2(0.30f, 0.26f), new Vector2(0.25f, 0.22f), 8, tunic);
-                bodyGeo.Column(new Vector3(0f, 0.12f, 0f), 0.18f, new Vector2(0.29f, 0.25f), new Vector2(0.29f, 0.25f), 8, sash);
-                bodyGeo.Column(new Vector3(0f, 0.64f, 0.04f), 0.28f, new Vector2(0.16f, 0.16f), new Vector2(0.15f, 0.15f), 8, sash * 1.1f);
-                bodyGeo.Column(new Vector3(0f, 0.90f, 0.02f), 0.22f, new Vector2(0.46f, 0.46f), new Vector2(0.06f, 0.06f), 10, strawHat);
-                AddPart("TorsoHat", rig.bodyPivot, Vector3.zero, bodyGeo.Bake("SwordTorso"));
+                AddPart("TorsoHat", rig.bodyPivot, Vector3.zero, meshes.torsoMesh);
 
-                // Heavy left greatsword / odachi (2nd strike -> E Vital Draw)
-                Color darkIron = new Color(0.28f, 0.31f, 0.38f);
-                Color heavyEdge = new Color(0.95f, 0.78f, 0.42f);
                 rig.leftArmPivot = NewPivot("LeftArmPivot", rig.bodyPivot, new Vector3(-0.34f, 0.42f, 0.06f));
-                var lGeo = new DuelGeometry();
-                lGeo.Beam(Vector3.zero, new Vector3(-0.10f, -0.02f, 1.18f), 0.092f, 0.056f, darkIron, 6);
-                lGeo.Beam(new Vector3(-0.02f, 0.01f, 0.24f), new Vector3(-0.10f, 0.01f, 1.16f), 0.044f, 0.022f, heavyEdge, 5);
-                lGeo.Column(new Vector3(-0.02f, -0.04f, 0.16f), 0.10f, new Vector2(0.10f, 0.10f), new Vector2(0.10f, 0.10f), 6, sash);
-                AddPart("LeftBlade", rig.leftArmPivot, Vector3.zero, lGeo.Bake("SwordLeftBladeHeavy"));
+                AddPart("LeftBlade", rig.leftArmPivot, Vector3.zero, meshes.leftArmMesh);
 
-                // Light sleek right katana/sabre (1st strike -> W Stance Temper)
-                Color lightSteel = new Color(0.76f, 0.94f, 1.0f);
                 rig.rightArmPivot = NewPivot("RightArmPivot", rig.bodyPivot, new Vector3(0.32f, 0.44f, 0.06f));
-                var rGeo = new DuelGeometry();
-                rGeo.Beam(Vector3.zero, new Vector3(0.06f, -0.02f, 0.84f), 0.030f, 0.014f, lightSteel, 5);
-                rGeo.Column(new Vector3(0.01f, -0.04f, 0.12f), 0.06f, new Vector2(0.055f, 0.055f), new Vector2(0.055f, 0.055f), 6, sash);
-                AddPart("RightBlade", rig.rightArmPivot, Vector3.zero, rGeo.Bake("SwordRightBladeLight"));
+                AddPart("RightBlade", rig.rightArmPivot, Vector3.zero, meshes.rightArmMesh);
             }
-            else // Chain Laser Shooter
+            else
             {
-                Color coat = new Color(0.16f, 0.24f, 0.38f);
-                Color trim = new Color(0.36f, 0.56f, 0.74f);
-                Color prism = new Color(0.26f, 0.95f, 1.0f);
-                Color gunmetal = new Color(0.22f, 0.26f, 0.32f);
-
                 rig.leftLegPivot = NewPivot("LeftLegPivot", go.transform, new Vector3(-0.15f, 0.54f, 0f));
                 rig.rightLegPivot = NewPivot("RightLegPivot", go.transform, new Vector3(0.15f, 0.54f, 0f));
-                var legGeo = new DuelGeometry();
-                legGeo.Column(new Vector3(0f, -0.54f, 0f), 0.54f, new Vector2(0.12f, 0.13f), new Vector2(0.10f, 0.10f), 6, gunmetal);
-                legGeo.Column(new Vector3(0f, -0.18f, 0.03f), 0.08f, new Vector2(0.11f, 0.11f), new Vector2(0.11f, 0.11f), 6, prism);
-                Mesh legMesh = legGeo.Bake("LaserLeg");
-                AddPart("LeftLeg", rig.leftLegPivot, Vector3.zero, legMesh);
-                AddPart("RightLeg", rig.rightLegPivot, Vector3.zero, legMesh);
+                AddPart("LeftLeg", rig.leftLegPivot, Vector3.zero, meshes.legMesh);
+                AddPart("RightLeg", rig.rightLegPivot, Vector3.zero, meshes.legMesh);
 
                 rig.bodyPivot = NewPivot("BodyPivot", go.transform, new Vector3(0f, 0.54f, 0f));
-                var bodyGeo = new DuelGeometry();
-                bodyGeo.Column(Vector3.zero, 0.66f, new Vector2(0.26f, 0.22f), new Vector2(0.23f, 0.20f), 8, coat);
-                bodyGeo.Column(new Vector3(0f, 0.28f, -0.22f), 0.34f, new Vector2(0.16f, 0.10f), new Vector2(0.14f, 0.09f), 6, gunmetal);
-                bodyGeo.Column(new Vector3(0f, 0.38f, -0.24f), 0.16f, new Vector2(0.11f, 0.07f), new Vector2(0.09f, 0.06f), 6, prism);
-                bodyGeo.Column(new Vector3(0f, 0.66f, 0.02f), 0.28f, new Vector2(0.17f, 0.17f), new Vector2(0.15f, 0.15f), 8, trim);
-                bodyGeo.Column(new Vector3(0f, 0.78f, 0.10f), 0.09f, new Vector2(0.16f, 0.12f), new Vector2(0.15f, 0.11f), 6, prism);
-                AddPart("TorsoHelm", rig.bodyPivot, Vector3.zero, bodyGeo.Bake("LaserTorso"));
+                AddPart("TorsoHelm", rig.bodyPivot, Vector3.zero, meshes.torsoMesh);
 
                 rig.leftArmPivot = NewPivot("LeftArmPivot", rig.bodyPivot, new Vector3(-0.27f, 0.44f, 0.04f));
-                var lGeo = new DuelGeometry();
-                lGeo.Beam(Vector3.zero, new Vector3(0.08f, -0.10f, 0.36f), 0.06f, 0.05f, coat, 6);
-                lGeo.Column(new Vector3(0.08f, -0.10f, 0.36f), 0.08f, new Vector2(0.06f, 0.06f), new Vector2(0.05f, 0.05f), 6, prism);
-                AddPart("LeftArm", rig.leftArmPivot, Vector3.zero, lGeo.Bake("LaserLeftArm"));
+                AddPart("LeftArm", rig.leftArmPivot, Vector3.zero, meshes.leftArmMesh);
 
                 rig.rightArmPivot = NewPivot("RightArmPivot", rig.bodyPivot, new Vector3(0.28f, 0.44f, 0.06f));
-                var rGeo = new DuelGeometry();
-                rGeo.Beam(Vector3.zero, new Vector3(-0.04f, -0.06f, 0.32f), 0.06f, 0.055f, coat, 6);
-                rGeo.Beam(new Vector3(-0.04f, -0.04f, 0.18f), new Vector3(-0.04f, -0.04f, 1.04f), 0.065f, 0.052f, gunmetal, 6);
-                rGeo.Beam(new Vector3(-0.04f, 0.02f, 0.56f), new Vector3(-0.04f, 0.02f, 1.12f), 0.036f, 0.026f, prism, 6);
-                AddPart("PrismRifle", rig.rightArmPivot, Vector3.zero, rGeo.Bake("LaserPrismRifle"));
+                AddPart("PrismRifle", rig.rightArmPivot, Vector3.zero, meshes.rightArmMesh);
             }
 
             rig.renderers = renderers.ToArray();

@@ -14,6 +14,7 @@ namespace Moba.LaneSlice
         private readonly Vector3 worldOffset;
         private readonly bool enableAudio;
         private readonly Material vertexMat;
+        private readonly Shader spritesDefaultShader;
         private readonly Mesh meleeMinionMesh;
         private readonly Mesh rangedMinionMesh;
         private readonly Mesh orbMesh;
@@ -37,6 +38,8 @@ namespace Moba.LaneSlice
         private readonly List<GameObject> selectionRings = new List<GameObject>();
         private readonly List<TransientBurst> bursts = new List<TransientBurst>();
         private readonly List<TransientBeam> transientBeams = new List<TransientBeam>();
+        private readonly Stack<TransientBurst> burstPool = new Stack<TransientBurst>();
+        private readonly Stack<TransientBeam> beamPool = new Stack<TransientBeam>();
 
         private readonly GameObject hoverRing;
         private readonly GameObject swordMarkRing;
@@ -71,6 +74,7 @@ namespace Moba.LaneSlice
             public GameObject wardRing;
             public GameObject curseRing;
             public GameObject shieldRing;
+            public readonly List<Material> ownedMats = new List<Material>();
         }
 
         private sealed class EntityVisual
@@ -154,6 +158,7 @@ namespace Moba.LaneSlice
             this.enableAudio = enableAudio;
             root = new GameObject(buildEnvironment ? "LaneWorldRoot" : "LanePreviewWorldRoot").transform;
             Shader fieldShader = Resources.Load<Shader>("DuelField") ?? Shader.Find("Sprites/Default");
+            spritesDefaultShader = Shader.Find("Sprites/Default") ?? fieldShader;
             vertexMat = new Material(fieldShader);
             ownedMaterials.Add(vertexMat);
 
@@ -206,9 +211,29 @@ namespace Moba.LaneSlice
             }
         }
 
+        public void SetRootActive(bool active)
+        {
+            if (root != null && root.gameObject.activeSelf != active)
+            {
+                root.gameObject.SetActive(active);
+            }
+        }
+
         public void Dispose()
         {
             ResetVisuals();
+            while (burstPool.Count > 0)
+            {
+                TransientBurst b = burstPool.Pop();
+                if (b.go) Object.Destroy(b.go);
+                if (b.mat) Object.Destroy(b.mat);
+            }
+            while (beamPool.Count > 0)
+            {
+                TransientBeam tb = beamPool.Pop();
+                if (tb.go) Object.Destroy(tb.go);
+                if (tb.mat) Object.Destroy(tb.mat);
+            }
             if (root != null) Object.Destroy(root.gameObject);
             for (int i = 0; i < ownedMeshes.Count; i++) if (ownedMeshes[i]) Object.Destroy(ownedMeshes[i]);
             for (int i = 0; i < ownedMaterials.Count; i++) if (ownedMaterials[i]) Object.Destroy(ownedMaterials[i]);
@@ -216,6 +241,7 @@ namespace Moba.LaneSlice
             ownedMeshes.Clear();
             ownedMaterials.Clear();
             ownedClips.Clear();
+            heroRigMeshCache.Clear();
         }
 
         private static AudioClip BuildToneClip(string name, float freqStart, float freqEnd, float seconds, bool isImpactNoise)
@@ -240,6 +266,56 @@ namespace Moba.LaneSlice
             return clip;
         }
 
+        public void SoftResetForPreviewLoop()
+        {
+            foreach (var kv in heroVisuals)
+            {
+                EntityVisual v = kv.Value;
+                if (v.go) v.go.SetActive(false);
+                v.initialized = false;
+                v.phaseTimer = 0f;
+                v.basicPunchTimer = 0f;
+                v.walkCycle = 0f;
+                v.lastBasicAlt = 0;
+            }
+            foreach (var kv in heroTelegraphs)
+            {
+                HeroTelegraph t = kv.Value;
+                if (t.beam) t.beam.SetActive(false);
+                if (t.beamOuter) t.beamOuter.SetActive(false);
+                if (t.laserBeam) t.laserBeam.SetActive(false);
+                if (t.ogreW) t.ogreW.SetActive(false);
+                if (t.swordQ) t.swordQ.SetActive(false);
+                if (t.ring) t.ring.SetActive(false);
+                if (t.cowardHalo) t.cowardHalo.SetActive(false);
+                if (t.auraRing) t.auraRing.SetActive(false);
+                if (t.drainRing) t.drainRing.SetActive(false);
+                if (t.wardRing) t.wardRing.SetActive(false);
+                if (t.curseRing) t.curseRing.SetActive(false);
+                if (t.shieldRing) t.shieldRing.SetActive(false);
+            }
+            foreach (var kv in minionVisuals) if (kv.Value.go) Object.Destroy(kv.Value.go);
+            foreach (var kv in illusionVisuals) if (kv.Value.go) Object.Destroy(kv.Value.go);
+            foreach (var kv in projVisuals) if (kv.Value) Object.Destroy(kv.Value);
+            foreach (var kv in orbVisuals) if (kv.Value) Object.Destroy(kv.Value);
+            minionVisuals.Clear();
+            illusionVisuals.Clear();
+            projVisuals.Clear();
+            orbVisuals.Clear();
+
+            for (int i = bursts.Count - 1; i >= 0; i--) RecycleBurst(bursts[i]);
+            bursts.Clear();
+            for (int i = transientBeams.Count - 1; i >= 0; i--) RecycleBeam(transientBeams[i]);
+            transientBeams.Clear();
+            for (int i = 0; i < zoneVisuals.Count; i++) if (zoneVisuals[i]) zoneVisuals[i].SetActive(false);
+            for (int i = 0; i < selectionRings.Count; i++) if (selectionRings[i]) selectionRings[i].SetActive(false);
+
+            camShakeAmp = 0f;
+            camShakeTimer = 0f;
+            if (hoverRing) hoverRing.SetActive(false);
+            if (swordMarkRing) swordMarkRing.SetActive(false);
+        }
+
         public void ResetVisuals()
         {
             foreach (var kv in heroVisuals) if (kv.Value.go) Object.Destroy(kv.Value.go);
@@ -257,13 +333,17 @@ namespace Moba.LaneSlice
                 if (kv.Value.wardRing) Object.Destroy(kv.Value.wardRing);
                 if (kv.Value.curseRing) Object.Destroy(kv.Value.curseRing);
                 if (kv.Value.shieldRing) Object.Destroy(kv.Value.shieldRing);
+                for (int m = 0; m < kv.Value.ownedMats.Count; m++)
+                {
+                    if (kv.Value.ownedMats[m]) Object.Destroy(kv.Value.ownedMats[m]);
+                }
             }
             foreach (var kv in minionVisuals) if (kv.Value.go) Object.Destroy(kv.Value.go);
             foreach (var kv in illusionVisuals) if (kv.Value.go) Object.Destroy(kv.Value.go);
             foreach (var kv in projVisuals) if (kv.Value) Object.Destroy(kv.Value);
             foreach (var kv in orbVisuals) if (kv.Value) Object.Destroy(kv.Value);
-            foreach (var b in bursts) { if (b.go) Object.Destroy(b.go); if (b.mat) Object.Destroy(b.mat); }
-            foreach (var tb in transientBeams) { if (tb.go) Object.Destroy(tb.go); if (tb.mat) Object.Destroy(tb.mat); }
+            foreach (var b in bursts) RecycleBurst(b);
+            foreach (var tb in transientBeams) RecycleBeam(tb);
             for (int i = 0; i < zoneVisuals.Count; i++) if (zoneVisuals[i]) Object.Destroy(zoneVisuals[i]);
             for (int i = 0; i < selectionRings.Count; i++) if (selectionRings[i]) Object.Destroy(selectionRings[i]);
 
@@ -279,8 +359,8 @@ namespace Moba.LaneSlice
             selectionRings.Clear();
             camShakeAmp = 0f;
             camShakeTimer = 0f;
-            hoverRing.SetActive(false);
-            swordMarkRing.SetActive(false);
+            if (hoverRing) hoverRing.SetActive(false);
+            if (swordMarkRing) swordMarkRing.SetActive(false);
         }
 
         public void ApplySnapshot(
@@ -305,8 +385,9 @@ namespace Moba.LaneSlice
                     markSource = h;
                 }
 
-                if (!heroVisuals.TryGetValue(h.id, out EntityVisual vis))
+                if (!heroVisuals.TryGetValue(h.id, out EntityVisual vis) || vis.heroId != h.heroId)
                 {
+                    if (vis != null && vis.go) Object.Destroy(vis.go);
                     HeroRig rig = BuildHeroRig(h.heroId, $"Hero_{h.heroId}_{h.team}", root, vertexMat);
                     vis = new EntityVisual
                     {
@@ -558,6 +639,36 @@ namespace Moba.LaneSlice
             }
         }
 
+        private void RecycleBurst(TransientBurst b)
+        {
+            if (b == null) return;
+            if (b.go && burstPool.Count < 48)
+            {
+                b.go.SetActive(false);
+                burstPool.Push(b);
+            }
+            else
+            {
+                if (b.go) Object.Destroy(b.go);
+                if (b.mat) Object.Destroy(b.mat);
+            }
+        }
+
+        private void RecycleBeam(TransientBeam tb)
+        {
+            if (tb == null) return;
+            if (tb.go && beamPool.Count < 32)
+            {
+                tb.go.SetActive(false);
+                beamPool.Push(tb);
+            }
+            else
+            {
+                if (tb.go) Object.Destroy(tb.go);
+                if (tb.mat) Object.Destroy(tb.mat);
+            }
+        }
+
         public void TickFrame(Camera cam, float dt)
         {
             InterpolateDictionary(heroVisuals, dt);
@@ -573,8 +684,7 @@ namespace Moba.LaneSlice
                 b.age += dt;
                 if (b.age >= b.duration)
                 {
-                    if (b.go) Object.Destroy(b.go);
-                    if (b.mat) Object.Destroy(b.mat);
+                    RecycleBurst(b);
                     bursts.RemoveAt(i);
                     continue;
                 }
@@ -599,8 +709,7 @@ namespace Moba.LaneSlice
                 tb.age += dt;
                 if (tb.age >= tb.duration)
                 {
-                    if (tb.go) Object.Destroy(tb.go);
-                    if (tb.mat) Object.Destroy(tb.mat);
+                    RecycleBeam(tb);
                     transientBeams.RemoveAt(i);
                     continue;
                 }
@@ -724,23 +833,20 @@ namespace Moba.LaneSlice
         {
             if (!heroTelegraphs.TryGetValue(h.id, out HeroTelegraph tel))
             {
-                GameObject chObj = CreateUnlitMesh($"CowardHalo_{h.id}", ringMesh, new Color(0.36f, 0.90f, 1f, 0.82f));
-                tel = new HeroTelegraph
-                {
-                    beam = CreateUnlitMesh($"TelBeam_{h.id}", quadMesh, new Color(1f, 0.32f, 0.16f, 0.52f)),
-                    beamOuter = CreateUnlitMesh($"TelBeamOuter_{h.id}", quadMesh, new Color(1f, 0.82f, 0.30f, 0.30f)),
-                    laserBeam = CreateUnlitMesh($"TelLaserBeam_{h.id}", quadMesh, new Color(0.24f, 0.92f, 1f, 0.52f)),
-                    ogreW = CreateUnlitMesh($"TelOgreW_{h.id}", ogreWConeMesh, new Color(1f, 0.78f, 0.22f, 0.44f)),
-                    swordQ = CreateUnlitMesh($"TelSwordQ_{h.id}", swordQConeMesh, new Color(1f, 0.88f, 0.36f, 0.44f)),
-                    ring = CreateUnlitMesh($"TelRing_{h.id}", ringMesh, new Color(1f, 0.48f, 0.18f, 0.72f)),
-                    cowardHalo = chObj,
-                    cowardHaloMat = chObj.GetComponent<MeshRenderer>().sharedMaterial,
-                    auraRing = CreateUnlitMesh($"AuraRing_{h.id}", ringMesh, new Color(0.32f, 0.95f, 0.65f, 0.24f)),
-                    drainRing = CreateUnlitMesh($"DrainRing_{h.id}", ringMesh, new Color(0.76f, 0.30f, 1f, 0.62f)),
-                    wardRing = CreateUnlitMesh($"WardRing_{h.id}", ringMesh, new Color(0.28f, 0.96f, 0.88f, 0.76f)),
-                    curseRing = CreateUnlitMesh($"CurseRing_{h.id}", ringMesh, new Color(0.84f, 0.28f, 1f, 0.78f)),
-                    shieldRing = CreateUnlitMesh($"ShieldRing_{h.id}", ringMesh, new Color(0.76f, 0.92f, 1f, 0.84f)),
-                };
+                tel = new HeroTelegraph();
+                GameObject MakeTel(string n, Mesh m, Color c, out Material outMat) => CreateUnlitMesh(n, m, c, tel.ownedMats, out outMat);
+                tel.beam = MakeTel($"TelBeam_{h.id}", quadMesh, new Color(1f, 0.32f, 0.16f, 0.52f), out _);
+                tel.beamOuter = MakeTel($"TelBeamOuter_{h.id}", quadMesh, new Color(1f, 0.82f, 0.30f, 0.30f), out _);
+                tel.laserBeam = MakeTel($"TelLaserBeam_{h.id}", quadMesh, new Color(0.24f, 0.92f, 1f, 0.52f), out _);
+                tel.ogreW = MakeTel($"TelOgreW_{h.id}", ogreWConeMesh, new Color(1f, 0.78f, 0.22f, 0.44f), out _);
+                tel.swordQ = MakeTel($"TelSwordQ_{h.id}", swordQConeMesh, new Color(1f, 0.88f, 0.36f, 0.44f), out _);
+                tel.ring = MakeTel($"TelRing_{h.id}", ringMesh, new Color(1f, 0.48f, 0.18f, 0.72f), out _);
+                tel.cowardHalo = MakeTel($"CowardHalo_{h.id}", ringMesh, new Color(0.36f, 0.90f, 1f, 0.82f), out tel.cowardHaloMat);
+                tel.auraRing = MakeTel($"AuraRing_{h.id}", ringMesh, new Color(0.32f, 0.95f, 0.65f, 0.24f), out _);
+                tel.drainRing = MakeTel($"DrainRing_{h.id}", ringMesh, new Color(0.76f, 0.30f, 1f, 0.62f), out _);
+                tel.wardRing = MakeTel($"WardRing_{h.id}", ringMesh, new Color(0.28f, 0.96f, 0.88f, 0.76f), out _);
+                tel.curseRing = MakeTel($"CurseRing_{h.id}", ringMesh, new Color(0.84f, 0.28f, 1f, 0.78f), out _);
+                tel.shieldRing = MakeTel($"ShieldRing_{h.id}", ringMesh, new Color(0.76f, 0.92f, 1f, 0.84f), out _);
                 heroTelegraphs[h.id] = tel;
             }
 
@@ -1320,25 +1426,62 @@ namespace Moba.LaneSlice
                     break;
             }
 
-            var mat = new Material(Shader.Find("Sprites/Default"));
-            mat.color = c;
-            var go = new GameObject($"Burst_{ev.kind}");
-            go.transform.SetParent(root, false);
-            go.transform.position = ToWorld(ev.x, ev.y, 0.12f);
-            go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
-
-            bursts.Add(new TransientBurst
+            TransientBurst b;
+            if (burstPool.Count > 0)
             {
-                go = go,
-                mat = mat,
-                age = 0f,
-                duration = duration,
-                startScale = startS,
-                endScale = endS,
-                riseSpeed = rise,
-                baseColor = c,
-            });
+                b = burstPool.Pop();
+                b.go.name = $"Burst_{ev.kind}";
+                b.go.transform.position = ToWorld(ev.x, ev.y, 0.12f);
+                b.go.transform.localScale = new Vector3(startS, 1f, startS);
+                b.mat.color = c;
+                b.go.SetActive(true);
+            }
+            else
+            {
+                var mat = new Material(spritesDefaultShader);
+                mat.color = c;
+                var go = new GameObject($"Burst_{ev.kind}");
+                go.transform.SetParent(root, false);
+                go.transform.position = ToWorld(ev.x, ev.y, 0.12f);
+                go.transform.localScale = new Vector3(startS, 1f, startS);
+                go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                var mr = go.AddComponent<MeshRenderer>();
+                mr.sharedMaterial = mat;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+                b = new TransientBurst { go = go, mat = mat };
+            }
+            b.age = 0f;
+            b.duration = duration;
+            b.startScale = startS;
+            b.endScale = endS;
+            b.riseSpeed = rise;
+            b.baseColor = c;
+            bursts.Add(b);
+        }
+
+        private TransientBeam AcquirePooledBeam(string goName, Color c)
+        {
+            TransientBeam tb;
+            if (beamPool.Count > 0)
+            {
+                tb = beamPool.Pop();
+                tb.go.name = goName;
+                tb.mat.color = c;
+                tb.go.SetActive(true);
+                return tb;
+            }
+            var mat = new Material(spritesDefaultShader);
+            mat.color = c;
+            var go = new GameObject(goName);
+            go.transform.SetParent(root, false);
+            var lr = go.AddComponent<LineRenderer>();
+            lr.sharedMaterial = mat;
+            lr.useWorldSpace = true;
+            lr.numCapVertices = 2;
+            lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            lr.receiveShadows = false;
+            return new TransientBeam { go = go, lr = lr, mat = mat };
         }
 
         private void SpawnLaserBeamVisual(LaserBeamSnap b)
@@ -1347,34 +1490,18 @@ namespace Moba.LaneSlice
             Color c = b.isUlt
                 ? new Color(0.75f, 1f, 1f, 0.98f)
                 : (b.team == LaneTeam.Blue ? new Color(0.26f, 0.94f, 1f, 0.95f) : new Color(0.45f, 0.88f, 1f, 0.95f));
-            var mat = new Material(Shader.Find("Sprites/Default"));
-            mat.color = c;
-
-            var go = new GameObject("LaserBeamFX");
-            go.transform.SetParent(root, false);
-            var lr = go.AddComponent<LineRenderer>();
-            lr.sharedMaterial = mat;
-            lr.useWorldSpace = true;
-            lr.positionCount = 2;
-            lr.SetPosition(0, ToWorld(b.x0, b.y0, 0.92f));
-            lr.SetPosition(1, ToWorld(b.x1, b.y1, 0.92f));
+            TransientBeam tb = AcquirePooledBeam("LaserBeamFX", c);
+            tb.lr.positionCount = 2;
+            tb.lr.SetPosition(0, ToWorld(b.x0, b.y0, 0.92f));
+            tb.lr.SetPosition(1, ToWorld(b.x1, b.y1, 0.92f));
             float w = Mathf.Max(0.08f, b.width);
-            lr.startWidth = w;
-            lr.endWidth = w * 0.72f;
-            lr.numCapVertices = 2;
-            lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            lr.receiveShadows = false;
-
-            transientBeams.Add(new TransientBeam
-            {
-                go = go,
-                lr = lr,
-                mat = mat,
-                age = 0f,
-                duration = b.isUlt ? 0.22f : 0.24f,
-                startWidth = w,
-                baseColor = c,
-            });
+            tb.lr.startWidth = w;
+            tb.lr.endWidth = w * 0.72f;
+            tb.age = 0f;
+            tb.duration = b.isUlt ? 0.22f : 0.24f;
+            tb.startWidth = w;
+            tb.baseColor = c;
+            transientBeams.Add(tb);
         }
 
         private void SpawnBananaCrescentVisual(VisualEventSnap ev)
@@ -1390,40 +1517,24 @@ namespace Moba.LaneSlice
 
             const int segs = 14;
             Color c = new Color(1f, 0.88f, 0.28f, 0.96f);
-            var mat = new Material(Shader.Find("Sprites/Default"));
-            mat.color = c;
-
-            var go = new GameObject("BananaCrescentFX");
-            go.transform.SetParent(root, false);
-            var lr = go.AddComponent<LineRenderer>();
-            lr.sharedMaterial = mat;
-            lr.useWorldSpace = true;
-            lr.positionCount = segs + 1;
+            TransientBeam tb = AcquirePooledBeam("BananaCrescentFX", c);
+            tb.lr.positionCount = segs + 1;
             for (int i = 0; i <= segs; i++)
             {
                 float t = (float)i / segs;
                 float angle = Mathf.Lerp(-1.35f, 1.35f, t);
                 Vector2 dir = fwd * Mathf.Cos(angle) + right * Mathf.Sin(angle);
                 Vector2 p = center + dir * arcRadius;
-                lr.SetPosition(i, ToWorld(p.x, p.y, 0.65f));
+                tb.lr.SetPosition(i, ToWorld(p.x, p.y, 0.65f));
             }
             float w = 0.26f;
-            lr.startWidth = w * 0.35f;
-            lr.endWidth = w * 0.35f;
-            lr.numCapVertices = 2;
-            lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            lr.receiveShadows = false;
-
-            transientBeams.Add(new TransientBeam
-            {
-                go = go,
-                lr = lr,
-                mat = mat,
-                age = 0f,
-                duration = 0.28f,
-                startWidth = w,
-                baseColor = c,
-            });
+            tb.lr.startWidth = w * 0.35f;
+            tb.lr.endWidth = w * 0.35f;
+            tb.age = 0f;
+            tb.duration = 0.28f;
+            tb.startWidth = w;
+            tb.baseColor = c;
+            transientBeams.Add(tb);
         }
 
         private EntityVisual CreateEntityVisual(string name, Mesh mesh)
@@ -1433,6 +1544,8 @@ namespace Moba.LaneSlice
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             var mr = go.AddComponent<MeshRenderer>();
             mr.sharedMaterial = vertexMat;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
             return new EntityVisual
             {
                 go = go,
@@ -1441,16 +1554,22 @@ namespace Moba.LaneSlice
             };
         }
 
-        private GameObject CreateUnlitMesh(string name, Mesh mesh, Color color)
+        private GameObject CreateUnlitMesh(string name, Mesh mesh, Color color) =>
+            CreateUnlitMesh(name, mesh, color, ownedMaterials, out _);
+
+        private GameObject CreateUnlitMesh(string name, Mesh mesh, Color color, List<Material> matTracker, out Material outMat)
         {
             var go = new GameObject(name);
             go.transform.SetParent(root, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             var mr = go.AddComponent<MeshRenderer>();
-            var mat = new Material(Shader.Find("Sprites/Default"));
+            var mat = new Material(spritesDefaultShader);
             mat.color = color;
-            ownedMaterials.Add(mat);
+            matTracker?.Add(mat);
+            outMat = mat;
             mr.sharedMaterial = mat;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
             return go;
         }
     }

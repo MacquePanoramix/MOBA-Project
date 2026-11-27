@@ -56,11 +56,19 @@ namespace Moba.LaneSlice
     public sealed class LaneAbilityPreview : IDisposable
     {
         private readonly LaneTuning baseTuning;
+        private readonly LaneTuning previewTuning;
         private readonly bool enableRenderVisuals;
         private readonly Vector3 previewWorldOffset = new Vector3(0f, -260f, 0f);
         private readonly List<(float atSec, Action act)> timeline = new List<(float, Action)>();
         private int timelineCursor;
 
+        private static readonly Dictionary<(LaneHeroId, LaneAbilitySlot), List<PreviewSliderSpec>> RelevantSliderCache =
+            new Dictionary<(LaneHeroId, LaneAbilitySlot), List<PreviewSliderSpec>>();
+        private static readonly string[] OgreQExamples = { "Ex 1: Central Stun", "Ex 2: Outer Shockwave" };
+        private static readonly string[] MiravelQExamples = { "Ex 1: Ally Orb Pulse", "Ex 2: Enemy Orb Deny" };
+        private static readonly string[] DefaultExampleNames = { "Ability Demo" };
+
+        private LaneMap sharedPreviewMap;
         private LaneMatch sim;
         private LaneWorld world;
         private Camera previewCam;
@@ -68,6 +76,8 @@ namespace Moba.LaneSlice
         private LaneSnapshot latestSnap;
 
         private float simAccum;
+        private float renderAccum;
+        private bool renderDirty = true;
         private float elapsedInLoop;
         private float loopDuration = 4.2f;
         private int redHeroId;
@@ -88,6 +98,14 @@ namespace Moba.LaneSlice
         public LaneAbilityPreview(LaneTuning sourceTuning, bool enableRenderVisuals = true)
         {
             baseTuning = sourceTuning ?? new LaneTuning();
+            previewTuning = new LaneTuning
+            {
+                waveFirstSpawnDelay = 99999f,
+                passiveGoldPerSecond = 0f,
+                startingGold = 0,
+                attackSpeedCurveK = baseTuning.attackSpeedCurveK,
+                ogreImmuneDuringRecovery = baseTuning.ogreImmuneDuringRecovery,
+            };
             this.enableRenderVisuals = enableRenderVisuals && !Application.isBatchMode;
         }
 
@@ -105,17 +123,21 @@ namespace Moba.LaneSlice
         {
             if (hero == LaneHeroId.Ogre && slot == LaneAbilitySlot.Q)
             {
-                return new[] { "Ex 1: Central Stun", "Ex 2: Outer Shockwave" };
+                return OgreQExamples;
             }
             if (hero == LaneHeroId.Miravel && slot == LaneAbilitySlot.Q)
             {
-                return new[] { "Ex 1: Ally Orb Pulse", "Ex 2: Enemy Orb Deny" };
+                return MiravelQExamples;
             }
-            return new[] { "Ability Demo" };
+            return DefaultExampleNames;
         }
 
         public static List<PreviewSliderSpec> GetRelevantSliders(LaneHeroId hero, LaneAbilitySlot slot)
         {
+            if (RelevantSliderCache.TryGetValue((hero, slot), out List<PreviewSliderSpec> cached))
+            {
+                return cached;
+            }
             var list = new List<PreviewSliderSpec>();
             void Add(PreviewStatField f)
             {
@@ -290,6 +312,7 @@ namespace Moba.LaneSlice
                     }
                     break;
             }
+            RelevantSliderCache[(hero, slot)] = list;
             return list;
         }
 
@@ -367,6 +390,7 @@ namespace Moba.LaneSlice
                 {
                     world.ApplySnapshot(latestSnap, LaneTeam.Blue, baseTuning, hoveredEntityId: 0);
                 }
+                renderDirty = true;
             }
             if (structuralChange && IsActive)
             {
@@ -377,27 +401,26 @@ namespace Moba.LaneSlice
         public void RestartScenario()
         {
             EnsureRenderInfrastructure();
-
-            var previewTuning = new LaneTuning
+            if (sharedPreviewMap == null)
             {
-                waveFirstSpawnDelay = 99999f,
-                passiveGoldPerSecond = 0f,
-                startingGold = 0,
-                attackSpeedCurveK = baseTuning.attackSpeedCurveK,
-                ogreImmuneDuringRecovery = baseTuning.ogreImmuneDuringRecovery,
-            };
+                sharedPreviewMap = new LaneMap(previewTuning);
+            }
+
+            previewTuning.attackSpeedCurveK = baseTuning.attackSpeedCurveK;
+            previewTuning.ogreImmuneDuringRecovery = baseTuning.ogreImmuneDuringRecovery;
 
             LaneHeroId redHero = SelectedHero == LaneHeroId.Miravel ? LaneHeroId.Swordsman : LaneHeroId.Miravel;
             if (SelectedHero == LaneHeroId.LaserShooter && SelectedSlot == LaneAbilitySlot.E)
             {
                 redHero = LaneHeroId.Miravel;
             }
-            sim = new LaneMatch(SelectedHero, redHero, previewTuning);
+            sim = new LaneMatch(SelectedHero, redHero, previewTuning, sharedPreviewMap);
             sim.DisableTowersForPreview();
             sim.SetPreviewStatOverrides(LaneTeam.Blue, Overrides);
 
             elapsedInLoop = 0f;
             simAccum = 0f;
+            renderDirty = true;
             timelineCursor = 0;
             timeline.Clear();
 
@@ -406,7 +429,7 @@ namespace Moba.LaneSlice
             latestSnap = sim.Snapshot();
             if (enableRenderVisuals && world != null)
             {
-                world.ResetVisuals();
+                world.SoftResetForPreviewLoop();
                 world.ApplySnapshot(latestSnap, LaneTeam.Blue, previewTuning, hoveredEntityId: 0);
             }
         }
@@ -425,9 +448,9 @@ namespace Moba.LaneSlice
                 RestartScenario();
             }
 
+            float clampedDt = Mathf.Min(0.05f, Mathf.Max(0f, dt));
             if (!IsPaused)
             {
-                float clampedDt = Mathf.Min(0.05f, dt);
                 simAccum += clampedDt;
                 const float fixedStep = 1f / 30f;
                 int guard = 0;
@@ -448,6 +471,7 @@ namespace Moba.LaneSlice
                     {
                         world.ApplySnapshot(latestSnap, LaneTeam.Blue, baseTuning, hoveredEntityId: 0);
                     }
+                    renderDirty = true;
                     if (elapsedInLoop >= loopDuration)
                     {
                         RestartScenario();
@@ -458,13 +482,32 @@ namespace Moba.LaneSlice
                 if (enableRenderVisuals && world != null)
                 {
                     world.TickFrame(null, clampedDt);
+                    renderDirty = true;
                 }
+                renderAccum += clampedDt;
             }
 
-            if (enableRenderVisuals && previewCam != null && renderTexture != null)
+            if (enableRenderVisuals && previewCam != null && renderTexture != null && renderDirty &&
+                (IsPaused || renderAccum >= (1f / 30f)))
             {
-                PositionCameraForSelection();
+                renderAccum = 0f;
+                renderDirty = false;
+                RenderPreviewFrame();
+            }
+        }
+
+        private void RenderPreviewFrame()
+        {
+            if (previewCam == null || renderTexture == null) return;
+            PositionCameraForSelection();
+            if (world != null) world.SetRootActive(true);
+            try
+            {
                 previewCam.Render();
+            }
+            finally
+            {
+                if (world != null) world.SetRootActive(false);
             }
         }
 
@@ -473,6 +516,8 @@ namespace Moba.LaneSlice
             if (!IsActive) return;
             IsActive = false;
             simAccum = 0f;
+            renderAccum = 0f;
+            world?.SetRootActive(false);
         }
 
         public void Dispose()
@@ -563,16 +608,23 @@ namespace Moba.LaneSlice
         {
             if (!enableRenderVisuals) return;
 
+            if (sharedPreviewMap == null)
+            {
+                sharedPreviewMap = new LaneMap(previewTuning);
+            }
             if (world == null)
             {
-                world = new LaneWorld(new LaneMap(baseTuning), previewWorldOffset, buildEnvironment: false, enableAudio: false);
+                world = new LaneWorld(sharedPreviewMap, previewWorldOffset, buildEnvironment: false, enableAudio: false);
+                world.SetRootActive(false);
             }
             if (renderTexture == null)
             {
-                renderTexture = new RenderTexture(440, 260, 16, RenderTextureFormat.ARGB32)
+                renderTexture = new RenderTexture(384, 224, 16, RenderTextureFormat.ARGB32)
                 {
                     name = "HeroGuidePreviewRT",
                     filterMode = FilterMode.Bilinear,
+                    antiAliasing = 1,
+                    useMipMap = false,
                 };
                 renderTexture.Create();
             }
@@ -587,6 +639,11 @@ namespace Moba.LaneSlice
                 previewCam.fieldOfView = 42f;
                 previewCam.nearClipPlane = 0.2f;
                 previewCam.farClipPlane = 60f;
+                previewCam.allowHDR = false;
+                previewCam.allowMSAA = false;
+                previewCam.useOcclusionCulling = false;
+                previewCam.depthTextureMode = DepthTextureMode.None;
+                previewCam.renderingPath = RenderingPath.Forward;
             }
         }
 

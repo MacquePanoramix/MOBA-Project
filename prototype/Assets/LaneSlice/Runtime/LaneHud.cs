@@ -42,7 +42,7 @@ namespace Moba.LaneSlice
         private LaneAbilitySlot previewSlot = LaneAbilitySlot.Q;
         private bool previewSandboxMode;
         private Vector2 previewPaneScroll;
-        private int shopTierFilter = -1; // -1=All, 0=Starter, 1=Components, 2=Specialized, 3=Advanced, 4=Provisional
+        private bool blurTextInputRequested;
         private string hoverTooltipText;
         private Rect hoverTooltipAnchor;
         private readonly LaneHeroSheet.HeroGuideCache heroGuideCache = new LaneHeroSheet.HeroGuideCache();
@@ -51,15 +51,37 @@ namespace Moba.LaneSlice
 
         public bool ShopOpen { get; set; }
         public bool HeroSheetOpen { get; set; }
+        public bool ItemCompendiumOpen { get; set; }
         public bool SettingsOpen { get; set; }
         public bool ShowHelp { get; set; }
         public bool PointerOverUi { get; private set; }
         public bool IsCapturingKeybind => capturingCommand.HasValue;
+        public bool IsTextInputFocused { get; private set; }
+        public bool SelectedCompendiumItemHasPassive { get; private set; }
+
+        public void RequestBlurTextInput()
+        {
+            blurTextInputRequested = true;
+            IsTextInputFocused = false;
+        }
+
+        partial void OnOpenItemCompendium(int itemId);
+        partial void DrawEncyclopediaDrawer(bool inMatch);
+
+        public void OpenItemCompendium(int itemId = 0)
+        {
+            ItemCompendiumOpen = true;
+            HeroSheetOpen = false;
+            SettingsOpen = false;
+            ShopOpen = false;
+            OnOpenItemCompendium(itemId);
+        }
 
         public void OpenHeroSheet(LaneHeroId hero)
         {
             inspectedHero = hero;
             HeroSheetOpen = true;
+            ItemCompendiumOpen = false;
             SettingsOpen = false;
             heroSheetScroll = Vector2.zero;
             previewPaneScroll = Vector2.zero;
@@ -78,6 +100,7 @@ namespace Moba.LaneSlice
         {
             SettingsOpen = true;
             HeroSheetOpen = false;
+            ItemCompendiumOpen = false;
             ShopOpen = false;
             capturingCommand = null;
             pendingConflictCmd = null;
@@ -211,6 +234,7 @@ namespace Moba.LaneSlice
             if (self != null) DrawBottomDock(self);
             DrawMinimap(self, enemy);
             if (HeroSheetOpen && !SettingsOpen) DrawHeroSheetDrawer(self, inMatch: true);
+            if (ItemCompendiumOpen && !SettingsOpen) DrawEncyclopediaDrawer(inMatch: true);
             if (ShopOpen && self != null && !SettingsOpen) DrawShopDrawer(self);
             if (ShowHelp && !SettingsOpen) DrawHelpOverlay();
             GUI.enabled = prevGuiEnabled;
@@ -219,7 +243,15 @@ namespace Moba.LaneSlice
                 DrawBox(new Rect(0, 0, Screen.width, Screen.height), new Color(0.03f, 0.04f, 0.05f, 0.58f));
                 DrawSettingsDrawer(self, inMatch: true);
             }
+            UpdateTextFocusState();
             DrawHoverTooltip();
+        }
+
+        private void UpdateTextFocusState()
+        {
+            string focused = GUI.GetNameOfFocusedControl();
+            IsTextInputFocused = !string.IsNullOrEmpty(focused) &&
+                                 (focused == "ShopSearchInput" || focused == "CompendiumSearchInput");
         }
 
         private string KeyLabel(ControlCommand cmd) =>
@@ -227,16 +259,32 @@ namespace Moba.LaneSlice
 
         private void DrawLobby()
         {
+            if (Event.current.type == EventType.Repaint)
+            {
+                hoverTooltipText = null;
+            }
             if (SettingsOpen)
             {
                 DrawBox(new Rect(0, 0, Screen.width, Screen.height), new Color(0.08f, 0.10f, 0.11f, 0.96f));
                 DrawSettingsDrawer(null, inMatch: false);
+                UpdateTextFocusState();
+                DrawHoverTooltip();
                 return;
             }
             if (HeroSheetOpen)
             {
                 DrawBox(new Rect(0, 0, Screen.width, Screen.height), new Color(0.08f, 0.10f, 0.11f, 0.96f));
                 DrawHeroSheetDrawer(null, inMatch: false);
+                UpdateTextFocusState();
+                DrawHoverTooltip();
+                return;
+            }
+            if (ItemCompendiumOpen)
+            {
+                DrawBox(new Rect(0, 0, Screen.width, Screen.height), new Color(0.08f, 0.10f, 0.11f, 0.96f));
+                DrawEncyclopediaDrawer(inMatch: false);
+                UpdateTextFocusState();
+                DrawHoverTooltip();
                 return;
             }
 
@@ -711,14 +759,21 @@ namespace Moba.LaneSlice
                     int id = h.items[idx];
                     LaneItemDef def = default;
                     bool hasItem = id > 0 && LaneItems.TryGet(id, out def);
-                    string label = hasItem
-                        ? def.Name.Substring(0, Mathf.Min(7, def.Name.Length))
-                        : "-";
-                    GUILayout.Box(label, GUILayout.Width(58f), GUILayout.Height(26f));
-                    Rect boxR = GUILayoutUtility.GetLastRect();
-                    if (hasItem && Event.current.type == EventType.Repaint && boxR.Contains(Event.current.mousePosition))
+                    if (hasItem)
                     {
-                        SetHoverTooltip(LaneHeroSheet.BuildItemTooltip(def, canShopNow), GUIUtility.GUIToScreenPoint(boxR.position), boxR.size);
+                        GUILayout.Box(GUIContent.none, sheetFactPillStyle, GUILayout.Width(58f), GUILayout.Height(28f));
+                        Rect boxR = GUILayoutUtility.GetLastRect();
+                        GUI.DrawTexture(new Rect(boxR.x + 2f, boxR.y + 3f, 22f, 22f), LaneItemIcons.GetIcon(def.Id), ScaleMode.ScaleToFit);
+                        string shortLbl = def.Name.Substring(0, Mathf.Min(5, def.Name.Length));
+                        GUI.Label(new Rect(boxR.x + 25f, boxR.y + 4f, boxR.width - 26f, 20f), $"<b>{shortLbl}</b>", sheetSectionStyle);
+                        if (Event.current.type == EventType.Repaint && boxR.Contains(Event.current.mousePosition))
+                        {
+                            SetHoverTooltip(LaneHeroSheet.BuildItemTooltip(def, canShopNow), GUIUtility.GUIToScreenPoint(boxR.position), boxR.size);
+                        }
+                    }
+                    else
+                    {
+                        GUILayout.Box("-", GUILayout.Width(58f), GUILayout.Height(28f));
                     }
                 }
                 GUILayout.EndHorizontal();
@@ -790,253 +845,7 @@ namespace Moba.LaneSlice
             }
         }
 
-        private void DrawShopDrawer(HeroSnap h)
-        {
-            EnsureStyles();
-            float sw = Mathf.Min(780f, Screen.width - 24f);
-            float sh = Mathf.Min(600f, Screen.height - 170f);
-            var r = new Rect(Screen.width - sw - 12f, 52f, sw, sh);
-            TrackPointer(r);
-            DrawBox(r, new Color(0.11f, 0.13f, 0.16f, 0.97f));
-
-            GUILayout.BeginArea(new Rect(r.x + 12, r.y + 10, r.width - 24, r.height - 20));
-            GUILayout.BeginHorizontal();
-            GUILayout.Label($"<b>FOUNTAIN SHOP</b> — Gold: <color=#ffdf5c>{h.gold}g</color>", sheetTextStyle);
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button("X", GUILayout.Width(26))) ShopOpen = false;
-            GUILayout.EndHorizontal();
-
-            bool canShopHere = h.phase == LanePhase.Dead ||
-                (new Vector2(h.x, h.y) - (localTeam == LaneTeam.Blue ? tuning.blueFountainPos : tuning.redFountainPos)).magnitude <= tuning.fountainRadius;
-            if (!canShopHere)
-            {
-                GUILayout.Label("<color=#ffaa66>Move inside your Fountain (or buy/sell while Respawning).</color>", sheetTextStyle);
-            }
-            if (!string.IsNullOrEmpty(shopFeedback))
-            {
-                GUILayout.Label($"<b>{shopFeedback}</b>", sheetTextStyle);
-            }
-
-            GUILayout.BeginHorizontal();
-            DrawShopTierTab("All", -1);
-            DrawShopTierTab("Starter", 0);
-            DrawShopTierTab("Components", 1);
-            DrawShopTierTab("Specialized", 2);
-            DrawShopTierTab("Advanced", 3);
-            DrawShopTierTab("Provisional", 4);
-            GUILayout.EndHorizontal();
-
-            int ownedCount = 0;
-            for (int s = 0; s < h.items.Length; s++)
-            {
-                if (h.items[s] > 0) ownedCount++;
-            }
-            if (ownedCount > 0)
-            {
-                GUILayout.Label($"<b>Owned Items ({ownedCount}/{LaneItems.MaxSlots}) — Sell ({Mathf.RoundToInt(LaneItems.SellRefundRatio * 100f)}%):</b>", sheetTextStyle);
-                GUILayout.BeginHorizontal();
-                for (int s = 0; s < h.items.Length; s++)
-                {
-                    int ownedId = h.items[s];
-                    if (ownedId <= 0 || !LaneItems.TryGet(ownedId, out LaneItemDef ownedDef)) continue;
-                    int refund = LaneItems.SellRefund(ownedDef.Cost);
-                    GUILayout.BeginVertical(cardBoxStyle, GUILayout.Width(118f));
-                    if (GUILayout.Button(ownedDef.Name, GUILayout.Height(20f)))
-                    {
-                        selectedShopItemId = ownedDef.Id;
-                    }
-                    GUI.enabled = canShopHere;
-                    if (GUILayout.Button($"Sell +{refund}g", GUILayout.Height(20f)))
-                    {
-                        scene.SendLocalSellItem(s);
-                        shopFeedback = $"Sold {ownedDef.Name} (+{refund}g)";
-                        shopFeedbackTimer = 2.0f;
-                    }
-                    GUI.enabled = true;
-                    GUILayout.EndVertical();
-                    Rect ownedRect = GUILayoutUtility.GetLastRect();
-                    if (Event.current.type == EventType.Repaint && ownedRect.Contains(Event.current.mousePosition))
-                    {
-                        SetHoverTooltip(LaneHeroSheet.BuildItemTooltip(ownedDef, canShopHere), GUIUtility.GUIToScreenPoint(ownedRect.position), ownedRect.size);
-                    }
-                }
-                GUILayout.EndHorizontal();
-            }
-
-            GUILayout.Space(4);
-            GUILayout.BeginHorizontal();
-
-            // Left pane: scrollable catalog with live Remaining Cost (via ResolvePurchase)
-            GUILayout.BeginVertical(GUILayout.Width(370f));
-            shopScroll = GUILayout.BeginScrollView(shopScroll);
-            for (int i = 0; i < LaneItems.Catalog.Length; i++)
-            {
-                LaneItemDef item = LaneItems.Catalog[i];
-                if (!MatchesShopFilter(item, shopTierFilter)) continue;
-
-                PurchasePlan plan = LaneItems.ResolvePurchase(item.Id, h.items, h.gold);
-                string tierCol = item.IsApproved
-                    ? (item.IsAdvancedOrCapstone ? LaneHeroSheet.ColCc : LaneHeroSheet.ColInt)
-                    : LaneHeroSheet.ColMuted;
-                string badge = item.IsApproved ? LaneItems.CategoryLabel(item.Category) : "Provisional";
-                string priceLabel = plan.RemainingCost < item.Cost
-                    ? $"<color=#63e6be>→{plan.RemainingCost}g</color> <color=#99a4b0>({item.Cost}g)</color>"
-                    : $"<color=#ffdf5c>{item.Cost}g</color>";
-                bool isSel = selectedShopItemId == item.Id;
-
-                GUI.backgroundColor = isSel ? new Color(0.28f, 0.45f, 0.62f) : Color.white;
-                GUILayout.BeginHorizontal(cardBoxStyle);
-                GUI.backgroundColor = Color.white;
-                if (GUILayout.Button($"<color={tierCol}>[{badge}]</color> <b>{item.Name}</b> {priceLabel}", sheetTextStyle, GUILayout.Width(286f)))
-                {
-                    selectedShopItemId = item.Id;
-                }
-                GUI.enabled = canShopHere && plan.CanPurchase;
-                if (GUILayout.Button(plan.RemainingCost < item.Cost ? $"Upgr {plan.RemainingCost}g" : "Buy", GUILayout.Width(66f), GUILayout.Height(24f)))
-                {
-                    scene.SendLocalBuyItem(item.Id);
-                    selectedShopItemId = item.Id;
-                    shopFeedback = plan.RemainingCost < item.Cost
-                        ? $"Upgraded {item.Name} ({plan.RemainingCost}g)"
-                        : $"Ordered {item.Name}";
-                    shopFeedbackTimer = 2.0f;
-                }
-                GUI.enabled = true;
-                GUILayout.EndHorizontal();
-
-                Rect itemRect = GUILayoutUtility.GetLastRect();
-                if (Event.current.type == EventType.Repaint && itemRect.Contains(Event.current.mousePosition))
-                {
-                    SetHoverTooltip(LaneHeroSheet.BuildItemTooltip(item, canShopHere, plan.RemainingCost), GUIUtility.GUIToScreenPoint(itemRect.position), itemRect.size);
-                }
-            }
-            GUILayout.EndScrollView();
-            GUILayout.EndVertical();
-
-            // Right pane: readable item inspector (fantasy, stats, named passives + What Scales, Show Math, Builds From, Builds Into)
-            GUILayout.BeginVertical(cardBoxStyle);
-            shopDetailScroll = GUILayout.BeginScrollView(shopDetailScroll);
-            if (!LaneItems.TryGet(selectedShopItemId, out LaneItemDef sel))
-            {
-                sel = LaneItems.Catalog[0];
-                selectedShopItemId = sel.Id;
-            }
-            PurchasePlan selPlan = LaneItems.ResolvePurchase(sel.Id, h.items, h.gold);
-            string selApproval = sel.IsApproved
-                ? $"<color={LaneHeroSheet.ColLive}>[Approved • {LaneItems.CategoryLabel(sel.Category)}]</color>"
-                : $"<color={LaneHeroSheet.ColMuted}>[Provisional • {LaneItems.CategoryLabel(sel.Category)}]</color>";
-            GUILayout.Label($"<size=15><b>{sel.Name}</b></size>  {selApproval}", sheetTextStyle);
-            if (!string.IsNullOrEmpty(sel.Fantasy))
-            {
-                GUILayout.Label($"<i><color=#b9c4d0>{sel.Fantasy}</color></i>", sheetBodyStyle);
-            }
-
-            string upgradeInfo = selPlan.RemainingCost < sel.Cost
-                ? $"Remaining Cost: <color=#63e6be><b>{selPlan.RemainingCost}g</b></color> (Total {sel.Cost}g • Owns {selPlan.ConsumedValue}g of ingredients)"
-                : $"Cost: <color=#ffdf5c><b>{sel.Cost}g</b></color>";
-            GUILayout.Label(upgradeInfo, sheetTextStyle);
-
-            GUILayout.BeginHorizontal();
-            GUI.enabled = canShopHere && selPlan.CanPurchase;
-            if (GUILayout.Button(selPlan.RemainingCost < sel.Cost ? $"Upgrade ({selPlan.RemainingCost}g)" : $"Buy ({sel.Cost}g)", GUILayout.Height(26f)))
-            {
-                scene.SendLocalBuyItem(sel.Id);
-                shopFeedback = $"Purchased {sel.Name} ({selPlan.RemainingCost}g)";
-                shopFeedbackTimer = 2.0f;
-            }
-            GUI.enabled = true;
-            if (GUILayout.Button(showShopMath ? "Hide Math" : "Show Math", GUILayout.Width(92f), GUILayout.Height(26f)))
-            {
-                showShopMath = !showShopMath;
-            }
-            GUILayout.EndHorizontal();
-
-            if (!selPlan.CanPurchase && canShopHere)
-            {
-                GUILayout.Label($"<color=#ff9e7d>{selPlan.Reason}</color>", sheetTextStyle);
-            }
-
-            string directStats = FormatDirectStatsLine(sel);
-            if (!string.IsNullOrEmpty(directStats))
-            {
-                GUILayout.Space(4);
-                GUILayout.Label($"<b>Direct Stats:</b> {directStats}", sheetBodyStyle);
-            }
-
-            if (sel.Passives != null && sel.Passives.Length > 0)
-            {
-                GUILayout.Space(4);
-                for (int p = 0; p < sel.Passives.Length; p++)
-                {
-                    ItemPassiveDoc pd = sel.Passives[p];
-                    GUILayout.BeginVertical(sheetFactPillStyle);
-                    GUILayout.Label($"<color={LaneHeroSheet.ColCc}><b>Passive — {pd.Name}</b></color>", sheetTextStyle);
-                    GUILayout.Label(pd.PlainSummary, sheetBodyStyle);
-                    for (int sa = 0; sa < pd.ScalingArrows.Length; sa++)
-                    {
-                        GUILayout.Label($"  • {pd.ScalingArrows[sa]}", sheetBodyStyle);
-                    }
-                    if (showShopMath && !string.IsNullOrEmpty(pd.MathLine))
-                    {
-                        GUILayout.BeginVertical(sheetMathBoxStyle);
-                        GUILayout.Label($"<color=#a9b4c2>{pd.MathLine}</color>", sheetBodyStyle);
-                        GUILayout.EndVertical();
-                    }
-                    GUILayout.EndVertical();
-                }
-            }
-
-            if (sel.Recipe != null && sel.Recipe.Length > 0)
-            {
-                GUILayout.Space(6);
-                GUILayout.Label("<b>Builds From:</b>", sheetTextStyle);
-                for (int ing = 0; ing < sel.Recipe.Length; ing++)
-                {
-                    RecipeIngredient req = sel.Recipe[ing];
-                    if (!LaneItems.TryGet(req.ItemId, out LaneItemDef ingDef)) continue;
-                    int ownedQty = CountOwnedDirect(h.items, ingDef.Id);
-                    string col = ownedQty >= req.Quantity ? LaneHeroSheet.ColLive : "#dce3ec";
-                    if (GUILayout.Button($"  <color={col}>{ownedQty}/{req.Quantity} × {ingDef.Name} ({ingDef.Cost}g)</color>", sheetTextStyle))
-                    {
-                        selectedShopItemId = ingDef.Id;
-                    }
-                }
-            }
-
-            List<LaneItemDef> upgrades = LaneItems.GetUpgradesInto(sel.Id);
-            if (upgrades.Count > 0)
-            {
-                GUILayout.Space(6);
-                GUILayout.Label("<b>Builds Into:</b>", sheetTextStyle);
-                for (int u = 0; u < upgrades.Count; u++)
-                {
-                    LaneItemDef up = upgrades[u];
-                    PurchasePlan upPlan = LaneItems.ResolvePurchase(up.Id, h.items, h.gold);
-                    if (GUILayout.Button($"  → <b>{up.Name}</b> ({up.Cost}g • {upPlan.RemainingCost}g left)", sheetTextStyle))
-                    {
-                        selectedShopItemId = up.Id;
-                    }
-                }
-            }
-
-            GUILayout.EndScrollView();
-            GUILayout.EndVertical();
-            GUILayout.EndHorizontal();
-            GUILayout.EndArea();
-        }
-
-        private static bool MatchesShopFilter(LaneItemDef item, int filter)
-        {
-            switch (filter)
-            {
-                case 0: return item.Category == LaneItemCategory.Starter;
-                case 1: return item.Category == LaneItemCategory.Component || item.Category == LaneItemCategory.SpecializedComponent;
-                case 2: return item.Category == LaneItemCategory.SpecializedComponent;
-                case 3: return item.Category == LaneItemCategory.Advanced;
-                case 4: return !item.IsApproved;
-                default: return true;
-            }
-        }
+        // DrawShopDrawer moved to LaneHud.Shop.cs
 
         private static int CountOwnedDirect(int[] inventory, int canonicalId)
         {
@@ -1070,18 +879,6 @@ namespace Moba.LaneSlice
             if (item.AddPercentManaRegen != 0f) parts.Add($"+{item.AddPercentManaRegen * 100f:0.##}% Max Mana/s");
             if (item.AddResourceCostReduction != 0f) parts.Add($"+{item.AddResourceCostReduction:0} RCR");
             return string.Join(" • ", parts);
-        }
-
-        private void DrawShopTierTab(string label, int tierVal)
-        {
-            bool active = shopTierFilter == tierVal;
-            GUI.backgroundColor = active ? new Color(0.35f, 0.78f, 0.52f) : Color.white;
-            if (GUILayout.Button(label, GUILayout.Height(22f)))
-            {
-                shopTierFilter = tierVal;
-                shopScroll = Vector2.zero;
-            }
-            GUI.backgroundColor = Color.white;
         }
 
         private void DrawMinimap(HeroSnap self, HeroSnap enemy)

@@ -188,6 +188,7 @@ namespace Moba.LaneSlice
             rtsSelection.Reset();
             draggingSelectionBox = false;
             hud.SettingsOpen = false;
+            hud.ItemCompendiumOpen = false;
             world.ResetVisuals();
 
             LaneSnapshot snap = match.Snapshot();
@@ -232,6 +233,7 @@ namespace Moba.LaneSlice
             latestSnap = null;
             hud.ShopOpen = false;
             hud.HeroSheetOpen = false;
+            hud.ItemCompendiumOpen = false;
             hud.SettingsOpen = false;
             rtsSelection.Reset();
             draggingSelectionBox = false;
@@ -340,6 +342,7 @@ namespace Moba.LaneSlice
                 rtsSelection.Reset();
                 draggingSelectionBox = false;
                 hud.SettingsOpen = false;
+                hud.ItemCompendiumOpen = false;
                 world.ResetVisuals();
                 cliStatus = $"Guest match started ({LaneNames.ShortName(guestHero)} vs {LaneNames.ShortName(hostHero)})";
                 Debug.Log($"Lane match received (Guest, {LaneNames.ShortName(guestHero)} vs {LaneNames.ShortName(hostHero)}).");
@@ -385,6 +388,7 @@ namespace Moba.LaneSlice
             rtsSelection.Reset();
             draggingSelectionBox = false;
             hud.SettingsOpen = false;
+            hud.ItemCompendiumOpen = false;
             world.ResetVisuals();
 
             link.SendStart(localPick, botOrRemotePick, tuning);
@@ -458,13 +462,16 @@ namespace Moba.LaneSlice
             {
                 if (Input.GetKeyDown(KeyCode.Escape))
                 {
-                    if (hud.SettingsOpen) hud.SettingsOpen = false;
+                    if (hud.IsTextInputFocused) hud.RequestBlurTextInput();
+                    else if (hud.SettingsOpen) hud.SettingsOpen = false;
                     else if (hud.HeroSheetOpen) hud.HeroSheetOpen = false;
+                    else if (hud.ItemCompendiumOpen) hud.ItemCompendiumOpen = false;
                     else if (hud.ShopOpen) hud.ShopOpen = false;
                     else if (hud.ShowHelp) hud.ShowHelp = false;
                     else if (mode != SessionMode.Lobby) hud.SettingsOpen = true;
                 }
-                else if (mode == SessionMode.Lobby && WasCommandPressed(ControlCommand.ToggleSettings, checkAvailable: false))
+                else if (mode == SessionMode.Lobby && !hud.IsTextInputFocused &&
+                         WasCommandPressed(ControlCommand.ToggleSettings, checkAvailable: false))
                 {
                     hud.SettingsOpen = !hud.SettingsOpen;
                 }
@@ -482,8 +489,9 @@ namespace Moba.LaneSlice
 
             if (abilityPreview != null)
             {
-                bool runPreview = !headlessMode && hud != null && hud.HeroSheetOpen && !hud.SettingsOpen &&
-                                  (settingsStore == null || settingsStore.Data.enableAbilityDemos);
+                bool runPreview = !headlessMode && hud != null && !hud.SettingsOpen &&
+                                  (settingsStore == null || settingsStore.Data.enableAbilityDemos) &&
+                                  (hud.HeroSheetOpen || (hud.ItemCompendiumOpen && hud.SelectedCompendiumItemHasPassive));
                 abilityPreview.Tick(Time.deltaTime, runPreview);
             }
             if (benchMeasureActive)
@@ -636,7 +644,7 @@ namespace Moba.LaneSlice
 
         private void HandleRtsInput(bool hasPoint, Vector2 cursorGround, bool ctrlHeld, bool shiftHeld)
         {
-            if (!IsRtsActiveForCurrentHero || hud.ShopOpen || hud.HeroSheetOpen || hud.SettingsOpen)
+            if (!IsRtsActiveForCurrentHero || hud.ShopOpen || hud.HeroSheetOpen || hud.ItemCompendiumOpen || hud.SettingsOpen || hud.IsTextInputFocused)
             {
                 draggingSelectionBox = false;
                 return;
@@ -751,6 +759,7 @@ namespace Moba.LaneSlice
         private bool IsCommandHeld(ControlCommand cmd, bool checkAvailable = true)
         {
             if (settingsStore == null) return false;
+            if (hud != null && hud.IsTextInputFocused) return false;
             if (checkAvailable && !ActiveControlProfile.IsCommandAvailable(cmd, settingsStore.Data)) return false;
             KeyCode key = settingsStore.GetKey(cmd);
             if (key == KeyCode.None) return false;
@@ -761,6 +770,7 @@ namespace Moba.LaneSlice
         private bool WasRawKeyTriggered(KeyCode key)
         {
             if (key == KeyCode.None) return false;
+            if (hud != null && hud.IsTextInputFocused) return false;
             if (key >= KeyCode.Mouse0 && key <= KeyCode.Mouse6 && hud.PointerOverUi) return false;
             return Input.GetKeyDown(key);
         }
@@ -936,6 +946,8 @@ namespace Moba.LaneSlice
         {
             abilityPreview?.Dispose();
             abilityPreview = null;
+            LaneItemIcons.DisposeAll();
+            LaneUiCommon.DisposeAll();
             CleanupLink();
         }
 

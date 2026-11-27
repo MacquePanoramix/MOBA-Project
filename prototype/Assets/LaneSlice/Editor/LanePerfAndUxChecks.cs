@@ -11,7 +11,8 @@ namespace Moba.LaneSlice
             CheckHeroGuideCacheMatchesStatelessAndNoLeaks();
             CheckAutoPurchaseAllPart25Scenarios();
             CheckRecipeTreeInvariantsAndDuplicateFeedback();
-            Debug.Log("[LanePerfAndUxChecks] Stage A cache & Stage B auto-buy / recipe-tree checks passed.");
+            CheckStageCIconsAndCatalogQuery();
+            Debug.Log("[LanePerfAndUxChecks] Stage A cache, Stage B auto-buy/recipe-tree, & Stage C icons/query checks passed.");
         }
 
         private static void CheckHeroGuideCacheMatchesStatelessAndNoLeaks()
@@ -192,6 +193,88 @@ namespace Moba.LaneSlice
                 Assert(tree != null && tree.Item.Id == item.Id, $"Tree built for {item.Name}");
                 AssertNoScrollNodes(tree);
             }
+        }
+
+        private static void CheckStageCIconsAndCatalogQuery()
+        {
+            Assert(LaneItems.Catalog.Length == 44, $"Expected 44-item catalog, got {LaneItems.Catalog.Length}");
+            Assert(LaneItemCatalogQuery.AllStatFilters.Length == 15,
+                $"Expected all 15 stat filters, got {LaneItemCatalogQuery.AllStatFilters.Length}");
+
+            // 1. All 44 item icons generate cleanly at 64x64
+            for (int i = 0; i < LaneItems.Catalog.Length; i++)
+            {
+                Texture2D icon = LaneItemIcons.GetIcon(LaneItems.Catalog[i].Id);
+                Assert(icon != null && icon.width == 64 && icon.height == 64,
+                    $"Icon valid 64x64 for {LaneItems.Catalog[i].Name}");
+            }
+
+            // 2. Zero role lockouts & complete catalog availability
+            var results = new List<LaneItemDef>(48);
+            LaneItemCatalogQuery.FilterItems(ItemBrowseTab.All, ItemStatFilter.None, "", results);
+            Assert(results.Count == 44, $"Unfiltered catalog returns all 44 items, got {results.Count}");
+
+            // 3. Every one of the 15 stat filters matches >= 1 item
+            for (int f = 0; f < LaneItemCatalogQuery.AllStatFilters.Length; f++)
+            {
+                StatFilterMeta meta = LaneItemCatalogQuery.AllStatFilters[f];
+                LaneItemCatalogQuery.FilterItems(ItemBrowseTab.All, meta.Flag, "", results);
+                Assert(results.Count >= 1, $"Stat filter {meta.FullLabel} matched >= 1 item");
+            }
+
+            // 4. Multi-stat AND filter
+            LaneItemCatalogQuery.FilterItems(ItemBrowseTab.All, ItemStatFilter.AttackDamage | ItemStatFilter.Strength, "", results);
+            Assert(ContainsItem(results, LaneItemIds.ExecutionersAxe) && ContainsItem(results, LaneItemIds.DraconicBlade),
+                "AD+STR filter finds Executioner's Axe and Draconic Blade");
+            Assert(!ContainsItem(results, LaneItemIds.SmallAxe) && !ContainsItem(results, LaneItemIds.Titanstone),
+                "AD+STR filter excludes single-stat items");
+
+            // 5. Strict separation: direct AD filter excludes Giant's Heart; passive text search finds it
+            LaneItemCatalogQuery.FilterItems(ItemBrowseTab.All, ItemStatFilter.AttackDamage, "", results);
+            Assert(!ContainsItem(results, LaneItemIds.GiantsHeart),
+                "Direct AD stat filter must not misclassify Giant's Heart as direct AD");
+
+            var gh = default(LaneItemDef);
+            Assert(LaneItems.TryGet(LaneItemIds.GiantsHeart, out gh), "Lookup Giant's Heart");
+            var chips = new List<(string label, string colorHex)>();
+            LaneUiCommon.CollectDirectStatChips(in gh, chips);
+            for (int c = 0; c < chips.Count; c++)
+            {
+                Assert(!chips[c].label.Contains("Attack Damage", StringComparison.OrdinalIgnoreCase),
+                    "Giant's Heart direct stat chips must not claim direct Attack Damage");
+            }
+
+            LaneItemCatalogQuery.FilterItems(ItemBrowseTab.All, ItemStatFilter.None, "Giant's Might", results);
+            Assert(ContainsItem(results, LaneItemIds.GiantsHeart), "Text search finds Giant's Heart via passive name");
+            LaneItemCatalogQuery.FilterItems(ItemBrowseTab.All, ItemStatFilter.None, "attack damage", results);
+            Assert(ContainsItem(results, LaneItemIds.GiantsHeart), "Text search 'attack damage' matches Giant's Might passive explanation");
+
+            // 6. Multi-token & abbreviation search
+            LaneItemCatalogQuery.FilterItems(ItemBrowseTab.All, ItemStatFilter.None, "retreat armor", results);
+            Assert(ContainsItem(results, LaneItemIds.CowardsShield), "Multi-token 'retreat armor' finds The Coward's Shield");
+            LaneItemCatalogQuery.FilterItems(ItemBrowseTab.All, ItemStatFilter.None, "rcr", results);
+            Assert(ContainsItem(results, LaneItemIds.RunedSigil) && ContainsItem(results, LaneItemIds.EconomistsTome),
+                "Abbreviation 'rcr' matches RCR items");
+            LaneItemCatalogQuery.FilterItems(ItemBrowseTab.All, ItemStatFilter.None, "crescent strike", results);
+            Assert(results.Count == 1 && results[0].Id == LaneItemIds.BananaBlade, "Crescent Strike search narrows to Banana Blade");
+
+            // 7. Category tab counts
+            LaneItemCatalogQuery.FilterItems(ItemBrowseTab.Starters, ItemStatFilter.None, "", results);
+            Assert(results.Count == 5, $"Expected 5 starters, got {results.Count}");
+            LaneItemCatalogQuery.FilterItems(ItemBrowseTab.Provisional, ItemStatFilter.None, "", results);
+            Assert(results.Count == 17, $"Expected 17 provisional items, got {results.Count}");
+
+            LaneItemIcons.DisposeAll();
+            LaneUiCommon.DisposeAll();
+        }
+
+        private static bool ContainsItem(List<LaneItemDef> list, int itemId)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].Id == itemId) return true;
+            }
+            return false;
         }
 
         private static void AssertNoScrollNodes(RecipeTreeNode node)

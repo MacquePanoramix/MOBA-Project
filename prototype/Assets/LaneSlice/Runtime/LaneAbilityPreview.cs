@@ -48,12 +48,18 @@ namespace Moba.LaneSlice
         }
     }
 
+    public enum PreviewMode : byte
+    {
+        HeroAbility = 0,
+        ItemPassive = 1,
+    }
+
     /// <summary>
-    /// Isolated, self-contained in-engine ability preview & interactive stat sandbox.
+    /// Isolated, self-contained in-engine ability & item passive preview sandbox.
     /// Runs its own separate LaneMatch + LaneWorld (offset at y = -260) and disabled Camera + RenderTexture
     /// so it never touches active match state, multiplayer commands, or main camera rendering.
     /// </summary>
-    public sealed class LaneAbilityPreview : IDisposable
+    public sealed partial class LaneAbilityPreview : IDisposable
     {
         private readonly LaneTuning baseTuning;
         private readonly LaneTuning previewTuning;
@@ -84,8 +90,12 @@ namespace Moba.LaneSlice
 
         public bool IsActive { get; private set; }
         public bool IsPaused { get; set; }
+        public PreviewMode Mode { get; private set; } = PreviewMode.HeroAbility;
         public LaneHeroId SelectedHero { get; private set; } = LaneHeroId.Ogre;
         public LaneAbilitySlot SelectedSlot { get; private set; } = LaneAbilitySlot.Q;
+        public int SelectedItemId { get; private set; }
+        public int SelectedPassiveIndex { get; private set; }
+        public string SelectedPassiveName { get; private set; } = string.Empty;
         public int ExampleIndex { get; private set; }
         public PreviewStatOverrides Overrides = DefaultOverrides(LaneAbilitySlot.Q);
         public float ElapsedInLoop => elapsedInLoop;
@@ -94,6 +104,7 @@ namespace Moba.LaneSlice
         public Texture PreviewTexture => renderTexture;
         public LaneSnapshot LatestPreviewSnapshot => latestSnap;
         public string ScenarioCaption { get; private set; } = string.Empty;
+        public string LiveTelemetryLine { get; private set; } = string.Empty;
 
         public LaneAbilityPreview(LaneTuning sourceTuning, bool enableRenderVisuals = true)
         {
@@ -132,6 +143,36 @@ namespace Moba.LaneSlice
             return DefaultExampleNames;
         }
 
+        private static PreviewSliderSpec CreateSliderSpec(PreviewStatField f)
+        {
+            switch (f)
+            {
+                case PreviewStatField.AttackDamage:
+                    return new PreviewSliderSpec(f, "+Attack Damage", LaneHeroSheet.ColAd, 0f, 160f, 5f);
+                case PreviewStatField.Strength:
+                    return new PreviewSliderSpec(f, "+Strength", LaneHeroSheet.ColStr, 0f, 180f, 5f);
+                case PreviewStatField.Agility:
+                    return new PreviewSliderSpec(f, "+Agility", LaneHeroSheet.ColAgi, 0f, 180f, 5f);
+                case PreviewStatField.Intelligence:
+                    return new PreviewSliderSpec(f, "+Intelligence", LaneHeroSheet.ColInt, 0f, 180f, 5f);
+                case PreviewStatField.AttackSpeed:
+                    return new PreviewSliderSpec(f, "+Attack Speed", LaneHeroSheet.ColAgi, 0f, 3.0f, 0.15f, asPercent: true);
+                case PreviewStatField.AbilityHaste:
+                    return new PreviewSliderSpec(f, "+Ability Haste", LaneHeroSheet.ColInt, 0f, 100f, 5f);
+                case PreviewStatField.HealPower:
+                    return new PreviewSliderSpec(f, "+Heal Power", LaneHeroSheet.ColHeal, 0f, 1.5f, 0.10f, asPercent: true);
+                case PreviewStatField.MaxHp:
+                    return new PreviewSliderSpec(f, "+Max HP", LaneHeroSheet.ColHp, 0f, 1500f, 50f);
+                case PreviewStatField.MaxMana:
+                    return new PreviewSliderSpec(f, "+Max Mana", LaneHeroSheet.ColMana, 0f, 800f, 25f);
+                case PreviewStatField.ManaRegen:
+                    return new PreviewSliderSpec(f, "+Mana Regen", LaneHeroSheet.ColMana, 0f, 20f, 0.5f);
+                case PreviewStatField.ResourceCostReduction:
+                default:
+                    return new PreviewSliderSpec(f, "+Cost Reduc.", LaneHeroSheet.ColMana, 0f, 120f, 5f);
+            }
+        }
+
         public static List<PreviewSliderSpec> GetRelevantSliders(LaneHeroId hero, LaneAbilitySlot slot)
         {
             if (RelevantSliderCache.TryGetValue((hero, slot), out List<PreviewSliderSpec> cached))
@@ -139,45 +180,7 @@ namespace Moba.LaneSlice
                 return cached;
             }
             var list = new List<PreviewSliderSpec>();
-            void Add(PreviewStatField f)
-            {
-                switch (f)
-                {
-                    case PreviewStatField.AttackDamage:
-                        list.Add(new PreviewSliderSpec(f, "+Attack Damage", LaneHeroSheet.ColAd, 0f, 160f, 5f));
-                        break;
-                    case PreviewStatField.Strength:
-                        list.Add(new PreviewSliderSpec(f, "+Strength", LaneHeroSheet.ColStr, 0f, 180f, 5f));
-                        break;
-                    case PreviewStatField.Agility:
-                        list.Add(new PreviewSliderSpec(f, "+Agility", LaneHeroSheet.ColAgi, 0f, 180f, 5f));
-                        break;
-                    case PreviewStatField.Intelligence:
-                        list.Add(new PreviewSliderSpec(f, "+Intelligence", LaneHeroSheet.ColInt, 0f, 180f, 5f));
-                        break;
-                    case PreviewStatField.AttackSpeed:
-                        list.Add(new PreviewSliderSpec(f, "+Attack Speed", LaneHeroSheet.ColAgi, 0f, 3.0f, 0.15f, asPercent: true));
-                        break;
-                    case PreviewStatField.AbilityHaste:
-                        list.Add(new PreviewSliderSpec(f, "+Ability Haste", LaneHeroSheet.ColInt, 0f, 100f, 5f));
-                        break;
-                    case PreviewStatField.HealPower:
-                        list.Add(new PreviewSliderSpec(f, "+Heal Power", LaneHeroSheet.ColHeal, 0f, 1.5f, 0.10f, asPercent: true));
-                        break;
-                    case PreviewStatField.MaxHp:
-                        list.Add(new PreviewSliderSpec(f, "+Max HP", LaneHeroSheet.ColHp, 0f, 1500f, 50f));
-                        break;
-                    case PreviewStatField.MaxMana:
-                        list.Add(new PreviewSliderSpec(f, "+Max Mana", LaneHeroSheet.ColMana, 0f, 800f, 25f));
-                        break;
-                    case PreviewStatField.ManaRegen:
-                        list.Add(new PreviewSliderSpec(f, "+Mana Regen", LaneHeroSheet.ColMana, 0f, 20f, 0.5f));
-                        break;
-                    case PreviewStatField.ResourceCostReduction:
-                        list.Add(new PreviewSliderSpec(f, "+Cost Reduc.", LaneHeroSheet.ColMana, 0f, 120f, 5f));
-                        break;
-                }
-            }
+            void Add(PreviewStatField f) => list.Add(CreateSliderSpec(f));
 
             switch (hero)
             {
@@ -356,12 +359,17 @@ namespace Moba.LaneSlice
 
         public void Select(LaneHeroId hero, LaneAbilitySlot slot, int exampleIndex = 0)
         {
-            bool changedHeroOrSlot = SelectedHero != hero || SelectedSlot != slot;
+            bool changedSelection = Mode != PreviewMode.HeroAbility || SelectedHero != hero || SelectedSlot != slot;
+            Mode = PreviewMode.HeroAbility;
+            SelectedItemId = 0;
+            SelectedPassiveIndex = 0;
+            SelectedPassiveName = string.Empty;
+            LiveTelemetryLine = string.Empty;
             SelectedHero = hero;
             SelectedSlot = slot;
             string[] exNames = GetExampleNames(hero, slot);
             ExampleIndex = Mathf.Clamp(exampleIndex, 0, exNames.Length - 1);
-            if (changedHeroOrSlot)
+            if (changedSelection)
             {
                 Overrides.enabled = true;
                 int maxRank = slot == LaneAbilitySlot.R ? 2 : 3;
@@ -379,13 +387,15 @@ namespace Moba.LaneSlice
 
         public void ApplyLiveOverrides(PreviewStatOverrides next)
         {
-            bool structuralChange = next.level != Overrides.level || next.abilityRank != Overrides.abilityRank;
+            bool structuralChange = Mode == PreviewMode.HeroAbility &&
+                                    (next.level != Overrides.level || next.abilityRank != Overrides.abilityRank);
             Overrides = next;
             Overrides.enabled = true;
             if (sim != null)
             {
                 sim.SetPreviewStatOverrides(LaneTeam.Blue, Overrides);
                 latestSnap = sim.Snapshot();
+                if (Mode == PreviewMode.ItemPassive) UpdateItemLiveTelemetry();
                 if (enableRenderVisuals && world != null)
                 {
                     world.ApplySnapshot(latestSnap, LaneTeam.Blue, baseTuning, hoveredEntityId: 0);
@@ -409,24 +419,33 @@ namespace Moba.LaneSlice
             previewTuning.attackSpeedCurveK = baseTuning.attackSpeedCurveK;
             previewTuning.ogreImmuneDuringRecovery = baseTuning.ogreImmuneDuringRecovery;
 
-            LaneHeroId redHero = SelectedHero == LaneHeroId.Miravel ? LaneHeroId.Swordsman : LaneHeroId.Miravel;
-            if (SelectedHero == LaneHeroId.LaserShooter && SelectedSlot == LaneAbilitySlot.E)
-            {
-                redHero = LaneHeroId.Miravel;
-            }
-            sim = new LaneMatch(SelectedHero, redHero, previewTuning, sharedPreviewMap);
-            sim.DisableTowersForPreview();
-            sim.SetPreviewStatOverrides(LaneTeam.Blue, Overrides);
-
             elapsedInLoop = 0f;
             simAccum = 0f;
             renderDirty = true;
             timelineCursor = 0;
             timeline.Clear();
 
-            BuildScenarioScript();
+            if (Mode == PreviewMode.ItemPassive)
+            {
+                RestartItemPassiveScenario();
+                latestSnap = sim.Snapshot();
+                UpdateItemLiveTelemetry();
+            }
+            else
+            {
+                LiveTelemetryLine = string.Empty;
+                LaneHeroId redHero = SelectedHero == LaneHeroId.Miravel ? LaneHeroId.Swordsman : LaneHeroId.Miravel;
+                if (SelectedHero == LaneHeroId.LaserShooter && SelectedSlot == LaneAbilitySlot.E)
+                {
+                    redHero = LaneHeroId.Miravel;
+                }
+                sim = new LaneMatch(SelectedHero, redHero, previewTuning, sharedPreviewMap);
+                sim.DisableTowersForPreview();
+                sim.SetPreviewStatOverrides(LaneTeam.Blue, Overrides);
+                BuildScenarioScript();
+                latestSnap = sim.Snapshot();
+            }
 
-            latestSnap = sim.Snapshot();
             if (enableRenderVisuals && world != null)
             {
                 world.SoftResetForPreviewLoop();
@@ -467,6 +486,10 @@ namespace Moba.LaneSlice
                     sim.Tick(fixedStep);
                     SimulationTickCount++;
                     latestSnap = sim.Snapshot();
+                    if (Mode == PreviewMode.ItemPassive)
+                    {
+                        UpdateItemLiveTelemetry();
+                    }
                     if (enableRenderVisuals && world != null)
                     {
                         world.ApplySnapshot(latestSnap, LaneTeam.Blue, baseTuning, hoveredEntityId: 0);
@@ -554,17 +577,31 @@ namespace Moba.LaneSlice
 
                 float sx = texRect.x + vp.x * texRect.width;
                 float sy = texRect.y + (1f - vp.y) * texRect.height;
-                float bw = 54f;
-                var bg = new Rect(sx - bw * 0.5f, sy, bw, 5f);
+                float bw = 58f;
+                var bg = new Rect(sx - bw * 0.5f, sy, bw, 6f);
                 Color prev = GUI.color;
-                GUI.color = new Color(0.08f, 0.10f, 0.12f, 0.9f);
+                GUI.color = new Color(0.08f, 0.10f, 0.12f, 0.92f);
                 GUI.DrawTexture(bg, Texture2D.whiteTexture);
                 float fill = h.maxHp > 0f ? Mathf.Clamp01(h.hp / h.maxHp) : 0f;
+                float innerW = bw - 2f;
                 GUI.color = h.team == LaneTeam.Blue ? new Color(0.28f, 0.88f, 0.42f) : new Color(0.92f, 0.30f, 0.28f);
-                GUI.DrawTexture(new Rect(bg.x + 1f, bg.y + 1f, (bw - 2f) * fill, 3f), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(bg.x + 1f, bg.y + 1f, innerW * fill, 4f), Texture2D.whiteTexture);
+                if (h.deferredDamageTotal >= 1f && h.maxHp > 0f)
+                {
+                    float deferFrac = Mathf.Clamp(h.deferredDamageTotal / h.maxHp, 0f, fill);
+                    float deferPx = innerW * deferFrac;
+                    GUI.color = new Color(1.0f, 0.68f, 0.16f, 0.96f);
+                    GUI.DrawTexture(new Rect(bg.x + 1f + innerW * (fill - deferFrac), bg.y + 1f, deferPx, 4f), Texture2D.whiteTexture);
+                }
+                if (h.shieldHp >= 1f && h.maxHp > 0f)
+                {
+                    float shFrac = Mathf.Clamp01(h.shieldHp / h.maxHp);
+                    GUI.color = new Color(0.75f, 0.94f, 1.0f, 0.92f);
+                    GUI.DrawTexture(new Rect(bg.x + 1f, bg.y + 1f, innerW * shFrac, 2f), Texture2D.whiteTexture);
+                }
                 if (h.resourceKind == HeroResourceKind.Mana && h.maxMana > 0f)
                 {
-                    var mbg = new Rect(sx - bw * 0.5f, sy + 6f, bw, 4f);
+                    var mbg = new Rect(sx - bw * 0.5f, sy + 7f, bw, 4f);
                     GUI.color = new Color(0.08f, 0.10f, 0.14f, 0.9f);
                     GUI.DrawTexture(mbg, Texture2D.whiteTexture);
                     float mfill = Mathf.Clamp01(h.mana / h.maxMana);
@@ -575,11 +612,17 @@ namespace Moba.LaneSlice
 
                 string tag = h.team == LaneTeam.Blue ? "You" : "Target";
                 if (h.stunTimer > 0f) tag += " [STUN]";
+                else if (h.heatStacks > 0) tag += $" [HEAT x{h.heatStacks}]";
+                else if (h.adaptiveScalesStacks > 0) tag += $" [SCALES x{h.adaptiveScalesStacks}]";
+                else if (h.deferredDamageTotal >= 1f) tag += $" [DEFER {Mathf.RoundToInt(h.deferredDamageTotal)}]";
+                else if (h.shieldHp >= 1f) tag += $" [SHIELD {Mathf.RoundToInt(h.shieldHp)}]";
                 else if (h.curseTimer > 0f) tag += $" [CURSE x{h.curseStacks}]";
                 else if (h.laserStacks > 0) tag += $" [x{h.laserStacks}]";
                 else if (h.wardTimer > 0f) tag += " [WARD]";
-                if (h.slowTimer > 0f) tag += " [SLOW]";
-                GUI.Label(new Rect(sx - 50f, sy - 15f, 100f, 14f), $"<color=#e8eff7>{tag}</color>", barTextStyle);
+                if (h.slowTimer > 0f) tag += $" [-{Mathf.RoundToInt(h.slowAmount * 100f)}%]";
+                else if (h.cowardShieldBonus >= 1f) tag += $" [FLIGHT +{Mathf.RoundToInt(h.cowardShieldBonus)}]";
+                else if (h.slipperyBonus >= 0.05f) tag += $" [+{h.slipperyBonus:0.0} MS]";
+                GUI.Label(new Rect(sx - 66f, sy - 15f, 132f, 14f), $"<color=#e8eff7>{tag}</color>", barTextStyle);
             }
 
             for (int i = 0; i < latestSnap.minions.Count; i++)
@@ -599,6 +642,16 @@ namespace Moba.LaneSlice
                 GUI.color = m.team == LaneTeam.Blue ? new Color(0.45f, 0.82f, 1f) : new Color(0.95f, 0.42f, 0.35f);
                 GUI.DrawTexture(new Rect(bgX(sx, bw) + 1f, sy + 1f, (bw - 2f) * fill, 2f), Texture2D.whiteTexture);
                 GUI.color = prev;
+            }
+
+            if (!string.IsNullOrEmpty(LiveTelemetryLine))
+            {
+                var barR = new Rect(texRect.x + 4f, texRect.yMax - 20f, texRect.width - 8f, 17f);
+                Color prev = GUI.color;
+                GUI.color = new Color(0.05f, 0.07f, 0.10f, 0.84f);
+                GUI.DrawTexture(barR, Texture2D.whiteTexture);
+                GUI.color = prev;
+                GUI.Label(barR, LiveTelemetryLine, barTextStyle);
             }
         }
 
@@ -650,10 +703,17 @@ namespace Moba.LaneSlice
         private void PositionCameraForSelection()
         {
             Vector3 focus = previewWorldOffset;
-            if (SelectedHero == LaneHeroId.Ogre && SelectedSlot == LaneAbilitySlot.W)
-                focus += new Vector3(1.8f, 0f, 0f);
-            else if (SelectedHero == LaneHeroId.LaserShooter && SelectedSlot == LaneAbilitySlot.R)
-                focus += new Vector3(1.4f, 0f, 0f);
+            if (Mode == PreviewMode.ItemPassive)
+            {
+                focus += PositionItemCameraOffset();
+            }
+            else
+            {
+                if (SelectedHero == LaneHeroId.Ogre && SelectedSlot == LaneAbilitySlot.W)
+                    focus += new Vector3(1.8f, 0f, 0f);
+                else if (SelectedHero == LaneHeroId.LaserShooter && SelectedSlot == LaneAbilitySlot.R)
+                    focus += new Vector3(1.4f, 0f, 0f);
+            }
             previewCam.transform.position = focus + new Vector3(0f, 10.6f, -9.0f);
             previewCam.transform.LookAt(focus + new Vector3(0f, 0.4f, 0f));
         }

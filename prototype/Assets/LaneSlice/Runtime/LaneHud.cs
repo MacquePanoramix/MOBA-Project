@@ -307,6 +307,12 @@ namespace Moba.LaneSlice
             GUILayout.BeginHorizontal();
             GUILayout.Label("<b>1. Choose Your Hero:</b>");
             GUILayout.FlexibleSpace();
+            GUI.backgroundColor = new Color(0.95f, 0.80f, 0.40f);
+            if (GUILayout.Button("Item Compendium (44)", GUILayout.Width(172f), GUILayout.Height(24f)))
+            {
+                OpenItemCompendium(selectedCompendiumItemId);
+            }
+            GUI.backgroundColor = Color.white;
             if (GUILayout.Button("Hero Numbers & Scaling", GUILayout.Width(175f), GUILayout.Height(24f)))
             {
                 if (HeroSheetOpen) HeroSheetOpen = false;
@@ -617,7 +623,27 @@ namespace Moba.LaneSlice
                 if (HeroSheetOpen) HeroSheetOpen = false;
                 else OpenHeroSheet(self != null ? self.heroId : scene.LocalPick);
             }
-            if (GUILayout.Button($"[{KeyLabel(ControlCommand.ToggleShop)}] Shop", GUILayout.Width(80))) ShopOpen = !ShopOpen;
+            if (GUILayout.Button("Compendium", GUILayout.Width(94)))
+            {
+                if (ItemCompendiumOpen)
+                {
+                    ItemCompendiumOpen = false;
+                    scene.AbilityPreview?.Deactivate();
+                }
+                else
+                {
+                    OpenItemCompendium(selectedCompendiumItemId);
+                }
+            }
+            if (GUILayout.Button($"[{KeyLabel(ControlCommand.ToggleShop)}] Shop", GUILayout.Width(80)))
+            {
+                ShopOpen = !ShopOpen;
+                if (ShopOpen)
+                {
+                    ItemCompendiumOpen = false;
+                    HeroSheetOpen = false;
+                }
+            }
             if (GUILayout.Button($"[{KeyLabel(ControlCommand.ToggleSettings)}] Settings", GUILayout.Width(98)))
             {
                 if (SettingsOpen) SettingsOpen = false;
@@ -921,7 +947,7 @@ namespace Moba.LaneSlice
             EnsureStyles();
             LaneAbilityPreview preview = scene.AbilityPreview;
             bool demosOn = scene.Settings == null || scene.Settings.Data.enableAbilityDemos;
-            if (preview != null && preview.SelectedHero != inspectedHero)
+            if (preview != null && (preview.Mode != PreviewMode.HeroAbility || preview.SelectedHero != inspectedHero))
             {
                 preview.Select(inspectedHero, previewSlot, 0);
             }
@@ -964,6 +990,11 @@ namespace Moba.LaneSlice
             if (GUILayout.Button(showExactMath ? "Hide All Math" : "Show All Math", GUILayout.Width(102f), GUILayout.Height(25f)))
             {
                 showExactMath = !showExactMath;
+            }
+            GUI.backgroundColor = new Color(0.95f, 0.80f, 0.40f);
+            if (GUILayout.Button("Items", GUILayout.Width(58f), GUILayout.Height(25f)))
+            {
+                OpenItemCompendium(selectedCompendiumItemId);
             }
             GUI.backgroundColor = Color.white;
             if (GUILayout.Button("X", GUILayout.Width(28f), GUILayout.Height(25f)))

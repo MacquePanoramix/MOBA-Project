@@ -12,7 +12,8 @@ namespace Moba.LaneSlice
             CheckAutoPurchaseAllPart25Scenarios();
             CheckRecipeTreeInvariantsAndDuplicateFeedback();
             CheckStageCIconsAndCatalogQuery();
-            Debug.Log("[LanePerfAndUxChecks] Stage A cache, Stage B auto-buy/recipe-tree, & Stage C icons/query checks passed.");
+            CheckStageDEItemCompendiumAndPassiveDemos();
+            Debug.Log("[LanePerfAndUxChecks] Stage A cache, Stage B auto-buy/recipe-tree, Stage C icons/query, & Stage D/E compendium/passive-demo checks passed.");
         }
 
         private static void CheckHeroGuideCacheMatchesStatelessAndNoLeaks()
@@ -266,6 +267,141 @@ namespace Moba.LaneSlice
 
             LaneItemIcons.DisposeAll();
             LaneUiCommon.DisposeAll();
+        }
+
+        private static void CheckStageDEItemCompendiumAndPassiveDemos()
+        {
+            var tuning = new LaneTuning();
+            // Separate live match to verify 100% isolation from preview sandbox
+            var liveMatch = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, tuning);
+            HeroSnap liveBefore = GetHero(liveMatch.Snapshot(), LaneTeam.Blue);
+
+            using (var preview = new LaneAbilityPreview(tuning, enableRenderVisuals: false))
+            {
+                int testedPassives = 0;
+
+                // 1. Validate all 44 catalog entries & run every passive-bearing item scenario
+                for (int i = 0; i < LaneItems.Catalog.Length; i++)
+                {
+                    LaneItemDef item = LaneItems.Catalog[i];
+                    Assert(LaneItems.TryGet(item.Id, out _), $"Compendium item lookup {item.Name}");
+                    if (item.Passives == null || item.Passives.Length == 0) continue;
+
+                    for (int p = 0; p < item.Passives.Length; p++)
+                    {
+                        string tip = LaneUiCommon.GetPracticalTip(item.Id, p);
+                        Assert(tip != null, $"Tip safe non-null for {item.Name} p{p}");
+
+                        string[] exNames = LaneAbilityPreview.GetItemExampleNames(item.Id, p);
+                        for (int ex = 0; ex < exNames.Length; ex++)
+                        {
+                            preview.SelectItemPassive(item.Id, p, ex);
+                            Assert(preview.Mode == PreviewMode.ItemPassive && preview.SelectedItemId == item.Id,
+                                $"ItemPassive mode active for {item.Name} p{p}");
+                            for (int f = 0; f < 45; f++)
+                            {
+                                preview.Tick(1f / 30f, shouldRun: true);
+                            }
+                            Assert(!string.IsNullOrEmpty(preview.ScenarioCaption), $"Caption populated for {item.Name} p{p}");
+                            Assert(!string.IsNullOrEmpty(preview.LiveTelemetryLine), $"Telemetry populated for {item.Name} p{p}");
+                        }
+                        testedPassives++;
+                    }
+                }
+                Assert(testedPassives >= 28, $"Expected >=28 passive tabs tested across catalog, ran {testedPassives}");
+
+                // 2. Relevant sliders & authentic mechanics: Banana Blade -> Crescent Strike (3 sliders) & secondary cleave
+                List<PreviewSliderSpec> csSliders = LaneAbilityPreview.GetRelevantItemSliders(LaneItemIds.BananaBlade, 0);
+                Assert(csSliders.Count == 3 &&
+                       csSliders[0].Field == PreviewStatField.AttackDamage &&
+                       csSliders[1].Field == PreviewStatField.Agility &&
+                       csSliders[2].Field == PreviewStatField.Intelligence,
+                    "Crescent Strike shows only AD, AGI, INT sliders");
+                preview.SelectItemPassive(LaneItemIds.BananaBlade, 0, 0);
+                for (int f = 0; f < 90; f++) preview.Tick(1f / 30f, true);
+                bool anySecondaryDamaged = false;
+                for (int m = 0; m < preview.LatestPreviewSnapshot.minions.Count; m++)
+                {
+                    if (preview.LatestPreviewSnapshot.minions[m].hp < 750f) anySecondaryDamaged = true;
+                }
+                Assert(anySecondaryDamaged, "Crescent Strike demo cleaved at least one secondary enemy behind primary target");
+
+                // 3. Slippery Trickster -> Agility slider (1) & real MS burst
+                Assert(LaneAbilityPreview.GetRelevantItemSliders(LaneItemIds.BananaBlade, 1).Count == 1 &&
+                       LaneAbilityPreview.GetRelevantItemSliders(LaneItemIds.BananaBlade, 1)[0].Field == PreviewStatField.Agility,
+                    "Slippery Trickster shows only Agility slider");
+                preview.SelectItemPassive(LaneItemIds.BananaBlade, 1, 0);
+                for (int f = 0; f < 30; f++) preview.Tick(1f / 30f, true);
+                HeroSnap slipSnap = GetHero(preview.LatestPreviewSnapshot, LaneTeam.Blue);
+                Assert(slipSnap.slipperyBonus > 0.1f, $"Slippery Trickster granted MS burst in preview ({slipSnap.slipperyBonus:0.00})");
+
+                // 4. Weightlessness -> 0 sliders & slow strength reduced with identical duration
+                Assert(LaneAbilityPreview.GetRelevantItemSliders(LaneItemIds.WingedCharm, 0).Count == 0 &&
+                       LaneAbilityPreview.GetRelevantItemSliders(LaneItemIds.BananaBlade, 3).Count == 0,
+                    "Weightlessness shows 0 unnecessary scaling sliders");
+                preview.SelectItemPassive(LaneItemIds.BananaBlade, 3, 0);
+                for (int f = 0; f < 24; f++) preview.Tick(1f / 30f, true);
+                HeroSnap slowWith = GetHero(preview.LatestPreviewSnapshot, LaneTeam.Blue);
+                preview.SelectItemPassive(LaneItemIds.BananaBlade, 3, 1);
+                for (int f = 0; f < 24; f++) preview.Tick(1f / 30f, true);
+                HeroSnap slowWithout = GetHero(preview.LatestPreviewSnapshot, LaneTeam.Blue);
+                Assert(slowWith.slowAmount < slowWithout.slowAmount - 0.05f &&
+                       Mathf.Abs(slowWith.slowTimer - slowWithout.slowTimer) < 0.05f,
+                    $"Weightlessness reduced slow strength ({slowWith.slowAmount:0.00} vs {slowWithout.slowAmount:0.00}) at equal duration");
+
+                // 5. Giant's Heart -> Ancient Vitality (deferred pool) & Giant's Might (+3% MaxHP -> AD) & Immovable Mountain
+                Assert(LaneAbilityPreview.GetRelevantItemSliders(LaneItemIds.GiantsHeart, 0).Count == 2,
+                    "Ancient Vitality shows MaxHp + STR sliders");
+                preview.SelectItemPassive(LaneItemIds.GiantsHeart, 0, 0);
+                for (int f = 0; f < 30; f++) preview.Tick(1f / 30f, true);
+                HeroSnap avSnap = GetHero(preview.LatestPreviewSnapshot, LaneTeam.Blue);
+                Assert(avSnap.deferredDamageTotal > 1f, $"Ancient Vitality populated deferred damage pool ({avSnap.deferredDamageTotal:0.0})");
+
+                List<PreviewSliderSpec> gmSliders = LaneAbilityPreview.GetRelevantItemSliders(LaneItemIds.GiantsHeart, 1);
+                Assert(gmSliders.Count == 1 && gmSliders[0].Field == PreviewStatField.MaxHp, "Giant's Might shows only MaxHp slider");
+                preview.SelectItemPassive(LaneItemIds.GiantsHeart, 1, 0);
+                float baseAd = GetHero(preview.LatestPreviewSnapshot, LaneTeam.Blue).attackDamage;
+                PreviewStatOverrides gmOv = preview.Overrides;
+                gmOv.bonusMaxHp = 1000f;
+                preview.ApplyLiveOverrides(gmOv);
+                float scaledAd = GetHero(preview.LatestPreviewSnapshot, LaneTeam.Blue).attackDamage;
+                Assert(Mathf.Abs((scaledAd - baseAd) - 30f) < 0.1f, $"Giant's Might +1000 MaxHP raised AD by +30.0 (got {scaledAd - baseAd:0.00})");
+
+                preview.SelectItemPassive(LaneItemIds.GiantsHeart, 2, 0);
+                for (int f = 0; f < 25; f++) preview.Tick(1f / 30f, true);
+                float pushWith = Mathf.Abs(GetHero(preview.LatestPreviewSnapshot, LaneTeam.Blue).x - 0.6f);
+                preview.SelectItemPassive(LaneItemIds.GiantsHeart, 2, 1);
+                for (int f = 0; f < 25; f++) preview.Tick(1f / 30f, true);
+                float pushWithout = Mathf.Abs(GetHero(preview.LatestPreviewSnapshot, LaneTeam.Blue).x - 0.6f);
+                Assert(pushWith < pushWithout - 0.3f, $"Immovable Mountain shortened knockback ({pushWith:0.00}u vs {pushWithout:0.00}u)");
+
+                // 6. Draconic Blade & Dragon Scale & Colossus Pauldron
+                preview.SelectItemPassive(LaneItemIds.DraconicBlade, 0, 0);
+                for (int f = 0; f < 60; f++) preview.Tick(1f / 30f, true);
+                HeroSnap heatFoe = GetHero(preview.LatestPreviewSnapshot, LaneTeam.Red);
+                Assert(heatFoe.heatStacks >= 1 && heatFoe.armor < 8f, $"Draconic Blade stacked Heat ({heatFoe.heatStacks}) and shredded Armor");
+
+                preview.SelectItemPassive(LaneItemIds.DragonScale, 0, 0);
+                for (int f = 0; f < 45; f++) preview.Tick(1f / 30f, true);
+                HeroSnap scSnap = GetHero(preview.LatestPreviewSnapshot, LaneTeam.Blue);
+                Assert(scSnap.adaptiveScalesStacks >= 1 && scSnap.adaptiveScalesBonus > 0f, "Adaptive Scales stacked per-attacker resists");
+
+                preview.SelectItemPassive(LaneItemIds.ColossusPauldron, 0, 0);
+                for (int f = 0; f < 45; f++) preview.Tick(1f / 30f, true);
+                HeroSnap shieldSnap = GetHero(preview.LatestPreviewSnapshot, LaneTeam.Blue);
+                Assert(shieldSnap.shieldHp > 10f, $"Titan Aegis granted shield in preview ({shieldSnap.shieldHp:0.0})");
+
+                // 7. Pause/suspension lifecycle
+                int ticksAtClose = preview.SimulationTickCount;
+                preview.Deactivate();
+                for (int f = 0; f < 10; f++) preview.Tick(1f / 30f, shouldRun: false);
+                Assert(!preview.IsActive && preview.SimulationTickCount == ticksAtClose,
+                    "Preview stops completely when deactivated / Compendium closed");
+            }
+
+            HeroSnap liveAfter = GetHero(liveMatch.Snapshot(), LaneTeam.Blue);
+            Assert(Mathf.Abs(liveAfter.hp - liveBefore.hp) < 0.01f && liveAfter.items[0] == 0,
+                "Compendium item demos never mutate live match state");
         }
 
         private static bool ContainsItem(List<LaneItemDef> list, int itemId)

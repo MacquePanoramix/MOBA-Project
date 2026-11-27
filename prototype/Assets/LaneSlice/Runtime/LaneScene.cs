@@ -514,7 +514,15 @@ namespace Moba.LaneSlice
             }
 
             if (WasCommandPressed(ControlCommand.ToggleHelp, checkAvailable: false)) hud.ShowHelp = !hud.ShowHelp;
-            if (WasCommandPressed(ControlCommand.ToggleShop, checkAvailable: false)) hud.ShopOpen = !hud.ShopOpen;
+            if (WasCommandPressed(ControlCommand.ToggleShop, checkAvailable: false))
+            {
+                hud.ShopOpen = !hud.ShopOpen;
+                if (hud.ShopOpen)
+                {
+                    hud.ItemCompendiumOpen = false;
+                    hud.HeroSheetOpen = false;
+                }
+            }
             if (WasCommandPressed(ControlCommand.ToggleHeroSheet, checkAvailable: false))
             {
                 if (hud.HeroSheetOpen)

@@ -481,6 +481,108 @@ namespace Moba.LaneSlice
             return id;
         }
 
+        public void GrantPreviewItem(LaneTeam team, int itemId)
+        {
+            int canonical = LaneItems.MigrateItemId(itemId);
+            if (!LaneItems.TryGet(canonical, out _)) return;
+            HeroState h = GetHero(team);
+            for (int i = 0; i < h.items.Length; i++)
+            {
+                if (h.items[i] == 0)
+                {
+                    h.items[i] = canonical;
+                    RecalcHeroStats(h, preserveHpRatio: true);
+                    return;
+                }
+            }
+        }
+
+        public void ClearPreviewItems(LaneTeam team)
+        {
+            HeroState h = GetHero(team);
+            for (int i = 0; i < h.items.Length; i++) h.items[i] = 0;
+            h.heatEntries.Clear();
+            h.adaptiveScales.Clear();
+            h.deferredDamage.Clear();
+            h.deferredHeals.Clear();
+            RecalcHeroStats(h, preserveHpRatio: true);
+        }
+
+        public void SetPreviewHeroHpFraction(LaneTeam team, float hpFraction)
+        {
+            HeroState h = GetHero(team);
+            h.hp = Mathf.Clamp(h.maxHp * Mathf.Clamp01(hpFraction), 1f, h.maxHp);
+        }
+
+        public void SetPreviewHeroManaFraction(LaneTeam team, float manaFraction)
+        {
+            HeroState h = GetHero(team);
+            if (h.maxMana > 0f)
+            {
+                h.mana = Mathf.Clamp(h.maxMana * Mathf.Clamp01(manaFraction), 0f, h.maxMana);
+            }
+        }
+
+        public void SetPreviewOutOfCombatAge(LaneTeam team, float seconds)
+        {
+            GetHero(team).lastHeroDamageAge = Mathf.Max(0f, seconds);
+        }
+
+        public void SetPreviewFirstStrikeIdle(LaneTeam team, float seconds)
+        {
+            GetHero(team).firstStrikeIdleTimer = Mathf.Max(0f, seconds);
+        }
+
+        public void TriggerPreviewSlow(LaneTeam targetTeam, float slowFraction, float duration)
+        {
+            ApplySlowToHero(GetHero(targetTeam), slowFraction, duration);
+        }
+
+        public void TriggerPreviewDisplacement(LaneTeam targetTeam, Vector2 dir, float distance)
+        {
+            Vector2 safeDir = dir.sqrMagnitude > 0.0001f ? dir.normalized : Vector2.right;
+            ApplyDisplacementToHero(GetHero(targetTeam), safeDir, distance, GetEnemyHero(targetTeam).id);
+        }
+
+        public void TriggerPreviewHeroDamage(
+            LaneTeam attackerTeam,
+            LaneTeam victimTeam,
+            float rawDamage,
+            bool isMagic = false,
+            bool isTrueDamage = false,
+            bool isBasicHit = false)
+        {
+            DamageFlags flags = isBasicHit ? (DamageFlags.BasicOrMinion | DamageFlags.OnHit) : DamageFlags.None;
+            DealDamageToHero(
+                GetHero(victimTeam),
+                rawDamage,
+                isMagic,
+                isTrueDamage,
+                GetHero(attackerTeam).id,
+                attackerTeam,
+                triggerMiravelWard: true,
+                flags: flags);
+        }
+
+        public void TriggerPreviewMinionHitHero(LaneTeam targetTeam, float rawDamage)
+        {
+            LaneTeam enemyTeam = targetTeam == LaneTeam.Blue ? LaneTeam.Red : LaneTeam.Blue;
+            DealDamageToHero(
+                GetHero(targetTeam),
+                rawDamage,
+                isMagic: false,
+                isTrueDamage: false,
+                attackerHeroId: 0,
+                attackerTeam: enemyTeam,
+                triggerMiravelWard: false,
+                flags: DamageFlags.BasicOrMinion);
+        }
+
+        public void TriggerPreviewHeal(LaneTeam team, float amount)
+        {
+            HealHero(GetHero(team), amount, HealSourceKind.AbilityOrItem);
+        }
+
         public static float ResistanceFactor(float resistance)
         {
             return resistance >= 0f

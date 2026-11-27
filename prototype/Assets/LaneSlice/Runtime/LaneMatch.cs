@@ -506,6 +506,11 @@ namespace Moba.LaneSlice
                 TryBuyItem(order.team, order.param, out _);
                 return;
             }
+            if (order.kind == LaneOrderKind.BuyItemSmart)
+            {
+                TryBuyItemSmart(order.team, order.param, out _, out _);
+                return;
+            }
             if (order.kind == LaneOrderKind.SellItem)
             {
                 TrySellItem(order.team, order.param, out _);
@@ -914,6 +919,49 @@ namespace Moba.LaneSlice
                 ? $"Upgraded to {plan.TargetItem.Name} ({plan.RemainingCost}g)."
                 : $"Bought {plan.TargetItem.Name}.";
             return true;
+        }
+
+        public bool TryBuyItemSmart(LaneTeam team, int itemId, out string reason, out List<int> boughtIds)
+        {
+            boughtIds = new List<int>();
+            if (gameOver)
+            {
+                reason = "Match ended.";
+                return false;
+            }
+            HeroState h = GetHero(team);
+            bool inFountain = h.phase == LanePhase.Dead || map.IsInFountain(h.team, h.motor.Position);
+            if (!inFountain)
+            {
+                reason = "Shop only open inside your Fountain or while respawning.";
+                return false;
+            }
+
+            int goldInt = Mathf.FloorToInt(h.goldExact);
+            AutoPurchasePlan auto = LaneItems.ResolveAutoPurchase(itemId, h.items, goldInt);
+            if (!auto.ValidItem || !auto.CanBuyAnything)
+            {
+                reason = auto.Reason;
+                return false;
+            }
+
+            for (int i = 0; i < auto.StepItemIds.Count; i++)
+            {
+                int stepId = auto.StepItemIds[i];
+                if (!TryBuyItem(team, stepId, out string stepReason))
+                {
+                    if (boughtIds.Count == 0)
+                    {
+                        reason = stepReason;
+                        return false;
+                    }
+                    break;
+                }
+                boughtIds.Add(stepId);
+            }
+
+            reason = auto.Reason;
+            return boughtIds.Count > 0;
         }
 
         public bool TrySellItem(LaneTeam team, int slotIndex, out string reason)

@@ -82,6 +82,7 @@ namespace Moba.LaneSlice
                 }
 
                 guest.SendOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.BuyItem, param = 12 });
+                guest.SendOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.BuyItemSmart, param = LaneItemIds.Heartstone });
                 guest.SendOrder(new LaneOrder { team = LaneTeam.Red, kind = LaneOrderKind.AttackMove, point = new Vector2(2f, 1f) });
                 guest.SendOrder(new LaneOrder
                 {
@@ -117,15 +118,18 @@ namespace Moba.LaneSlice
                 host.SendSnapshot(big);
                 PumpBoth(host, guest, 400);
 
-                if (hostOrders.Count != 4 || hostOrders[0].kind != LaneOrderKind.BuyItem ||
-                    hostOrders[1].kind != LaneOrderKind.AttackMove ||
-                    hostOrders[2].kind != LaneOrderKind.Move ||
-                    hostOrders[2].unitIds == null || hostOrders[2].unitIds.Length != 2 ||
-                    hostOrders[2].unitIds[0] != 2 || hostOrders[2].unitIds[1] != 105 ||
-                    hostOrders[3].kind != LaneOrderKind.Stop)
+                if (hostOrders.Count != 5 || hostOrders[0].kind != LaneOrderKind.BuyItem ||
+                    hostOrders[1].kind != LaneOrderKind.BuyItemSmart ||
+                    hostOrders[1].param != LaneItemIds.Heartstone ||
+                    hostOrders[2].kind != LaneOrderKind.AttackMove ||
+                    hostOrders[3].kind != LaneOrderKind.Move ||
+                    hostOrders[3].unitIds == null || hostOrders[3].unitIds.Length != 2 ||
+                    hostOrders[3].unitIds[0] != 2 || hostOrders[3].unitIds[1] != 105 ||
+                    hostOrders[4].kind != LaneOrderKind.Stop)
                 {
-                    throw new InvalidOperationException($"Expected 4 remote orders including RTS unitIds & Stop on host, got {hostOrders.Count}");
+                    throw new InvalidOperationException($"Expected 5 remote orders including BuyItemSmart, RTS unitIds & Stop on host, got {hostOrders.Count}");
                 }
+
                 if (guestSnap == null || guestSnap.minions.Count != big.minions.Count ||
                     guestSnap.heroes.Count != 2 ||
                     guestSnap.heroes[0].resourceKind != HeroResourceKind.Mana ||
@@ -141,6 +145,21 @@ namespace Moba.LaneSlice
                     Mathf.Abs(guestSnap.heroes[0].slipperyBonus - big.heroes[0].slipperyBonus) > 0.01f)
                 {
                     throw new InvalidOperationException($"Heavy snapshot / Mana resource sync roundtrip failed ({guestSnap?.minions.Count ?? -1} vs {big.minions.Count}).");
+                }
+
+                // Authoritative Host execution check for BuyItemSmart (440g Heartstone -> 2x Life Crystal synced back to Guest)
+                var syncMatch = new LaneMatch(LaneHeroId.Ogre, LaneHeroId.Miravel, new LaneTuning { waveFirstSpawnDelay = 999f, passiveGoldPerSecond = 0f });
+                syncMatch.SetHeroGoldForTest(LaneTeam.Red, 440);
+                syncMatch.EnqueueOrApplyOrder(hostOrders[1]);
+                LaneSnapshot syncedShopSnap = syncMatch.Snapshot();
+                host.SendSnapshot(syncedShopSnap);
+                PumpBoth(host, guest, 250);
+                if (guestSnap == null || guestSnap.heroes.Count != 2 ||
+                    guestSnap.heroes[1].items[0] != LaneItemIds.LifeCrystal ||
+                    guestSnap.heroes[1].items[1] != LaneItemIds.LifeCrystal ||
+                    guestSnap.heroes[1].gold != 0)
+                {
+                    throw new InvalidOperationException("Host authoritative BuyItemSmart snapshot did not sync 2x Life Crystal to Guest.");
                 }
 
                 // Force disconnect check

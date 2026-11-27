@@ -34,6 +34,7 @@ namespace Moba.LaneSlice
         LevelAbility = 11,
         BuyItem = 12,
         SellItem = 13,
+        BuyItemSmart = 14,
     }
 
     public enum LanePhase : byte

@@ -170,6 +170,33 @@ namespace Moba.LaneSlice
         public bool HasRecipe => Recipe != null && Recipe.Length > 0;
     }
 
+    public enum RecipeNodeState : byte
+    {
+        Owned = 0,
+        PartialAffordable = 1,
+        PartialUnaffordable = 2,
+        MissingAffordable = 3,
+        MissingUnaffordable = 4,
+    }
+
+    public sealed class RecipeTreeNode
+    {
+        public LaneItemDef Item;
+        public int Depth;
+        public int RequiredQuantity;
+        public int OwnedDirectCount;
+        public bool SatisfiedByParent;
+        public int DirectRemainingCost;
+        public int CombineCost;
+        public bool DirectCanAfford;
+        public bool DirectCanPurchase;
+        public RecipeNodeState State;
+        public readonly List<RecipeTreeNode> Children = new List<RecipeTreeNode>();
+
+        public int MissingCopies => Mathf.Max(0, RequiredQuantity - OwnedDirectCount);
+        public bool IsSatisfied => SatisfiedByParent || OwnedDirectCount >= RequiredQuantity;
+    }
+
     public sealed class PurchasePlan
     {
         public bool ValidItem;
@@ -182,6 +209,23 @@ namespace Moba.LaneSlice
         public bool CanPurchase;
         public string Reason;
         public readonly List<int> ConsumedSlots = new List<int>();
+    }
+
+    public sealed class AutoPurchasePlan
+    {
+        public bool ValidItem;
+        public LaneItemDef TargetItem;
+        public bool BuysCompleteTarget;
+        public int TotalGoldSpent;
+        public int InitialRemainingCost;
+        public int FinalRemainingCost;
+        public string ActionLabel;
+        public string Reason;
+        public readonly List<int> StepItemIds = new List<int>();
+        public readonly List<int> StepCosts = new List<int>();
+        public readonly List<string> StepNames = new List<string>();
+
+        public bool CanBuyAnything => StepItemIds.Count > 0;
     }
 
     /// <summary>
@@ -981,6 +1025,336 @@ namespace Moba.LaneSlice
             }
 
             return plan;
+        }
+
+        public static int GetCombineCost(in LaneItemDef def)
+        {
+            if (def.Recipe == null || def.Recipe.Length == 0) return 0;
+            int childSum = 0;
+            for (int i = 0; i < def.Recipe.Length; i++)
+            {
+                if (TryGet(def.Recipe[i].ItemId, out LaneItemDef child))
+                {
+                    childSum += child.Cost * def.Recipe[i].Quantity;
+                }
+            }
+            return Mathf.Max(0, def.Cost - childSum);
+        }
+
+        /// <summary>
+        /// Builds the hierarchical recipe tree for any catalog item with duplicate-aware ownership
+        /// and affordability states. Never emits purchasable recipe-scroll nodes.
+        /// </summary>
+        public static RecipeTreeNode BuildRecipeTree(int rawTargetId, int[] inventory, int currentGold)
+        {
+            if (!TryGet(rawTargetId, out LaneItemDef rootItem)) return null;
+
+            int len = inventory != null ? inventory.Length : MaxSlots;
+            int[] working = new int[len];
+            for (int i = 0; i < len; i++)
+            {
+                working[i] = inventory != null && i < inventory.Length ? MigrateItemId(inventory[i]) : 0;
+            }
+
+            return BuildRecipeNodeRecursive(rootItem, depth: 0, requiredQty: 1, parentSatisfied: false, working, inventory, currentGold);
+        }
+
+        private static RecipeTreeNode BuildRecipeNodeRecursive(
+            LaneItemDef item,
+            int depth,
+            int requiredQty,
+            bool parentSatisfied,
+            int[] workingInventory,
+            int[] originalInventory,
+            int currentGold)
+        {
+            int directOwned = 0;
+            if (depth > 0 && !parentSatisfied)
+            {
+                for (int q = 0; q < requiredQty; q++)
+                {
+                    int slot = FindAvailableSlot(workingInventory, item.Id);
+                    if (slot >= 0)
+                    {
+                        workingInventory[slot] = -1;
+                        directOwned++;
+                    }
+                }
+            }
+
+            PurchasePlan nextCopyPlan = ResolvePurchase(item.Id, originalInventory, currentGold);
+            var node = new RecipeTreeNode
+            {
+                Item = item,
+                Depth = depth,
+                RequiredQuantity = requiredQty,
+                OwnedDirectCount = directOwned,
+                SatisfiedByParent = parentSatisfied,
+                DirectRemainingCost = nextCopyPlan.RemainingCost,
+                CombineCost = GetCombineCost(in item),
+                DirectCanAfford = nextCopyPlan.CanAfford,
+                DirectCanPurchase = nextCopyPlan.CanPurchase,
+            };
+
+            bool satisfiedThisLevel = parentSatisfied || (depth > 0 && directOwned >= requiredQty);
+            int childMultiplier = parentSatisfied ? requiredQty : Mathf.Max(1, requiredQty - directOwned);
+            if (item.Recipe != null && item.Recipe.Length > 0)
+            {
+                for (int i = 0; i < item.Recipe.Length; i++)
+                {
+                    RecipeIngredient req = item.Recipe[i];
+                    if (!TryGet(req.ItemId, out LaneItemDef ingDef)) continue;
+                    RecipeTreeNode childNode = BuildRecipeNodeRecursive(
+                        ingDef,
+                        depth + 1,
+                        req.Quantity * childMultiplier,
+                        satisfiedThisLevel,
+                        workingInventory,
+                        originalInventory,
+                        currentGold);
+                    node.Children.Add(childNode);
+                }
+            }
+
+            bool hasOwnedDescendant = HasAnyOwnedDescendant(node);
+            if (node.IsSatisfied)
+            {
+                node.State = RecipeNodeState.Owned;
+            }
+            else if (directOwned > 0 || hasOwnedDescendant)
+            {
+                node.State = node.DirectCanPurchase ? RecipeNodeState.PartialAffordable : RecipeNodeState.PartialUnaffordable;
+            }
+            else
+            {
+                node.State = node.DirectCanPurchase ? RecipeNodeState.MissingAffordable : RecipeNodeState.MissingUnaffordable;
+            }
+
+            return node;
+        }
+
+        private static bool HasAnyOwnedDescendant(RecipeTreeNode node)
+        {
+            for (int i = 0; i < node.Children.Count; i++)
+            {
+                RecipeTreeNode ch = node.Children[i];
+                if (ch.OwnedDirectCount > 0 || HasAnyOwnedDescendant(ch)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Deterministic MOBA automatic component purchasing.
+        /// Policy order:
+        ///   1) Complete target immediately if affordable and slots permit.
+        ///   2) Otherwise greedily step through missing recipe nodes using current gold/slots:
+        ///      (a) must pass strict monotonic RemainingCost reduction on target & preserve unrelated slots,
+        ///      (b) prefer upgrades consuming owned components over occupying new slots,
+        ///      (c) prefer shallower intermediates directly in the recipe tree over deeper leaves,
+        ///      (d) prefer higher-cost recipe ingredients first, then declaration order.
+        /// Never purchases unrelated items, never sells items, and never creates recipe scrolls.
+        /// </summary>
+        public static AutoPurchasePlan ResolveAutoPurchase(int rawTargetId, int[] inventory, int currentGold)
+        {
+            var auto = new AutoPurchasePlan();
+            PurchasePlan initialTargetPlan = ResolvePurchase(rawTargetId, inventory, currentGold);
+            auto.ValidItem = initialTargetPlan.ValidItem;
+            auto.TargetItem = initialTargetPlan.TargetItem;
+            auto.InitialRemainingCost = initialTargetPlan.RemainingCost;
+            auto.FinalRemainingCost = initialTargetPlan.RemainingCost;
+
+            if (!initialTargetPlan.ValidItem)
+            {
+                auto.Reason = initialTargetPlan.Reason;
+                auto.ActionLabel = "Invalid Item";
+                return auto;
+            }
+
+            LaneItemDef target = initialTargetPlan.TargetItem;
+            if (initialTargetPlan.CanPurchase)
+            {
+                auto.BuysCompleteTarget = true;
+                auto.TotalGoldSpent = initialTargetPlan.RemainingCost;
+                auto.FinalRemainingCost = 0;
+                auto.StepItemIds.Add(target.Id);
+                auto.StepCosts.Add(initialTargetPlan.RemainingCost);
+                auto.StepNames.Add(target.Name);
+                bool isUpgrade = initialTargetPlan.ConsumedSlots.Count > 0 && initialTargetPlan.RemainingCost < target.Cost;
+                auto.ActionLabel = isUpgrade
+                    ? $"Upgrade {target.Name} ({initialTargetPlan.RemainingCost}g)"
+                    : $"Buy {target.Name} ({initialTargetPlan.RemainingCost}g)";
+                auto.Reason = initialTargetPlan.Reason;
+                return auto;
+            }
+
+            if (!target.HasRecipe)
+            {
+                auto.ActionLabel = initialTargetPlan.Reason;
+                auto.Reason = initialTargetPlan.Reason;
+                return auto;
+            }
+
+            int len = inventory != null ? inventory.Length : MaxSlots;
+            int[] simInv = new int[len];
+            for (int i = 0; i < len; i++)
+            {
+                simInv[i] = inventory != null && i < inventory.Length ? MigrateItemId(inventory[i]) : 0;
+            }
+            int simGold = Mathf.Max(0, currentGold);
+
+            var candidates = new List<RecipeTreeNode>();
+            for (int iter = 0; iter < 12; iter++)
+            {
+                PurchasePlan targetNow = ResolvePurchase(target.Id, simInv, simGold);
+                if (targetNow.CanPurchase)
+                {
+                    ApplySimulatedPurchase(targetNow, simInv, ref simGold);
+                    auto.BuysCompleteTarget = true;
+                    auto.StepItemIds.Add(target.Id);
+                    auto.StepCosts.Add(targetNow.RemainingCost);
+                    auto.StepNames.Add(target.Name);
+                    auto.TotalGoldSpent += targetNow.RemainingCost;
+                    break;
+                }
+
+                RecipeTreeNode tree = BuildRecipeTree(target.Id, simInv, simGold);
+                candidates.Clear();
+                CollectUnownedCandidates(tree, candidates);
+
+                PurchasePlan bestPlan = null;
+                int bestConsumes = -1;
+                int bestNegDepth = int.MinValue;
+                int bestCost = -1;
+                int prevRem = targetNow.RemainingCost;
+
+                for (int c = 0; c < candidates.Count; c++)
+                {
+                    RecipeTreeNode node = candidates[c];
+                    PurchasePlan cp = ResolvePurchase(node.Item.Id, simInv, simGold);
+                    if (!cp.CanPurchase || cp.RemainingCost <= 0) continue;
+
+                    int[] trialInv = (int[])simInv.Clone();
+                    int trialGold = simGold;
+                    if (!ApplySimulatedPurchase(cp, trialInv, ref trialGold)) continue;
+
+                    PurchasePlan afterTarget = ResolvePurchase(target.Id, trialInv, trialGold);
+                    int reduction = prevRem - afterTarget.RemainingCost;
+                    if (reduction < cp.RemainingCost || reduction <= 0) continue;
+
+                    int consumes = cp.ConsumedSlots.Count > 0 ? 1 : 0;
+                    int negDepth = -node.Depth;
+                    int baseCost = node.Item.Cost;
+
+                    bool better = bestPlan == null ||
+                                  consumes > bestConsumes ||
+                                  (consumes == bestConsumes && negDepth > bestNegDepth) ||
+                                  (consumes == bestConsumes && negDepth == bestNegDepth && baseCost > bestCost);
+                    if (better)
+                    {
+                        bestPlan = cp;
+                        bestConsumes = consumes;
+                        bestNegDepth = negDepth;
+                        bestCost = baseCost;
+                    }
+                }
+
+                if (bestPlan == null) break;
+
+                ApplySimulatedPurchase(bestPlan, simInv, ref simGold);
+                auto.StepItemIds.Add(bestPlan.TargetItem.Id);
+                auto.StepCosts.Add(bestPlan.RemainingCost);
+                auto.StepNames.Add(bestPlan.TargetItem.Name);
+                auto.TotalGoldSpent += bestPlan.RemainingCost;
+            }
+
+            PurchasePlan finalPlan = ResolvePurchase(target.Id, simInv, simGold);
+            auto.FinalRemainingCost = finalPlan.RemainingCost;
+
+            if (auto.StepItemIds.Count == 0)
+            {
+                auto.Reason = initialTargetPlan.Reason;
+                auto.ActionLabel = initialTargetPlan.Reason;
+                return auto;
+            }
+
+            string summary = SummarizeSteps(auto.StepNames);
+            if (auto.BuysCompleteTarget)
+            {
+                auto.ActionLabel = $"Complete {target.Name} ({auto.TotalGoldSpent}g)";
+                auto.Reason = $"Completed {target.Name} ({summary}) for {auto.TotalGoldSpent}g.";
+            }
+            else
+            {
+                auto.ActionLabel = $"Buy {summary} ({auto.TotalGoldSpent}g)";
+                auto.Reason = $"Bought components: {summary} ({auto.TotalGoldSpent}g; {auto.FinalRemainingCost}g left for {target.Name}).";
+            }
+            return auto;
+        }
+
+        private static void CollectUnownedCandidates(RecipeTreeNode node, List<RecipeTreeNode> list)
+        {
+            if (node == null) return;
+            if (node.Depth >= 1 && !node.IsSatisfied)
+            {
+                list.Add(node);
+            }
+            for (int i = 0; i < node.Children.Count; i++)
+            {
+                CollectUnownedCandidates(node.Children[i], list);
+            }
+        }
+
+        private static bool ApplySimulatedPurchase(PurchasePlan plan, int[] working, ref int gold)
+        {
+            if (plan == null || !plan.CanPurchase || gold < plan.RemainingCost) return false;
+            int targetSlot = -1;
+            if (plan.ConsumedSlots.Count > 0)
+            {
+                targetSlot = plan.ConsumedSlots[0];
+                for (int c = 0; c < plan.ConsumedSlots.Count; c++)
+                {
+                    working[plan.ConsumedSlots[c]] = 0;
+                }
+            }
+            else
+            {
+                for (int i = 0; i < working.Length; i++)
+                {
+                    if (working[i] == 0)
+                    {
+                        targetSlot = i;
+                        break;
+                    }
+                }
+            }
+            if (targetSlot < 0) return false;
+            working[targetSlot] = plan.TargetItem.Id;
+            gold -= plan.RemainingCost;
+            return true;
+        }
+
+        private static string SummarizeSteps(List<string> names)
+        {
+            if (names == null || names.Count == 0) return string.Empty;
+            var counts = new Dictionary<string, int>();
+            var order = new List<string>();
+            for (int i = 0; i < names.Count; i++)
+            {
+                string n = names[i];
+                if (!counts.ContainsKey(n))
+                {
+                    counts[n] = 0;
+                    order.Add(n);
+                }
+                counts[n]++;
+            }
+            var parts = new List<string>(order.Count);
+            for (int i = 0; i < order.Count; i++)
+            {
+                string n = order[i];
+                parts.Add(counts[n] > 1 ? $"{counts[n]}× {n}" : n);
+            }
+            return parts.Count <= 2 ? string.Join(" + ", parts) : $"{names.Count} components";
         }
 
         private static void ConsumeRecipeIngredient(

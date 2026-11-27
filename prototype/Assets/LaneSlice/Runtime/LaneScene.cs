@@ -272,6 +272,17 @@ namespace Moba.LaneSlice
             });
         }
 
+        public void SendLocalBuyItemSmart(int itemId)
+        {
+            if (mode == SessionMode.Lobby) return;
+            IssueLocalOrder(new LaneOrder
+            {
+                team = localTeam,
+                kind = LaneOrderKind.BuyItemSmart,
+                param = itemId,
+            });
+        }
+
         public void SendLocalSellItem(int slotIndex)
         {
             if (mode == SessionMode.Lobby) return;

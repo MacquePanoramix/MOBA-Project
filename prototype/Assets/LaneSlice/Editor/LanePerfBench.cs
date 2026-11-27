@@ -53,6 +53,8 @@ namespace Moba.LaneSlice
             samples.Add(MeasureAbilitySwitching(tuning, switches: 12));
             samples.Add(MeasureSliderDragging(tuning, drags: 30));
             samples.Add(MeasureExtendedSession(tuning, frames: 300));
+            samples.Add(MeasureCompendiumSwitching(tuning, switches: 16));
+            samples.Add(MeasureCompendiumOpenClose(tuning, cycles: 20));
 
             var sb = new StringBuilder();
             sb.AppendLine($"=== ULTIMATE FREE MOBA PREVIEW PERF BENCH ({LaneUpdater.BuildVersion}, EditorBatchmode={Application.isBatchMode}) ===");
@@ -253,6 +255,58 @@ namespace Moba.LaneSlice
                     else if (i % 75 == 37) preview.Select(LaneHeroId.Miravel, LaneAbilitySlot.R, 0);
                     preview.Tick(1f / 30f, shouldRun: true);
                     SimulateOnGuiHeroGuidePass(guideCache, preview.SelectedHero, preview.SelectedSlot, tuning, preview.Overrides, guiPasses: 2);
+                });
+            }
+        }
+
+        private static BenchSample MeasureCompendiumSwitching(LaneTuning tuning, int switches)
+        {
+            var items = new[]
+            {
+                (LaneItemIds.BananaBlade, 0),
+                (LaneItemIds.BananaBlade, 1),
+                (LaneItemIds.BananaBlade, 2),
+                (LaneItemIds.BananaBlade, 3),
+                (LaneItemIds.GiantsHeart, 0),
+                (LaneItemIds.GiantsHeart, 1),
+                (LaneItemIds.GiantsHeart, 2),
+                (LaneItemIds.DraconicBlade, 0),
+                (LaneItemIds.DraconicBlade, 1),
+                (LaneItemIds.DraconicBlade, 2),
+                (LaneItemIds.CowardsShield, 0),
+                (LaneItemIds.ExecutionersAxe, 0),
+                (LaneItemIds.ChaliceOfLife, 0),
+                (LaneItemIds.AstralReservoir, 0),
+                (LaneItemIds.TidecallerChalice, 0),
+                (LaneItemIds.ColossusPauldron, 0),
+            };
+            using (var preview = new LaneAbilityPreview(tuning, enableRenderVisuals: true))
+            {
+                preview.Tick(1f / 60f, shouldRun: true);
+                return RunTimedLoop("7_CompendiumItemSwitching", switches, "16 item/passive switches + tree build", i =>
+                {
+                    var it = items[i % items.Length];
+                    preview.SelectItemPassive(it.Item1, it.Item2, 0);
+                    preview.Tick(1f / 60f, shouldRun: true);
+                    LaneItems.BuildRecipeTree(it.Item1, null, 0);
+                    LaneAbilityPreview.GetRelevantItemSliders(it.Item1, it.Item2);
+                });
+            }
+        }
+
+        private static BenchSample MeasureCompendiumOpenClose(LaneTuning tuning, int cycles)
+        {
+            using (var preview = new LaneAbilityPreview(tuning, enableRenderVisuals: true))
+            {
+                preview.SelectItemPassive(LaneItemIds.GiantsHeart, 0, 0);
+                preview.Tick(1f / 60f, shouldRun: true);
+                return RunTimedLoop("8_CompendiumOpenClose", cycles, "Open->Tick(3)->Close lifecycle cycles", i =>
+                {
+                    preview.SelectItemPassive(i % 2 == 0 ? LaneItemIds.BananaBlade : LaneItemIds.GiantsHeart, 0, 0);
+                    preview.Tick(1f / 30f, shouldRun: true);
+                    preview.Tick(1f / 30f, shouldRun: true);
+                    preview.Deactivate();
+                    preview.Tick(1f / 30f, shouldRun: false);
                 });
             }
         }

@@ -1,6 +1,6 @@
-# Independent Design & Implementation Review Guide (`v0.2.8 → v0.3.0`)
+# Independent Design & Implementation Review Guide (`v0.2.8 → v0.3.1`)
 
-This document was prepared for **independent architectural and game-design review** (including ChatGPT's external review of the synchronized GitHub repository `MacquePanoramix/MOBA-Project`). It maps the live source code and explicitly separates **designer-approved rules & scaling relationships** from **provisional prototype formulas, items, and balancing defaults** created for **Ultimate Free MOBA (`Woodland Lane`)**. See [`docs/11_ITEMS_AND_RESOURCES.md`](11_ITEMS_AND_RESOURCES.md) for the complete **`v0.3.0`** Mana resource system, recipe-based 44-item catalogue, and Part 13 edge-case decisions.
+This document was prepared for **independent architectural and game-design review** (including ChatGPT's external review of the synchronized GitHub repository `MacquePanoramix/MOBA-Project`). It maps the live source code and explicitly separates **designer-approved rules & scaling relationships** from **provisional prototype formulas, items, and balancing defaults** created for **Ultimate Free MOBA (`Woodland Lane`)**. See [`docs/11_ITEMS_AND_RESOURCES.md`](11_ITEMS_AND_RESOURCES.md) for the complete **`v0.3.0–v0.3.1`** Mana resource system, recipe-based 44-item catalogue, automatic component purchasing policy, UX design rationale, and Part 13 edge-case decisions.
 
 > [!IMPORTANT]
 > Numerical values, ability scaling formulas, and most shop items listed as **Provisional** below have **not** yet been approved as final game design by Luís. Preserve that boundary when reviewing or suggesting changes.
@@ -11,25 +11,27 @@ This document was prepared for **independent architectural and game-design revie
 
 | Concern | Primary Source File(s) |
 | --- | --- |
-| Enums, `ScalingCurve`, `StatFormula`, `ResourceCostMode`, `LaneTuning` (`v0.3.0`), Snapshots | `prototype/Assets/LaneSlice/Runtime/LaneTypes.cs` |
-| **44-item Catalog, duplicate-aware `ResolvePurchase` recipes, passive normalization, legacy ID migration (`19→0`)** | `prototype/Assets/LaneSlice/Runtime/LaneItems.cs` |
-| Collision pushout sweep safety (up to `160` steps for extreme knockback) | `prototype/Assets/LaneSlice/Runtime/LaneMap.cs` |
-| Core 30 Hz authoritative sim, RCR & Flat/Continuous Mana deduction, `AncientVitality`/`Heat`/`AdaptiveScales`/`CrescentStrike` hooks | `prototype/Assets/LaneSlice/Runtime/LaneMatch.cs` |
+| Enums (`BuyItemSmart`), `ScalingCurve`, `StatFormula`, `ResourceCostMode`, `LaneTuning` (`v0.3.0`), Snapshots | `prototype/Assets/LaneSlice/Runtime/LaneTypes.cs` |
+| **44-item Catalog, duplicate-aware `ResolvePurchase`, `BuildRecipeTree`, `ResolveAutoPurchase`, passive normalization, legacy ID migration (`19→0`)** | `prototype/Assets/LaneSlice/Runtime/LaneItems.cs` |
+| **`64x64` procedural item icon textures (`Banana Blade` curved steel crescent sword, 44 unique icons)** | `prototype/Assets/LaneSlice/Runtime/LaneItemIcons.cs` |
+| **Shared Shop/Compendium multi-token search, `15`-stat direct filter, non-restrictive grouping** | `prototype/Assets/LaneSlice/Runtime/LaneItemCatalogQuery.cs` |
+| Collision pushout sweep safety (`LaneMap`, reused cleanly by `LaneMatch` & `HeroGuideCache`) | `prototype/Assets/LaneSlice/Runtime/LaneMap.cs` |
+| Core 30 Hz authoritative sim, `TryBuyItemSmart`, preview triggers (`GrantPreviewItem`, etc.), combat & item hooks | `prototype/Assets/LaneSlice/Runtime/LaneMatch.cs` |
 | Hero stat recalculation, Global AS curve, `Wellspring`/`AstralSurge`/`DewSip`/`TidecallerFlow`, `FlightReflex`, Ogre/Miravel/Swordsman | `prototype/Assets/LaneSlice/Runtime/LaneHeroes.cs` |
 | Chain Laser Shooter passive chains, INT Q speed & W radius, Weightlessness W slow, animated E step-back & decoy blocking, R procs | `prototype/Assets/LaneSlice/Runtime/LaneHeroLaser.cs` |
 | Periodic creep waves, outer towers, Miravel Q orbs & R zones, `LingeringRestoration` / `BananaCrescent` combat hooks | `prototype/Assets/LaneSlice/Runtime/LaneMinionsAndTowers.cs` |
-| **Isolated Hero Guide RenderTexture Ability Demo sandbox (`y = -260`, live sliders, loop reset, off when closed)** | `prototype/Assets/LaneSlice/Runtime/LaneAbilityPreview.cs` |
+| **Shared `30 Hz` (`0 Hz` idle) `384x224` Forward preview sandbox + `28` Item Compendium passive demos** | `prototype/Assets/LaneSlice/Runtime/LaneAbilityPreview.cs`, `LaneAbilityPreview.ItemDemos.cs` |
 | Hero-specific control profiles, context-aware command catalog (`Global`, `ConventionalMoba`, `RtsMultiUnit`, future `FlightSteering` / `TwinStick`) | `prototype/Assets/LaneSlice/Runtime/LaneControls.cs` |
 | Extensible personal preferences & keybinding store (`personal_settings.json`, incl. `enableAbilityDemos`), conflict resolution | `prototype/Assets/LaneSlice/Runtime/LaneSettings.cs` |
 | RTS multi-unit selection, drag-box query, ownership filtering & control groups `1..4` | `prototype/Assets/LaneSlice/Runtime/LaneRtsSelection.cs` |
-| Scene lifecycle, Unity Relay / TCP wiring, input routing & marquee selection | `prototype/Assets/LaneSlice/Runtime/LaneScene.cs` |
-| Light/heavy Swordsman 3D blades, Banana Crescent ribbon arc, amber deferred damage / Heat / Scales HUD feedback | `prototype/Assets/LaneSlice/Runtime/LaneWorld*.cs` |
-| IMGUI lobby, HUD, two-pane Recipe Shop drawer, Hero Guide viewer (`Show Math` + demos), Settings UI | `prototype/Assets/LaneSlice/Runtime/LaneHud.cs`, `LaneHud.Settings.cs` |
-| Accessible & interactive Hero Guide builder (Mana/Resourceless, scaling rows, explicit `[Show Math]` formulas) | `prototype/Assets/LaneSlice/Runtime/LaneHeroSheet.cs` |
+| Scene lifecycle, Unity Relay / TCP wiring, `BuyItemSmart`, `IsTextInputFocused` hotkey guard, windowed bench/UI shots | `prototype/Assets/LaneSlice/Runtime/LaneScene.cs` |
+| Cached `HeroRigMeshSet` + pooled `TransientBurst`/`TransientBeam` + Light/heavy Swordsman blades + Banana Crescent ribbon arc + amber deferred damage / shield bars | `prototype/Assets/LaneSlice/Runtime/LaneWorld*.cs` |
+| **Shared IMGUI helpers, Recipe Tree graph renderer (`1/2`/`×2`), Redesigned Fountain Shop (`64x64` icons + `15` filters), `Item Compendium (44)`, Settings & Hero Guide HUD** | `prototype/Assets/LaneSlice/Runtime/LaneHud.cs`, `LaneHud.Shop.cs`, `LaneHud.Encyclopedia.cs`, `LaneHud.Settings.cs`, `LaneUiCommon.cs` |
+| Cached Hero Guide builder (`HeroGuideCache`, Mana/Resourceless, scaling rows, explicit `[Show Math]` formulas) | `prototype/Assets/LaneSlice/Runtime/LaneHeroSheet.cs` |
 | Unity Transport + Relay (`MOBA-LANE/1` codec) + Direct TCP fallback | `prototype/Assets/LaneSlice/Runtime/LaneNet.cs` |
 | GitHub static-manifest Windows updater (`latest.json`, rate-limit cooldown, SHA-256 + `ZipArchive` check, rollback recovery, browser fallback) | `prototype/Assets/LaneSlice/Runtime/LaneUpdater.cs` |
 | Sparring Bot AI with leaf-first recursive recipe stepping via `ResolvePurchase` | `prototype/Assets/LaneSlice/Runtime/LaneBot.cs` |
-| Automated unit/resource/item/stress/preview/net checks & Windows build script | `prototype/Assets/LaneSlice/Editor/LaneMatchChecks.cs`, `LaneResourceAndItemChecks.cs`, `LaneNetChecks.cs`, `LaneEditor.cs` |
+| **Automated unit/resource/item/UX/perf/net checks, preview micro-benchmark (`LanePerfBench`), & Windows build script** | `prototype/Assets/LaneSlice/Editor/LaneMatchChecks.cs`, `LaneResourceAndItemChecks.cs`, `LanePerfAndUxChecks.cs`, `LanePerfBench.cs`, `LaneNetChecks.cs`, `LaneEditor.cs` |
 | **Reusable automated balancing & stress-test harness (`balance_report_v030.txt`)** | `prototype/Assets/LaneSlice/Editor/LaneBalanceHarness.cs` |
 
 ---

@@ -945,9 +945,9 @@ namespace Moba.LaneSlice
 
         private static void CheckSettingsSurviveSimulatedUpdate()
         {
-            if (LaneUpdater.BuildVersion != "v0.3.0")
+            if (LaneUpdater.BuildVersion != "v0.3.1")
             {
-                throw new InvalidOperationException($"Expected BuildVersion v0.3.0, got {LaneUpdater.BuildVersion}");
+                throw new InvalidOperationException($"Expected BuildVersion v0.3.1, got {LaneUpdater.BuildVersion}");
             }
             var updaterCfg = new LaneUpdater.UpdaterConfig();
             if (updaterCfg.assetName != "WoodlandLane-Windows.zip")

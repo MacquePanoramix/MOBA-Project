@@ -567,6 +567,8 @@ namespace Moba.LaneSlice
         public void DrawOverlayBars(Rect texRect, GUIStyle barTextStyle)
         {
             if (!enableRenderVisuals || previewCam == null || latestSnap == null) return;
+            float firstHeroScreenX = -9999f;
+            float firstHeroScreenY = -9999f;
             for (int i = 0; i < latestSnap.heroes.Count; i++)
             {
                 HeroSnap h = latestSnap.heroes[i];
@@ -622,7 +624,19 @@ namespace Moba.LaneSlice
                 if (h.slowTimer > 0f) tag += $" [-{Mathf.RoundToInt(h.slowAmount * 100f)}%]";
                 else if (h.cowardShieldBonus >= 1f) tag += $" [FLIGHT +{Mathf.RoundToInt(h.cowardShieldBonus)}]";
                 else if (h.slipperyBonus >= 0.05f) tag += $" [+{h.slipperyBonus:0.0} MS]";
-                GUI.Label(new Rect(sx - 66f, sy - 15f, 132f, 14f), $"<color=#e8eff7>{tag}</color>", barTextStyle);
+
+                float tagY = sy - 15f;
+                if (i == 0)
+                {
+                    firstHeroScreenX = sx;
+                    firstHeroScreenY = tagY;
+                }
+                else if (Mathf.Abs(sx - firstHeroScreenX) < 88f && Mathf.Abs(tagY - firstHeroScreenY) < 16f)
+                {
+                    tagY -= 14f;
+                }
+                float tagX = Mathf.Clamp(sx - 66f, texRect.x + 2f, texRect.xMax - 134f);
+                GUI.Label(new Rect(tagX, tagY, 132f, 14f), $"<color=#e8eff7>{tag}</color>", barTextStyle);
             }
 
             for (int i = 0; i < latestSnap.minions.Count; i++)

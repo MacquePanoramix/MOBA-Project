@@ -1087,6 +1087,54 @@ namespace Moba.LaneSlice
             hud.BenchSelectPreviewSlot(LaneHeroId.Miravel, LaneAbilitySlot.R, 0);
             yield return MeasurePhase("5_Match_GuideOpen_DemosON", 15, 90, null);
 
+            // 6. Item Compendium Open, Demos ON + Passive Tab Switching + Sliders
+            hud.HeroSheetOpen = false;
+            hud.ShopOpen = false;
+            hud.OpenItemCompendium(LaneItemIds.BananaBlade);
+            var itemPasses = new[]
+            {
+                (LaneItemIds.BananaBlade, 0),
+                (LaneItemIds.BananaBlade, 1),
+                (LaneItemIds.GiantsHeart, 0),
+                (LaneItemIds.GiantsHeart, 1),
+                (LaneItemIds.DraconicBlade, 0),
+                (LaneItemIds.DraconicBlade, 1),
+            };
+            yield return MeasurePhase("6_Compendium_DemosON", 15, 90, f =>
+            {
+                if (f >= 0 && f % 15 == 14)
+                {
+                    var next = itemPasses[(f / 15) % itemPasses.Length];
+                    hud.BenchSelectCompendiumItem(next.Item1, next.Item2);
+                }
+                else if (f >= 0 && f % 6 == 3 && abilityPreview != null)
+                {
+                    PreviewStatOverrides ov = abilityPreview.Overrides;
+                    ov.bonusAgility = (f * 3f) % 140f;
+                    ov.bonusMaxHp = (f * 30f) % 1200f;
+                    abilityPreview.ApplyLiveOverrides(ov);
+                }
+            });
+
+            // 7. Compendium Open/Close Cycle Stability (verifies 0 leaks)
+            yield return MeasurePhase("7_Compendium_OpenCloseCycle", 10, 60, f =>
+            {
+                if (f >= 0 && f % 10 == 0)
+                {
+                    if (hud.ItemCompendiumOpen)
+                    {
+                        hud.ItemCompendiumOpen = false;
+                        abilityPreview?.Deactivate();
+                    }
+                    else
+                    {
+                        hud.OpenItemCompendium(LaneItemIds.GiantsHeart);
+                    }
+                }
+            });
+            hud.ItemCompendiumOpen = false;
+            abilityPreview?.Deactivate();
+
             if (settingsStore != null) settingsStore.Data.enableAbilityDemos = origDemos;
             mainThreadRec.Dispose();
             gcAllocRec.Dispose();
@@ -1102,13 +1150,61 @@ namespace Moba.LaneSlice
 
         private IEnumerator RunUiShotsRoutine(string outDir)
         {
-            // Expanded in Stage C-F; capture baseline Lobby & Hero Guide if invoked
             if (!Directory.Exists(outDir)) Directory.CreateDirectory(outDir);
-            yield return new WaitForSeconds(0.4f);
-            hud.OpenHeroSheet(LaneHeroId.Ogre);
-            yield return new WaitForSeconds(0.6f);
+            if (settingsStore != null) settingsStore.Data.enableAbilityDemos = true;
+
+            // 1. Main Lobby showing Item Compendium CTA
+            hud.ShopOpen = false;
+            hud.HeroSheetOpen = false;
+            hud.ItemCompendiumOpen = false;
+            yield return new WaitForSeconds(0.35f);
             yield return new WaitForEndOfFrame();
-            CaptureScreenPng(Path.Combine(outDir, "hero_guide.png"));
+            CaptureScreenPng(Path.Combine(outDir, "01_lobby.png"));
+
+            // 2. Match Shop with Interactive Recipe Tree (partial ownership + duplicate copy count + auto-buy CTA)
+            StartPractice();
+            yield return null;
+            if (match != null)
+            {
+                match.SetHeroGoldForTest(localTeam, 900);
+                match.TryBuyItem(localTeam, LaneItemIds.LifeCrystal, out _);
+                match.TryBuyItem(localTeam, LaneItemIds.Titanstone, out _);
+                match.SetHeroGoldForTest(localTeam, 600);
+                ApplyLocalSnapshot(match.Snapshot());
+            }
+            hud.ShopOpen = true;
+            hud.BenchSelectShopItem(LaneItemIds.GiantsHeart, ItemBrowseTab.All, ItemStatFilter.None, "");
+            yield return new WaitForSeconds(0.25f);
+            yield return new WaitForEndOfFrame();
+            CaptureScreenPng(Path.Combine(outDir, "02_shop_recipe_tree.png"));
+
+            // 3. Shop Filtered Advanced Grid inspecting Banana Blade
+            hud.BenchSelectShopItem(LaneItemIds.BananaBlade, ItemBrowseTab.Advanced, ItemStatFilter.None, "");
+            yield return new WaitForSeconds(0.25f);
+            yield return new WaitForEndOfFrame();
+            CaptureScreenPng(Path.Combine(outDir, "03_shop_filtered_grid.png"));
+
+            // 4. Item Compendium — Banana Blade (Crescent Strike demo + 4 passive tabs + AD/AGI/INT sliders)
+            hud.ShopOpen = false;
+            hud.OpenItemCompendium(LaneItemIds.BananaBlade);
+            yield return new WaitForSeconds(0.70f);
+            yield return new WaitForEndOfFrame();
+            CaptureScreenPng(Path.Combine(outDir, "04_compendium_banana_blade.png"));
+
+            // 5. Item Compendium — The Giant's Heart (Ancient Vitality amber deferred-damage HP bar + direct stats vs passives)
+            hud.BenchSelectCompendiumItem(LaneItemIds.GiantsHeart, 0);
+            yield return new WaitForSeconds(0.75f);
+            yield return new WaitForEndOfFrame();
+            CaptureScreenPng(Path.Combine(outDir, "05_compendium_giants_heart.png"));
+
+            // 6. Hero Guide — Chain Laser Overdrive Prism Beam preview
+            hud.ItemCompendiumOpen = false;
+            hud.OpenHeroSheet(LaneHeroId.LaserShooter);
+            hud.BenchSelectPreviewSlot(LaneHeroId.LaserShooter, LaneAbilitySlot.R, 0);
+            yield return new WaitForSeconds(0.95f);
+            yield return new WaitForEndOfFrame();
+            CaptureScreenPng(Path.Combine(outDir, "06_hero_guide.png"));
+
             Application.Quit(0);
         }
 

@@ -149,7 +149,7 @@ namespace Moba.LaneSlice
 
             // ---- LEFT COLUMN: CATEGORIES + 15-STAT FILTERS + CATALOG LIST ----
             GUILayout.BeginVertical(cardBoxStyle, GUILayout.Width(listW), GUILayout.Height(bodyH));
-            DrawCompendiumBrowser(listW - 22f);
+            DrawCompendiumBrowser(listW - 42f);
             GUILayout.EndVertical();
 
             GUILayout.Space(colGap);
@@ -162,7 +162,7 @@ namespace Moba.LaneSlice
                 selectedCompendiumItemId = sel.Id;
                 SyncCompendiumPreviewSelection();
             }
-            DrawCompendiumItemPage(sel, midW - 24f);
+            DrawCompendiumItemPage(sel, midW - 44f);
             GUILayout.EndVertical();
 
             GUILayout.Space(colGap);
@@ -266,9 +266,9 @@ namespace Moba.LaneSlice
                     bool isSel = item.Id == selectedCompendiumItemId;
 
                     GUI.backgroundColor = isSel ? new Color(0.28f, 0.48f, 0.68f) : new Color(0.84f, 0.88f, 0.92f);
-                    GUILayout.BeginHorizontal(sheetFactPillStyle, GUILayout.Height(36f));
+                    GUILayout.BeginHorizontal(sheetFactPillStyle, GUILayout.Width(colW), GUILayout.Height(42f));
                     GUI.backgroundColor = Color.white;
-                    if (GUILayout.Button(LaneItemIcons.GetIcon(item.Id), GUILayout.Width(28f), GUILayout.Height(28f)))
+                    if (GUILayout.Button(LaneItemIcons.GetIcon(item.Id), GUILayout.Width(30f), GUILayout.Height(34f)))
                     {
                         SelectCompendiumItem(item.Id);
                     }
@@ -276,7 +276,7 @@ namespace Moba.LaneSlice
                     string passiveBadge = (item.Passives != null && item.Passives.Length > 0)
                         ? $" <color={LaneHeroSheet.ColCc}>•{item.Passives.Length}P</color>"
                         : "";
-                    if (GUILayout.Button($"<b>{item.Name}</b>{tag}\n<color=#ffdf5c>{item.Cost}g</color>{passiveBadge}", sheetSectionStyle, GUILayout.Height(28f)))
+                    if (GUILayout.Button($"<b>{item.Name}</b>{tag}\n<color=#ffdf5c>{item.Cost}g</color>{passiveBadge}", compactRowLabelStyle, GUILayout.Width(Mathf.Max(140f, colW - 44f)), GUILayout.Height(34f)))
                     {
                         SelectCompendiumItem(item.Id);
                     }
@@ -307,6 +307,7 @@ namespace Moba.LaneSlice
         private void DrawCompendiumItemPage(LaneItemDef sel, float pageW)
         {
             compendiumDetailScroll = GUILayout.BeginScrollView(compendiumDetailScroll);
+            GUILayout.BeginVertical(GUILayout.Width(pageW));
 
             // Header
             GUILayout.BeginHorizontal();
@@ -361,29 +362,34 @@ namespace Moba.LaneSlice
                 }
             }
 
-            // Potential Upgrade Destinations
+            // Potential Upgrade Destinations (wrapped cleanly)
             List<LaneItemDef> upgrades = LaneItems.GetUpgradesInto(sel.Id);
             if (upgrades.Count > 0)
             {
                 GUILayout.Space(6f);
                 GUILayout.Label("<b>Builds Into:</b>", sheetTextStyle);
-                GUILayout.BeginHorizontal();
-                for (int u = 0; u < upgrades.Count; u++)
+                float chipW = Mathf.Floor((pageW - 8f) / 3f);
+                for (int rowStart = 0; rowStart < upgrades.Count; rowStart += 3)
                 {
-                    LaneItemDef up = upgrades[u];
-                    GUILayout.BeginHorizontal(sheetFactPillStyle, GUILayout.MaxWidth(160f));
-                    if (GUILayout.Button(LaneItemIcons.GetIcon(up.Id), GUILayout.Width(24f), GUILayout.Height(24f)))
+                    GUILayout.BeginHorizontal();
+                    for (int u = rowStart; u < Mathf.Min(upgrades.Count, rowStart + 3); u++)
                     {
-                        SelectCompendiumItem(up.Id);
+                        LaneItemDef up = upgrades[u];
+                        GUILayout.BeginHorizontal(sheetFactPillStyle, GUILayout.Width(chipW), GUILayout.Height(34f));
+                        if (GUILayout.Button(LaneItemIcons.GetIcon(up.Id), GUILayout.Width(24f), GUILayout.Height(26f)))
+                        {
+                            SelectCompendiumItem(up.Id);
+                        }
+                        string un = up.Name.Length > 15 ? up.Name.Substring(0, 14) + "…" : up.Name;
+                        if (GUILayout.Button($"<b>{un}</b>\n<color=#ffdf5c>{up.Cost}g</color>", compactRowLabelStyle, GUILayout.Height(26f)))
+                        {
+                            SelectCompendiumItem(up.Id);
+                        }
+                        GUILayout.EndHorizontal();
                     }
-                    if (GUILayout.Button($"<b>{up.Name}</b>\n<color=#ffdf5c>{up.Cost}g</color>", sheetSectionStyle))
-                    {
-                        SelectCompendiumItem(up.Id);
-                    }
+                    GUILayout.FlexibleSpace();
                     GUILayout.EndHorizontal();
                 }
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
             }
 
             // Named Passives & Interactive Passive Selector
@@ -444,6 +450,7 @@ namespace Moba.LaneSlice
                 GUILayout.EndVertical();
             }
 
+            GUILayout.EndVertical();
             GUILayout.EndScrollView();
         }
 

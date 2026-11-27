@@ -430,10 +430,29 @@ namespace Moba.LaneSlice
             var iconR = new Rect(r.x + 5f, r.y + (r.height - iconSz) * 0.5f, iconSz, iconSz);
             GUI.DrawTexture(iconR, LaneItemIcons.GetIcon(node.Item.Id), ScaleMode.ScaleToFit);
 
+            // Top-right corner quantity / check pill (compute before name truncation so text never collides)
+            string corner = null;
+            Color cornerBg = new Color(0.08f, 0.11f, 0.14f, 0.92f);
+            if (!isRoot && node.RequiredQuantity > 1)
+            {
+                corner = shopMode ? $"{node.OwnedDirectCount}/{node.RequiredQuantity}" : $"×{node.RequiredQuantity}";
+                cornerBg = node.OwnedDirectCount >= node.RequiredQuantity
+                    ? new Color(0.14f, 0.56f, 0.30f, 0.95f)
+                    : new Color(0.24f, 0.28f, 0.34f, 0.95f);
+            }
+            else if (shopMode && node.IsSatisfied)
+            {
+                corner = "✓";
+                cornerBg = new Color(0.14f, 0.56f, 0.30f, 0.95f);
+            }
+            float cw = !string.IsNullOrEmpty(corner) ? (corner.Length > 2 ? 26f : 18f) : 0f;
+
             float textX = iconR.xMax + 5f;
-            float textW = Mathf.Max(20f, r.xMax - textX - 4f);
-            string shortName = AbbreviateNodeName(node.Item.Name, r.width < 100f ? 13 : 17);
-            GUI.Label(new Rect(textX, r.y + 4f, textW, 20f), $"<b>{shortName}</b>", cachedNodeNameStyle);
+            float nameW = Mathf.Max(20f, r.xMax - textX - 4f - (cw > 0f ? cw + 2f : 0f));
+            float metaW = Mathf.Max(20f, r.xMax - textX - 4f);
+            int maxNameChars = nameW < 62f ? 10 : (nameW < 78f ? 13 : 17);
+            string shortName = AbbreviateNodeName(node.Item.Name, maxNameChars);
+            GUI.Label(new Rect(textX, r.y + 4f, nameW, 20f), $"<b>{shortName}</b>", cachedNodeNameStyle);
 
             string priceTxt;
             if (!shopMode)
@@ -455,26 +474,10 @@ namespace Moba.LaneSlice
                 string col = node.DirectCanPurchase ? "#ffdf5c" : "#a8b4c0";
                 priceTxt = $"<color={col}>{node.Item.Cost}g</color>";
             }
-            GUI.Label(new Rect(textX, r.y + 22f, textW, 18f), priceTxt, cachedNodeMetaStyle);
+            GUI.Label(new Rect(textX, r.y + 22f, metaW, 18f), priceTxt, cachedNodeMetaStyle);
 
-            // Top-right corner quantity / check pill
-            string corner = null;
-            Color cornerBg = new Color(0.08f, 0.11f, 0.14f, 0.92f);
-            if (!isRoot && node.RequiredQuantity > 1)
-            {
-                corner = shopMode ? $"{node.OwnedDirectCount}/{node.RequiredQuantity}" : $"×{node.RequiredQuantity}";
-                cornerBg = node.OwnedDirectCount >= node.RequiredQuantity
-                    ? new Color(0.14f, 0.56f, 0.30f, 0.95f)
-                    : new Color(0.24f, 0.28f, 0.34f, 0.95f);
-            }
-            else if (shopMode && node.IsSatisfied)
-            {
-                corner = "✓";
-                cornerBg = new Color(0.14f, 0.56f, 0.30f, 0.95f);
-            }
             if (!string.IsNullOrEmpty(corner))
             {
-                float cw = corner.Length > 2 ? 26f : 18f;
                 var cR = new Rect(r.xMax - cw - 2f, r.y + 2f, cw, 14f);
                 DrawRect(cR, cornerBg);
                 GUI.Label(cR, $"<b>{corner}</b>", cachedBadgeStyle);

@@ -37,6 +37,8 @@ namespace Moba.LaneSlice
         private GUIStyle cardBoxStyle;
         private GUIStyle cardHeaderStyle;
         private GUIStyle tooltipStyle;
+        private GUIStyle compactRowLabelStyle;
+        private GUIStyle compactBtnStyle;
         private bool showExactMath;
         private readonly HashSet<int> expandedMathCards = new HashSet<int>();
         private LaneAbilitySlot previewSlot = LaneAbilitySlot.Q;
@@ -978,7 +980,7 @@ namespace Moba.LaneSlice
                 LaneHeroId id = AllHeroOrder[hi];
                 bool active = inspectedHero == id;
                 GUI.backgroundColor = active ? new Color(0.32f, 0.76f, 0.52f) : new Color(0.75f, 0.80f, 0.88f);
-                if (GUILayout.Button(LaneNames.ShortName(id), GUILayout.Width(76f), GUILayout.Height(25f)))
+                if (GUILayout.Button(LaneNames.ShortName(id), GUILayout.Width(86f), GUILayout.Height(25f)))
                 {
                     inspectedHero = id;
                     heroSheetScroll = Vector2.zero;
@@ -1570,6 +1572,29 @@ namespace Moba.LaneSlice
                 };
                 tooltipStyle.normal.background = MakeSolidTex(new Color(0.06f, 0.08f, 0.11f, 0.98f));
                 tooltipStyle.normal.textColor = Color.white;
+            }
+            if (compactRowLabelStyle == null)
+            {
+                compactRowLabelStyle = new GUIStyle(GUI.skin.label)
+                {
+                    richText = true,
+                    wordWrap = false,
+                    fontSize = 11,
+                    alignment = TextAnchor.MiddleLeft,
+                    padding = new RectOffset(4, 2, 0, 0),
+                    margin = new RectOffset(0, 0, 0, 0),
+                };
+            }
+            if (compactBtnStyle == null)
+            {
+                compactBtnStyle = new GUIStyle(GUI.skin.button)
+                {
+                    richText = true,
+                    fontSize = 10,
+                    alignment = TextAnchor.MiddleCenter,
+                    padding = new RectOffset(4, 4, 1, 1),
+                    margin = new RectOffset(0, 0, 1, 0),
+                };
             }
         }
 

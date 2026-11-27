@@ -248,8 +248,8 @@ namespace Moba.LaneSlice
             else if (pName.StartsWith("Ancient Vitality"))
             {
                 loopDuration = 4.8f;
-                sim.ConfigurePreviewHero(LaneTeam.Blue, new Vector2(-1.4f, 0f), 90f);
-                redHeroId = sim.ConfigurePreviewHero(LaneTeam.Red, new Vector2(1.4f, 0f), 270f);
+                sim.ConfigurePreviewHero(LaneTeam.Blue, new Vector2(-2.2f, 0f), 90f);
+                redHeroId = sim.ConfigurePreviewHero(LaneTeam.Red, new Vector2(2.2f, 0f), 270f);
                 ScenarioCaption = "Ancient Vitality: incoming spikes split into immediate HP drop + amber staggered payout over Duration(STR).";
                 At(0.45f, () => sim.TriggerPreviewHeroDamage(LaneTeam.Red, LaneTeam.Blue, 360f, isMagic: false, isBasicHit: true));
                 At(2.40f, () => sim.TriggerPreviewHeroDamage(LaneTeam.Red, LaneTeam.Blue, 240f, isMagic: true, isBasicHit: false));

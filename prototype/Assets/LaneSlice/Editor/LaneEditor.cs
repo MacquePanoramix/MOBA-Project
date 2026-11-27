@@ -111,8 +111,9 @@ namespace Moba.LaneSlice
    - [F10] or Settings button: Personal Settings (Optional RTS Controls, Ability Video Previews toggle, customizable keybindings stored outside the install directory so updates never wipe them)
    - Optional RTS Controls (off by default on conventional heroes; always enabled for RTS-required heroes like future Kobold King):
        Left-Drag box selection, Shift-click/add, [F2] Hero, [F3] All Units, [Tab] Cycle, [Ctrl+1..4] Assign Group, [1..4] Recall (double-tap centers)
-   - [B]: Toggle Fountain Shop (44 recipe-based items across 21 Approved Components, 6 Approved Custom Advanced Items & 17 Provisional Starters/Components/Mana Capstones; 70% sell refund inside Fountain or while Respawning; expandable [Show Math] details)
-   - [C]: Toggle Interactive Hero Guide (accessible summary, scaling rows, explicit [Show Math] formulas, and isolated looping Ability Demo video previews with live stat sliders)
+   - [B]: Toggle Redesigned Fountain Shop (44 recipe-based items: searchable by name/stats/passives, 15 direct-stat filters, automatic affordable component purchasing, interactive clickable recipe build trees, direct stats separated from passives, 70% sell refund inside Fountain or while Respawning)
+   - [Item Compendium] (Lobby & Match Top Bar): Dedicated reference guide for all 44 items with progression trees, practical tips, expandable [Show Exact Math], interactive passive tabs, and live in-engine passive demonstrations sharing Hero Guide controls
+   - [C]: Toggle Interactive Hero Guide (optimized smooth ability previews, live stat sliders, expandable [Show Math] formulas)
    - [Y]: Toggle Locked / Free Camera (Arrow keys, screen-edge, or Middle-Mouse drag to pan; [Space] centers)
    - [F1]: Toggle controls overlay
    - Lane Economy: Last-hitting enemy minions awards Gold + CS; being alive within 12u of an enemy minion death awards full 100% XP even without last-hitting.

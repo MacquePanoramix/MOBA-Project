@@ -129,3 +129,27 @@ Designed around Part 9 principles (clear fantasies, reusing approved components,
 8. **`Weightlessness` Application Order:** Applied multiplicatively (`× 0.75`) to incoming slow strength in both `ApplySlowToHero` and Chain Laser `[W]` (`ApplyLaserWSlow`) while preserving full slow and stun durations.
 9. **Resource Changes on Buy/Sell, Death & Fountain:** Changing `MaxMana` preserves current Mana `%` ratio; death sets `netManaRegen = 0` and respawns at `100%`; Fountain grants `+48 Mana/s`.
 10. **`Frugal Focus` Timing:** Enforces full `EffectiveCost` before casting, ignores `ContinuousPerSecond` / `0`-cost skills, and refunds `12%` of actual Flat Mana spent immediately post-deduction (clamped to `MaxMana`).
+
+---
+
+## 7. `v0.3.1` Player Experience Additions *(No Gameplay or Balance Changes)*
+
+1. **Automatic Component Purchasing Policy (`LaneOrderKind.BuyItemSmart = 14`, `LaneItems.ResolveAutoPurchase`):**
+   - Server/host-authoritative deterministic planner executed inside `LaneMatch.TryBuyItemSmart` and synced cleanly over Unity Transport / Relay / TCP.
+   - **Rule 1 (Complete Immediately):** If `ResolvePurchase(target)` can buy/complete the target directly (considering current gold, owned component discounts, and 6-slot consolidation), completes the target in one step.
+   - **Rule 2 (Greedy Tree Stepping):** Otherwise iterates up to `12` greedy steps against missing nodes in `BuildRecipeTree(target)`, filtering out any candidate that fails **strict monotonic remaining-cost reduction** (`afterRemaining < prevRemaining` with `reduction >= stepCost`), and breaking ties cleanly by:
+     1. Upgrades that consume already-owned components (`ConsumedSlots.Count > 0`) for immediate **slot consolidation**;
+     2. Shallower intermediate items directly inside the target's recipe tree (`-node.Depth`);
+     3. Higher-cost direct ingredients (`node.Item.Cost`);
+     4. Catalog declaration order.
+   - Never purchases unrelated items, never auto-sells items, and **never creates recipe-scroll items** (`GetCombineCost` represents pure gold-to-complete shown inline as `+Ng` when ingredients are owned).
+2. **Interactive Recipe Trees (`LaneItems.BuildRecipeTree`, `LaneUiCommon.DrawInteractiveRecipeTree`):**
+   - Orthogonal `2px` connector trees color-coded across `Owned`, `PartialAffordable`, `PartialUnaffordable`, `MissingAffordable`, and `MissingUnaffordable`, with duplicate-copy corner pills (`1/2`, `×2`) and clickable **`Builds Into`** navigation across all `44` items.
+   - Strict separation between **Left Single-Click (Inspect/Select)** and **Right-Click / `0.35s` Double-Left-Click / CTA Button (`Buy` / `Buy Components`)**.
+3. **Redesigned Fountain Shop UX (`LaneHud.Shop.cs`, `LaneItemCatalogQuery.cs`, `LaneItemIcons.cs`):**
+   - Visual `64x64` procedurally generated icon grid covering all `44` items (original vector-style procedural textures with zero copyrighted assets; **`Banana Blade`** rendered as a curved metallic steel crescent sword rather than literal fruit).
+   - `6` navigation tabs (`All`, `Starters`, `Basic`, `Intermediate & Spec.`, `Advanced`, `Provisional`), all `15` direct-stat multi-filters (`AD`, `AS`, `HP`, `HP/s`, `Arm`, `MR`, `MS`, `Heal%`, `Haste`, `STR`, `AGI`, `INT`, `Mana`, `MP/s`, `RCR`) matching *directly granted* stats strictly (excluding passive conversions such as `Giant's Might` from `AD` filter results), multi-token search across Name, Fantasy, Summary, direct stat keywords, and Passives/Scaling arrows, grouping (`Starters`, `Basic Components`, `Intermediate & Specialized Components`, `Advanced Items`) with zero forced hero-role silos, separated Direct Stats vs. Passives + practical tips + collapsible `[Show Math]`, and a pinned 6-slot Inventory/Sell (`70%`) bar. Match hotkeys (`B`/`Q`/`W`/`E`/`R`/`S`/etc.) are blocked whenever `IsTextInputFocused` is true, with `Esc` blurring the search field cleanly.
+4. **Item Compendium & `28` Shared In-Engine Passive Demonstrations (`LaneHud.Encyclopedia.cs`, `LaneAbilityPreview.ItemDemos.cs`):**
+   - Dedicated 3-column Item Compendium accessible directly from the Main Lobby (`Item Compendium (44)`), In-Match Top Bar (`Compendium`), Hero Guide (`Items`), and Fountain Shop (`Compendium`) — never requiring a match to inspect items, recipes, math, or passives.
+   - Reuses Stage A's isolated `RenderTexture` (`384x224` Forward / no MSAA / no HDR, `30 Hz` render cap, `SetRootActive(false)` outside render pass, `0 Hz` when paused/closed or on pure-stat items) with preview-only helpers on `LaneMatch` (`GrantPreviewItem`, `ClearPreviewItems`, health/mana/idle/damage/slow/displacement/heal triggers) that never mutate live matches.
+   - Implements **`28`** scripted passive scenarios across all passive-bearing items (plus baseline comparison toggles for `Final Judgment`/`Wounded Strike`, `Fountain of Life`, `First Strike`, `Weightlessness`, and `Immovable Mountain`), displaying relevant scaling sliders only (`0` scaling sliders shown on fixed passives such as `Weightlessness`, `Wounded Strike`, `Lingering Restoration`, and `Primordial Vitality`).
